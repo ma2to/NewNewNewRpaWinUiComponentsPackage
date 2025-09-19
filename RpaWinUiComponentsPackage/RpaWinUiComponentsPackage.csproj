@@ -1,0 +1,142 @@
+<!-- RpaWinUiComponentsPackage/RpaWinUiComponentsPackage.csproj -->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- .NET 8.0 WinUI Class Library Configuration -->
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    
+    <!-- WinUI support v class library -->
+    <UseWinUI>true</UseWinUI>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <WindowsSdkPackageVersion>10.0.19041.41</WindowsSdkPackageVersion>
+    
+    <!-- Library settings -->
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    
+    <!-- XAML compilation pre class library -->
+    <EnableDefaultXamlItems>true</EnableDefaultXamlItems>
+    <EnableDefaultPageItems>false</EnableDefaultPageItems>
+    <UseWPF>false</UseWPF>
+    <UseWindowsForms>false</UseWindowsForms>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    
+    <!-- Package generation -->
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <IncludeBuildOutput>true</IncludeBuildOutput>
+    
+    <!-- Windows App SDK Self-Contained Support -->
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <UseRidGraph>true</UseRidGraph>
+    
+    <!-- Runtime identifiers for self-contained deployment -->
+    <RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
+    <!-- Default architecture for self-contained builds -->
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+
+    <!-- Package Information -->
+    <PackageId>RpaWinUiComponentsPackage</PackageId>
+    <Version>2.2.3</Version>
+    <Authors>RPA Team</Authors>
+    <Company>RPA Company</Company>
+    <Product>RPA WinUI Components Package</Product>
+    <Description>Professional WinUI3 Components Package: AdvancedDataGrid + LoggerComponent</Description>
+    <PackageTags>WinUI3;DataGrid;Logger;Components;Package;NET8</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReleaseNotes>v2.2.3: MAJOR UPDATE - Fixed all table functionality: cell borders, validation alerts column, add/delete/validate buttons, import dict/datatable, cell editing (double-click/Enter), comprehensive error logging</PackageReleaseNotes>
+
+    <!-- Assembly Information -->
+    <AssemblyTitle>RPA WinUI Components Package</AssemblyTitle>
+    <AssemblyDescription>Multi-component package for WinUI3 applications</AssemblyDescription>
+
+    <!-- Suppress warnings -->
+    <NoWarn>$(NoWarn);NU5128;NU5131;NETSDK1022;NU5048;MSB3270;MSB3271;MSB3277;NETSDK1152;CS1998;CS4014;CS0227;CS1570;CS1591;MSB4062</NoWarn>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <!-- Dependencies - Minimal as per newProject.md -->
+  <ItemGroup>
+    <!-- WinUI3 support with private assets -->
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.250907003" IncludeAssets="all" PrivateAssets="none" GeneratePathProperty="true" />
+    
+    <!-- Logging abstractions only -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.9" />
+    
+    <!-- Dependency injection -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.9" />
+    
+    <!-- ObjectPool for performance optimization -->
+    <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="9.0.9" />
+    
+    <!-- System dependencies -->
+    <PackageReference Include="System.ComponentModel.Annotations" Version="5.0.0" />
+    <PackageReference Include="System.Diagnostics.PerformanceCounter" Version="9.0.9" />
+    
+    <!-- Reactive programming for hybrid functional-OOP architecture -->
+    <PackageReference Include="System.Reactive" Version="6.0.2" />
+    <PackageReference Include="System.Reactive.Linq" Version="6.0.2" />
+    
+    <!-- Force newer version of vulnerable transitive dependency -->
+    <PackageReference Include="System.Threading.Tasks.Extensions" Version="4.6.3" />
+    
+    <!-- JSON support for data export -->
+    <PackageReference Include="System.Text.Json" Version="9.0.9" />
+    
+    <!-- Data support - keeping 4.3.0 as it's the only stable version available -->
+    <!-- System.Data.Common" Version="4.3.0" - vulnerable but only available version -->
+  </ItemGroup>
+
+  <!-- Ensure Windows App SDK runtime is included in applications that use this package -->
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)\build\**" Pack="true" PackagePath="build" />
+    <None Include="$(MSBuildThisFileDirectory)\buildTransitive\**" Pack="true" PackagePath="buildTransitive" />
+  </ItemGroup>
+
+
+  <!-- Copy Windows App SDK runtime files to output -->
+  <ItemGroup Condition="'$(WindowsAppSDKSelfContained)' == 'true'">
+    <None Include="$(PkgMicrosoft_WindowsAppSDK)\runtimes\win-x64\native\**" CopyToOutputDirectory="PreserveNewest" Pack="true" PackagePath="runtimes\win-x64\native\" />
+    <None Include="$(PkgMicrosoft_WindowsAppSDK)\lib\net6.0-windows10.0.17763.0\**" CopyToOutputDirectory="PreserveNewest" Pack="true" PackagePath="lib\net6.0-windows10.0.17763.0\" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="AdvancedWinUiLogger\API\**" />
+    <Compile Remove="AdvancedWinUiLogger\Interfaces\**" />
+    <Compile Remove="AdvancedWinUiLogger\Models\**" />
+    <Compile Remove="AdvancedWinUiLogger\Services\**" />
+    <Compile Remove="AdvancedWinUiLogger\Test\**" />
+    <EmbeddedResource Remove="AdvancedWinUiLogger\API\**" />
+    <EmbeddedResource Remove="AdvancedWinUiLogger\Interfaces\**" />
+    <EmbeddedResource Remove="AdvancedWinUiLogger\Models\**" />
+    <EmbeddedResource Remove="AdvancedWinUiLogger\Services\**" />
+    <EmbeddedResource Remove="AdvancedWinUiLogger\Test\**" />
+    <None Remove="AdvancedWinUiLogger\API\**" />
+    <None Remove="AdvancedWinUiLogger\Interfaces\**" />
+    <None Remove="AdvancedWinUiLogger\Models\**" />
+    <None Remove="AdvancedWinUiLogger\Services\**" />
+    <None Remove="AdvancedWinUiLogger\Test\**" />
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="AdvancedWinUiLogger\Documentation\" />
+  </ItemGroup>
+  <ItemGroup>
+    <PRIResource Remove="AdvancedWinUiLogger\Models\**" />
+  </ItemGroup>
+  <ItemGroup>
+    <PRIResource Remove="AdvancedWinUiLogger\Interfaces\**" />
+  </ItemGroup>
+  <ItemGroup>
+    <PRIResource Remove="AdvancedWinUiLogger\API\**" />
+  </ItemGroup>
+  <ItemGroup>
+    <PRIResource Remove="AdvancedWinUiLogger\Services\**" />
+  </ItemGroup>
+  <ItemGroup>
+    <PRIResource Remove="AdvancedWinUiLogger\Test\**" />
+  </ItemGroup>
+
+</Project>

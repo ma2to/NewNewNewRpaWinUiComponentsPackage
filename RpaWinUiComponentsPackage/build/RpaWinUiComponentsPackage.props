@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  
+  <!-- Automatic Windows App SDK Configuration for consuming applications -->
+  <PropertyGroup>
+    <!-- Ensure Windows App SDK is available -->
+    <UseWinUI Condition="'$(UseWinUI)' == ''">true</UseWinUI>
+    <WindowsAppSDKSelfContained Condition="'$(WindowsAppSDKSelfContained)' == ''">true</WindowsAppSDKSelfContained>
+    <EnableMsixTooling Condition="'$(EnableMsixTooling)' == ''">true</EnableMsixTooling>
+    
+    <!-- Ensure proper WinUI3 target framework -->
+    <TargetPlatformMinVersion Condition="'$(TargetPlatformMinVersion)' == ''">10.0.17763.0</TargetPlatformMinVersion>
+    
+    <!-- Enable unsafe blocks for WinUI components -->
+    <AllowUnsafeBlocks Condition="'$(AllowUnsafeBlocks)' == ''">true</AllowUnsafeBlocks>
+    
+    <!-- Runtime identifiers for consuming applications -->
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' AND '$(Platform)' == 'x86'">win-x86</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' AND '$(Platform)' == 'x64'">win-x64</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' AND '$(Platform)' == 'ARM64'">win-arm64</RuntimeIdentifier>
+    <UseRidGraph Condition="'$(UseRidGraph)' == ''">true</UseRidGraph>
+  </PropertyGroup>
+
+  <!-- Automatic Windows App SDK package reference -->
+  <ItemGroup Condition="'$(RpaWinUiComponentsPackageSkipWindowsAppSDK)' != 'true'">
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.250907003" 
+                      Condition="'$(UseWinUI)' == 'true'" />
+  </ItemGroup>
+
+  <!-- Logging abstractions (only if not already referenced) -->
+  <ItemGroup Condition="'$(RpaWinUiComponentsPackageSkipLogging)' != 'true'">
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.9" />
+  </ItemGroup>
+
+</Project>

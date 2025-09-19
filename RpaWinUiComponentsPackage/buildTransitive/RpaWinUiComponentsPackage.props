@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  
+  <!-- Transitive build settings for consuming applications -->
+  <PropertyGroup>
+    <!-- Ensure Windows App SDK is available with self-contained deployment -->
+    <UseWinUI Condition="'$(UseWinUI)' == ''">true</UseWinUI>
+    <WindowsAppSDKSelfContained Condition="'$(WindowsAppSDKSelfContained)' == ''">true</WindowsAppSDKSelfContained>
+    
+    <!-- Disable problematic tooling for self-contained apps -->
+    <EnableMsixTooling Condition="'$(EnableMsixTooling)' == ''">false</EnableMsixTooling>
+    <GenerateAppxPackageOnBuild Condition="'$(GenerateAppxPackageOnBuild)' == ''">false</GenerateAppxPackageOnBuild>
+    <GeneratePri Condition="'$(GeneratePri)' == ''">false</GeneratePri>
+    <CreatePriConfigXml Condition="'$(CreatePriConfigXml)' == ''">false</CreatePriConfigXml>
+    <UsePriGen Condition="'$(UsePriGen)' == ''">false</UsePriGen>
+    
+    <!-- Runtime identifier configuration -->
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' AND '$(Platform)' == 'x86'">win-x86</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' AND '$(Platform)' == 'x64'">win-x64</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' AND '$(Platform)' == 'ARM64'">win-arm64</RuntimeIdentifier>
+    <UseRidGraph Condition="'$(UseRidGraph)' == ''">true</UseRidGraph>
+    
+    <!-- Ensure proper target framework settings -->
+    <TargetPlatformMinVersion Condition="'$(TargetPlatformMinVersion)' == ''">10.0.17763.0</TargetPlatformMinVersion>
+    <AllowUnsafeBlocks Condition="'$(AllowUnsafeBlocks)' == ''">true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <!-- Automatic Windows App SDK package reference for self-contained deployment -->
+  <ItemGroup Condition="'$(RpaWinUiComponentsPackageSkipWindowsAppSDK)' != 'true'">
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.250907003" 
+                      Condition="'$(UseWinUI)' == 'true'" 
+                      IncludeAssets="all"
+                      GeneratePathProperty="true" />
+  </ItemGroup>
+
+  <!-- Logging abstractions (only if not already referenced) -->
+  <ItemGroup Condition="'$(RpaWinUiComponentsPackageSkipLogging)' != 'true'">
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.9" />
+  </ItemGroup>
+
+</Project>

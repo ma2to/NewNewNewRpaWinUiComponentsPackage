@@ -1,0 +1,84 @@
+﻿<!-- Demo Application - PACKAGE REFERENCE Testing -->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <UseWinUI>true</UseWinUI>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    
+    <!-- WinUI bootstrap configuration - aligned with package settings -->
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <EnableMsixTooling>false</EnableMsixTooling>
+    <GenerateAppxPackageOnBuild>false</GenerateAppxPackageOnBuild>
+    <GeneratePri>false</GeneratePri>
+    <CreatePriConfigXml>false</CreatePriConfigXml>
+    <UsePriGen>false</UsePriGen>
+    <EnableDefaultPriItems>false</EnableDefaultPriItems>
+    <EnableStaticWebAssets>false</EnableStaticWebAssets>
+    <SkipPriGen>true</SkipPriGen>
+    <MrtCoreSkip>true</MrtCoreSkip>
+    <DisablePriGeneration>true</DisablePriGeneration>
+    <SkipMrtCoreInitialization>true</SkipMrtCoreInitialization>
+    <EnableXamlGeneratedMain>false</EnableXamlGeneratedMain>
+    <UseMaui>false</UseMaui>
+    <UseMsixBundling>false</UseMsixBundling>
+    <UseRidGraph>true</UseRidGraph>
+    <WindowsPackageType>None</WindowsPackageType>
+    
+    <!-- Modernized PRI handling for WindowsAppSDK 1.8+ -->
+    <UseAppxBundle>false</UseAppxBundle>
+    <AppxBundle>Never</AppxBundle>
+    <EnableMrtCoreTargets>false</EnableMrtCoreTargets>
+    <GenerateLibraryLayout>true</GenerateLibraryLayout>
+    <WindowsAppSDKBootstrapInitialize>false</WindowsAppSDKBootstrapInitialize>
+    
+    <!-- Application properties -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x86;x64;ARM64</Platforms>
+    <RuntimeIdentifier Condition="'$(Platform)' == 'x86'">win-x86</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(Platform)' == 'x64'">win-x64</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(Platform)' == 'ARM64'">win-arm64</RuntimeIdentifier>
+    <!-- Fallback RID for self-contained deployment -->
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+  </PropertyGroup>
+
+  <!-- Override problematic PRI targets for WindowsAppSDK 1.8+ -->
+  <Target Name="ExpandPriContent" />
+  <Target Name="GeneratePriConfigXml" />
+  <Target Name="CreatePri" />
+  <Target Name="PackagePri" />
+  <Target Name="AddPriPayloadFilesToCopyToOutputDirectoryItems" />
+
+  <ItemGroup>
+    <!-- CRITICAL: Project reference for development testing -->
+    <!-- Testing latest modular structure with clean API -->
+    <!--<ProjectReference Include="..\RpaWinUiComponentsPackage\RpaWinUiComponentsPackage.csproj" />-->
+    
+    <!-- External logging implementation for testing -->
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.9" />
+    <PackageReference Include="RpaWinUiComponentsPackage" Version="2.2.3" />
+
+    
+    <!-- REMOVED: Package reference to avoid circular dependency -->
+    <!-- Using ProjectReference instead for development testing --> 
+    
+    <!-- Package reference with automatic dependencies -->
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Update="Microsoft.Extensions.Logging.Abstractions" Version="9.0.9" />
+    <PackageReference Update="Microsoft.WindowsAppSDK" Version="1.8.250907003" />
+  </ItemGroup>
+</Project>

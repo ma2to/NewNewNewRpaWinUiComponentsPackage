@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  
+  <!-- Post-build targets for consuming applications -->
+  <Target Name="RpaWinUiComponentsPackage_EnsureWindowsAppSDK" BeforeTargets="Build">
+    
+    <!-- Validate Windows App SDK configuration -->
+    <Warning Condition="'$(UseWinUI)' != 'true'" 
+             Text="RpaWinUiComponentsPackage: UseWinUI property should be set to 'true' for proper WinUI3 support." />
+    
+    <Warning Condition="'$(TargetFramework)' != '' and !$(TargetFramework.StartsWith('net8.0-windows'))" 
+             Text="RpaWinUiComponentsPackage: Recommended target framework is net8.0-windows10.0.19041.0 or higher." />
+             
+    <!-- Information message -->
+    <Message Importance="normal" 
+             Text="RpaWinUiComponentsPackage: Configured with Windows App SDK $(WindowsAppSDKVersion)" />
+             
+  </Target>
+
+  <!-- Copy runtime dependencies -->
+  <Target Name="RpaWinUiComponentsPackage_CopyRuntimeDependencies" AfterTargets="Build" Condition="'$(WindowsAppSDKSelfContained)' == 'true'">
+    <Message Importance="normal" 
+             Text="RpaWinUiComponentsPackage: Self-contained Windows App SDK runtime included." />
+  </Target>
+
+</Project>

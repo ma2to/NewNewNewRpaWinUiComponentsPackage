@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="RpaWinUiComponents.Demo.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:RpaWinUiComponentsPackage.AdvancedWinUiDataGrid"
+    Title="RPA WinUI Components Demo - Package Reference Testing">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>      <!-- Controls -->
+            <RowDefinition Height="*" MinHeight="200"/>         <!-- DataGrid -->
+            <RowDefinition Height="200"/>       <!-- Logs - fixed height with internal scroll -->
+        </Grid.RowDefinitions>
+
+        <!-- Test Controls Panel -->
+        <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+            <StackPanel Orientation="Horizontal" Spacing="8" Margin="10">
+                
+                <!-- Initialization Group -->
+                <Border Background="{ThemeResource ControlFillColorSecondary}" CornerRadius="4" Padding="8">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="Init:" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                        <Button x:Name="InitButton" Content="Initialize Grid" Click="InitButton_Click"/>
+                        <Button x:Name="InitWithValidationButton" Content="Init + Validation" Click="InitWithValidationButton_Click"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Data Operations Group -->
+                <Border Background="{ThemeResource ControlFillColorSecondary}" CornerRadius="4" Padding="8">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="Data:" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                        <Button x:Name="ImportDictionaryButton" Content="Import Dictionary" Click="ImportDictionaryButton_Click"/>
+                        <Button x:Name="ImportDataTableButton" Content="Import DataTable" Click="ImportDataTableButton_Click"/>
+                        <Button x:Name="ExportDictionaryButton" Content="Export Dictionary" Click="ExportDictionaryButton_Click"/>
+                        <Button x:Name="ExportDataTableButton" Content="Export DataTable" Click="ExportDataTableButton_Click"/>
+                        <Button x:Name="ClearDataButton" Content="Clear All" Click="ClearDataButton_Click"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Validation Group -->
+                <Border Background="{ThemeResource ControlFillColorSecondary}" CornerRadius="4" Padding="8">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="Validation:" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                        <Button x:Name="ValidateAllButton" Content="Validate All" Click="ValidateAllButton_Click"/>
+                        <Button x:Name="BatchValidationButton" Content="Batch Validation" Click="BatchValidationButton_Click"/>
+                        <Button x:Name="ClearFiltersButton" Content="Clear Filters" Click="ClearFiltersButton_Click"/>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,4,0,0">
+                        <TextBlock Text="Validation Triggers:" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                        <Button x:Name="RealTimeValidationButton" Content="Real-Time" Click="RealTimeValidationButton_Click"/>
+                        <Button x:Name="OnSaveValidationButton" Content="On Save" Click="OnSaveValidationButton_Click"/>
+                        <Button x:Name="OnFocusValidationButton" Content="On Focus Lost" Click="OnFocusValidationButton_Click"/>
+                        <Button x:Name="ManualValidationButton" Content="Manual" Click="ManualValidationButton_Click"/>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,4,0,0">
+                        <TextBlock Text="Search:" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                        <TextBox x:Name="SearchTextBox" PlaceholderText="Search..." Width="150" Margin="4,0"/>
+                        <Button x:Name="SearchButton" Content="Search" Click="SearchButton_Click"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- UI Updates Group -->
+                <Border Background="{ThemeResource ControlFillColorSecondary}" CornerRadius="4" Padding="8">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="UI Updates:" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                        <Button x:Name="RefreshUIButton" Content="Refresh UI" Click="RefreshUIButton_Click"/>
+                        <Button x:Name="UpdateValidationUIButton" Content="Update Validation UI" Click="UpdateValidationUIButton_Click"/>
+                        <Button x:Name="InvalidateLayoutButton" Content="Invalidate Layout" Click="InvalidateLayoutButton_Click"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Row Management Group -->
+                <Border Background="{ThemeResource ControlFillColorSecondary}" CornerRadius="4" Padding="8">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="Rows:" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                        <Button x:Name="AddRowButton" Content="Add Row" Click="AddRowButton_Click"/>
+                        <Button x:Name="DeleteRowButton" Content="Delete Row" Click="DeleteRowButton_Click"/>
+                        <Button x:Name="SmartDeleteButton" Content="Smart Delete Row" Click="SmartDeleteButton_Click"/>
+                        <Button x:Name="CompactRowsButton" Content="Compact Rows" Click="CompactRowsButton_Click"/>
+                        <Button x:Name="PasteDataButton" Content="Paste Test Data" Click="PasteDataButton_Click"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Colors Group -->
+                <Border Background="{ThemeResource ControlFillColorSecondary}" CornerRadius="4" Padding="8">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="Colors:" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                        <Button x:Name="ApplyDarkThemeButton" Content="Dark Theme" Click="ApplyDarkThemeButton_Click"/>
+                        <Button x:Name="ResetColorsButton" Content="Reset Colors" Click="ResetColorsButton_Click"/>
+                        <Button x:Name="TestSelectiveColorsButton" Content="Test Selective" Click="TestSelectiveColorsButton_Click"/>
+                        <Button x:Name="TestBorderOnlyButton" Content="Border Only" Click="TestBorderOnlyButton_Click"/>
+                        <Button x:Name="TestValidationOnlyButton" Content="Validation Only" Click="TestValidationOnlyButton_Click"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Info Group -->
+                <Border Background="{ThemeResource ControlFillColorSecondary}" CornerRadius="4" Padding="8">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="Info:" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                        <Button x:Name="GetStatsButton" Content="Get Statistics" Click="GetStatsButton_Click"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Main DataGrid Testing Area - FULL WIDTH/HEIGHT -->
+        <Border x:Name="GridContainer" 
+                Grid.Row="1"
+                HorizontalAlignment="Stretch" 
+                VerticalAlignment="Stretch" 
+                Margin="0" 
+                BorderBrush="{ThemeResource ControlStrokeColorDefault}" 
+                BorderThickness="1">
+            <TextBlock Text="DataGrid will be loaded here after initialization..." 
+                      HorizontalAlignment="Center" 
+                      VerticalAlignment="Center"
+                      Foreground="{ThemeResource TextFillColorSecondary}"/>
+        </Border>
+
+        <!-- Live Log Output -->
+        <Border Grid.Row="2" BorderBrush="{ThemeResource ControlStrokeColorDefault}" BorderThickness="1,0,1,1" Margin="10,0,10,10">
+            <ScrollViewer x:Name="LogScrollViewer" VerticalScrollBarVisibility="Auto" Background="{ThemeResource LayerFillColorAlt}">
+                <TextBlock x:Name="LogOutput" 
+                          FontFamily="Consolas" 
+                          FontSize="11" 
+                          Padding="8"
+                          TextWrapping="Wrap"
+                          Foreground="{ThemeResource TextFillColorSecondary}"/>
+            </ScrollViewer>
+        </Border>
+    </Grid>
+</Window>

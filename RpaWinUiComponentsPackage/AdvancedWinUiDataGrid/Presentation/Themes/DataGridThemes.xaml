@@ -1,0 +1,255 @@
+&lt;ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:converters="using:RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Presentation.Converters"
+    xmlns:viewmodels="using:RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Presentation.ViewModels"&gt;
+
+    &lt;!-- Converters --&gt;
+    &lt;converters:BooleanNegationConverter x:Key="BooleanNegationConverter" /&gt;
+
+    &lt;!-- Standard Cell Template --&gt;
+    &lt;DataTemplate x:Key="StandardCellTemplate" x:DataType="viewmodels:CellViewModel"&gt;
+        &lt;Border
+            Background="{x:Bind BackgroundColor, Mode=OneWay}"
+            BorderBrush="{x:Bind BorderColor, Mode=OneWay}"
+            BorderThickness="1"
+            Padding="4,2"
+            MinWidth="80"
+            MinHeight="24"&gt;
+            &lt;TextBox
+                Text="{x:Bind DisplayValue, Mode=TwoWay}"
+                IsReadOnly="{x:Bind IsReadOnly}"
+                BorderThickness="0"
+                Background="Transparent"
+                Foreground="{x:Bind ForegroundColor, Mode=OneWay}"
+                VerticalAlignment="Center"
+                VerticalContentAlignment="Center"
+                ToolTipService.ToolTip="{x:Bind ValidationErrorMessages, Mode=OneWay}" /&gt;
+        &lt;/Border&gt;
+    &lt;/DataTemplate&gt;
+
+    &lt;!-- Numeric Cell Template --&gt;
+    &lt;DataTemplate x:Key="NumericCellTemplate" x:DataType="viewmodels:CellViewModel"&gt;
+        &lt;Border
+            Background="{x:Bind BackgroundColor, Mode=OneWay}"
+            BorderBrush="{x:Bind BorderColor, Mode=OneWay}"
+            BorderThickness="1"
+            Padding="4,2"
+            MinWidth="80"
+            MinHeight="24"&gt;
+            &lt;TextBox
+                Text="{x:Bind DisplayValue, Mode=TwoWay}"
+                IsReadOnly="{x:Bind IsReadOnly}"
+                BorderThickness="0"
+                Background="Transparent"
+                Foreground="{x:Bind ForegroundColor, Mode=OneWay}"
+                HorizontalContentAlignment="Right"
+                VerticalAlignment="Center"
+                VerticalContentAlignment="Center"
+                InputScope="Number"
+                ToolTipService.ToolTip="{x:Bind ValidationErrorMessages, Mode=OneWay}" /&gt;
+        &lt;/Border&gt;
+    &lt;/DataTemplate&gt;
+
+    &lt;!-- Read-Only Cell Template --&gt;
+    &lt;DataTemplate x:Key="ReadOnlyCellTemplate" x:DataType="viewmodels:CellViewModel"&gt;
+        &lt;Border
+            Background="{x:Bind BackgroundColor, Mode=OneWay}"
+            BorderBrush="{x:Bind BorderColor, Mode=OneWay}"
+            BorderThickness="1"
+            Padding="4,2"
+            MinWidth="80"
+            MinHeight="24"
+            Opacity="0.8"&gt;
+            &lt;TextBlock
+                Text="{x:Bind DisplayValue, Mode=OneWay}"
+                Foreground="{x:Bind ForegroundColor, Mode=OneWay}"
+                VerticalAlignment="Center"
+                TextTrimming="CharacterEllipsis"
+                ToolTipService.ToolTip="{x:Bind DisplayValue, Mode=OneWay}" /&gt;
+        &lt;/Border&gt;
+    &lt;/DataTemplate&gt;
+
+    &lt;!-- DateTime Cell Template --&gt;
+    &lt;DataTemplate x:Key="DateTimeCellTemplate" x:DataType="viewmodels:CellViewModel"&gt;
+        &lt;Border
+            Background="{x:Bind BackgroundColor, Mode=OneWay}"
+            BorderBrush="{x:Bind BorderColor, Mode=OneWay}"
+            BorderThickness="1"
+            Padding="4,2"
+            MinWidth="120"
+            MinHeight="24"&gt;
+            &lt;DatePicker
+                SelectedDate="{x:Bind Value, Mode=TwoWay}"
+                IsEnabled="{x:Bind IsReadOnly, Converter={StaticResource BooleanNegationConverter}}"
+                Background="Transparent"
+                BorderThickness="0"
+                VerticalAlignment="Center"
+                ToolTipService.ToolTip="{x:Bind ValidationErrorMessages, Mode=OneWay}" /&gt;
+        &lt;/Border&gt;
+    &lt;/DataTemplate&gt;
+
+    &lt;!-- Standard Header Template --&gt;
+    &lt;DataTemplate x:Key="StandardHeaderTemplate" x:DataType="viewmodels:DataColumnViewModel"&gt;
+        &lt;Grid
+            Background="{x:Bind HeaderBackgroundColor, Mode=OneWay}"
+            BorderBrush="{x:Bind HeaderBorderColor, Mode=OneWay}"
+            BorderThickness="0,0,1,1"
+            MinWidth="80"
+            MinHeight="32"&gt;
+            &lt;Grid.ColumnDefinitions&gt;
+                &lt;ColumnDefinition Width="*" /&gt;
+                &lt;ColumnDefinition Width="Auto" /&gt;
+            &lt;/Grid.ColumnDefinitions&gt;
+
+            &lt;TextBlock
+                Grid.Column="0"
+                Text="{x:Bind HeaderText, Mode=OneWay}"
+                Foreground="{x:Bind HeaderForegroundColor, Mode=OneWay}"
+                HorizontalAlignment="{x:Bind TextAlignment}"
+                VerticalAlignment="Center"
+                Margin="8,4"
+                FontWeight="SemiBold"
+                TextTrimming="CharacterEllipsis"
+                ToolTipService.ToolTip="{x:Bind HeaderTooltip, Mode=OneWay}" /&gt;
+
+            &lt;!-- Sort Indicator (if sortable) --&gt;
+            &lt;TextBlock
+                Grid.Column="1"
+                Text="↕"
+                Foreground="Gray"
+                VerticalAlignment="Center"
+                Margin="4,0,8,0"
+                FontSize="10"
+                Visibility="{x:Bind IsSortable, Converter={StaticResource BooleanToVisibilityConverter}}" /&gt;
+        &lt;/Grid&gt;
+    &lt;/DataTemplate&gt;
+
+    &lt;!-- Resizable Header Template --&gt;
+    &lt;DataTemplate x:Key="ResizableHeaderTemplate" x:DataType="viewmodels:DataColumnViewModel"&gt;
+        &lt;Grid
+            Background="{x:Bind HeaderBackgroundColor, Mode=OneWay}"
+            BorderBrush="{x:Bind HeaderBorderColor, Mode=OneWay}"
+            BorderThickness="0,0,1,1"
+            MinWidth="80"
+            MinHeight="32"&gt;
+            &lt;Grid.ColumnDefinitions&gt;
+                &lt;ColumnDefinition Width="*" /&gt;
+                &lt;ColumnDefinition Width="Auto" /&gt;
+                &lt;ColumnDefinition Width="Auto" /&gt;
+            &lt;/Grid.ColumnDefinitions&gt;
+
+            &lt;TextBlock
+                Grid.Column="0"
+                Text="{x:Bind HeaderText, Mode=OneWay}"
+                Foreground="{x:Bind HeaderForegroundColor, Mode=OneWay}"
+                HorizontalAlignment="{x:Bind TextAlignment}"
+                VerticalAlignment="Center"
+                Margin="8,4"
+                FontWeight="SemiBold"
+                TextTrimming="CharacterEllipsis"
+                ToolTipService.ToolTip="{x:Bind HeaderTooltip, Mode=OneWay}" /&gt;
+
+            &lt;!-- Sort Indicator --&gt;
+            &lt;TextBlock
+                Grid.Column="1"
+                Text="↕"
+                Foreground="Gray"
+                VerticalAlignment="Center"
+                Margin="4,0,4,0"
+                FontSize="10"
+                Visibility="{x:Bind IsSortable, Converter={StaticResource BooleanToVisibilityConverter}}" /&gt;
+
+            &lt;!-- Resize Handle --&gt;
+            &lt;Rectangle
+                Grid.Column="2"
+                Width="4"
+                Fill="Transparent"
+                Cursor="SizeWE"
+                VerticalAlignment="Stretch"
+                ToolTipService.ToolTip="Drag to resize column" /&gt;
+        &lt;/Grid&gt;
+    &lt;/DataTemplate&gt;
+
+    &lt;!-- Special Column Header Template --&gt;
+    &lt;DataTemplate x:Key="SpecialColumnHeaderTemplate" x:DataType="viewmodels:DataColumnViewModel"&gt;
+        &lt;Grid
+            Background="{x:Bind SpecialColumnColor, Mode=OneWay}"
+            BorderBrush="{x:Bind HeaderBorderColor, Mode=OneWay}"
+            BorderThickness="0,0,1,1"
+            Width="40"
+            MinHeight="32"&gt;
+            &lt;TextBlock
+                Text="{x:Bind HeaderText, Mode=OneWay}"
+                Foreground="{x:Bind HeaderForegroundColor, Mode=OneWay}"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                FontSize="14"
+                FontWeight="SemiBold"
+                ToolTipService.ToolTip="{x:Bind HeaderTooltip, Mode=OneWay}" /&gt;
+        &lt;/Grid&gt;
+    &lt;/DataTemplate&gt;
+
+    &lt;!-- Cell Styles --&gt;
+    &lt;Style x:Key="NormalCellStyle" TargetType="Border"&gt;
+        &lt;Setter Property="Background" Value="White" /&gt;
+        &lt;Setter Property="BorderBrush" Value="LightGray" /&gt;
+        &lt;Setter Property="BorderThickness" Value="1" /&gt;
+    &lt;/Style&gt;
+
+    &lt;Style x:Key="ErrorCellStyle" TargetType="Border"&gt;
+        &lt;Setter Property="Background" Value="MistyRose" /&gt;
+        &lt;Setter Property="BorderBrush" Value="Red" /&gt;
+        &lt;Setter Property="BorderThickness" Value="2" /&gt;
+    &lt;/Style&gt;
+
+    &lt;Style x:Key="WarningCellStyle" TargetType="Border"&gt;
+        &lt;Setter Property="Background" Value="LightYellow" /&gt;
+        &lt;Setter Property="BorderBrush" Value="Orange" /&gt;
+        &lt;Setter Property="BorderThickness" Value="1" /&gt;
+    &lt;/Style&gt;
+
+    &lt;Style x:Key="InfoCellStyle" TargetType="Border"&gt;
+        &lt;Setter Property="Background" Value="LightBlue" /&gt;
+        &lt;Setter Property="BorderBrush" Value="Blue" /&gt;
+        &lt;Setter Property="BorderThickness" Value="1" /&gt;
+    &lt;/Style&gt;
+
+    &lt;Style x:Key="ModifiedCellStyle" TargetType="Border"&gt;
+        &lt;Setter Property="Background" Value="LemonChiffon" /&gt;
+        &lt;Setter Property="BorderBrush" Value="Gold" /&gt;
+        &lt;Setter Property="BorderThickness" Value="1" /&gt;
+    &lt;/Style&gt;
+
+    &lt;Style x:Key="ReadOnlyCellStyle" TargetType="Border"&gt;
+        &lt;Setter Property="Background" Value="WhiteSmoke" /&gt;
+        &lt;Setter Property="BorderBrush" Value="Silver" /&gt;
+        &lt;Setter Property="BorderThickness" Value="1" /&gt;
+        &lt;Setter Property="Opacity" Value="0.8" /&gt;
+    &lt;/Style&gt;
+
+    &lt;!-- Template Selectors --&gt;
+    &lt;converters:SpecialColumnTemplateSelector x:Key="SpecialColumnTemplateSelector"
+        StandardCellTemplate="{StaticResource StandardCellTemplate}"
+        CheckBoxCellTemplate="{StaticResource CheckBoxCellTemplate}"
+        DeleteButtonCellTemplate="{StaticResource DeleteButtonCellTemplate}"
+        RowNumberCellTemplate="{StaticResource RowNumberCellTemplate}"
+        ValidationAlertsCellTemplate="{StaticResource ValidationAlertsCellTemplate}"
+        ReadOnlyCellTemplate="{StaticResource ReadOnlyCellTemplate}"
+        NumericCellTemplate="{StaticResource NumericCellTemplate}"
+        DateTimeCellTemplate="{StaticResource DateTimeCellTemplate}" /&gt;
+
+    &lt;converters:ColumnHeaderTemplateSelector x:Key="ColumnHeaderTemplateSelector"
+        StandardHeaderTemplate="{StaticResource StandardHeaderTemplate}"
+        SpecialColumnHeaderTemplate="{StaticResource SpecialColumnHeaderTemplate}"
+        ResizableHeaderTemplate="{StaticResource ResizableHeaderTemplate}" /&gt;
+
+    &lt;converters:ValidationStyleSelector x:Key="ValidationStyleSelector"
+        NormalCellStyle="{StaticResource NormalCellStyle}"
+        ErrorCellStyle="{StaticResource ErrorCellStyle}"
+        WarningCellStyle="{StaticResource WarningCellStyle}"
+        InfoCellStyle="{StaticResource InfoCellStyle}"
+        ModifiedCellStyle="{StaticResource ModifiedCellStyle}"
+        ReadOnlyCellStyle="{StaticResource ReadOnlyCellStyle}" /&gt;
+
+&lt;/ResourceDictionary&gt;
