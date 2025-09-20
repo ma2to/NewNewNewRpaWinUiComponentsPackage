@@ -4,7 +4,7 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.Enums;
 /// CORE: Defines validation error severity levels
 /// ENTERPRISE: Professional error classification system
 /// </summary>
-public enum ValidationSeverity
+internal enum ValidationSeverity
 {
     /// <summary>Informational message - no action required</summary>
     Info = 0,

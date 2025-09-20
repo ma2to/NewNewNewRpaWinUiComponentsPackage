@@ -8,7 +8,7 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiLogger.Core.ValueObjects;
 /// IMMUTABLE: Contains detailed rotation operation metrics
 /// FUNCTIONAL: Factory methods for different rotation outcomes
 /// </summary>
-internal sealed record RotationResult
+public sealed record RotationResult
 {
     /// <summary>Indicates if rotation operation was successful</summary>
     public bool IsSuccess { get; init; }
@@ -192,7 +192,7 @@ internal sealed record RotationResult
 /// ENTERPRISE ENUM: Types of rotation operations
 /// DOMAIN: Classification of different rotation scenarios
 /// </summary>
-internal enum RotationType
+public enum RotationType
 {
     /// <summary>Unknown or unspecified rotation type</summary>
     Unknown = 0,

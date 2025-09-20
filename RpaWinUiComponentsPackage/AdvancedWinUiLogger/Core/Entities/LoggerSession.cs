@@ -10,7 +10,7 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiLogger.Core.Entities;
 /// AGGREGATE ROOT: Manages logging operations and session lifecycle
 /// ENCAPSULATION: Encapsulates session state and invariants
 /// </summary>
-internal sealed class LoggerSession
+public sealed class LoggerSession
 {
     private readonly List<LogEntry> _pendingEntries;
     private readonly List<LogFileInfo> _managedFiles;
@@ -351,7 +351,7 @@ internal sealed class LoggerSession
 /// VALUE OBJECT: Session performance metrics
 /// TELEMETRY: Aggregated performance data
 /// </summary>
-internal sealed class SessionMetrics
+public sealed class SessionMetrics
 {
     public long TotalEntries { get; private set; }
     public long ErrorEntries { get; private set; }
@@ -393,7 +393,7 @@ internal sealed class SessionMetrics
 /// VALUE OBJECT: Comprehensive session status
 /// MONITORING: Complete session state for observability
 /// </summary>
-internal sealed record SessionStatus
+public sealed record SessionStatus
 {
     public Guid SessionId { get; init; }
     public bool IsActive { get; init; }

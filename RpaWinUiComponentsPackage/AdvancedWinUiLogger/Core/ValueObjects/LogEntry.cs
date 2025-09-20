@@ -8,7 +8,7 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiLogger.Core.ValueObjects;
 /// ENTERPRISE: Rich domain behavior with functional transformations
 /// PERFORMANCE: Optimized for high-throughput logging scenarios
 /// </summary>
-internal sealed record LogEntry
+public sealed record LogEntry
 {
     /// <summary>UTC timestamp when log entry was created</summary>
     public DateTime Timestamp { get; init; }

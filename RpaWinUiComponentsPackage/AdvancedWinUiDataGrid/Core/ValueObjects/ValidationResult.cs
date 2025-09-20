@@ -8,7 +8,7 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
 /// PUBLIC API: Represents the result of a validation operation
 /// IMMUTABLE: Value object ensuring consistency across validation operations
 /// </summary>
-public readonly record struct ValidationResult
+internal readonly record struct ValidationResult
 {
     public bool IsValid { get; }
     public string? ErrorMessage { get; }

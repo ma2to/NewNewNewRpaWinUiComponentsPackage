@@ -1,0 +1,434 @@
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using RpaWinUiComponentsPackage.AdvancedWinUiLogger.Application.Interfaces;
+using RpaWinUiComponentsPackage.AdvancedWinUiLogger.Application.Services;
+using RpaWinUiComponentsPackage.AdvancedWinUiLogger.Core.ValueObjects;
+
+namespace RpaWinUiComponentsPackage.AdvancedWinUiLogger;
+
+/// <summary>
+/// PUBLIC FACADE: Main entry point for AdvancedWinUiLogger functionality
+/// CLEAN ARCHITECTURE: Facade pattern hiding internal implementation details
+/// ENTERPRISE: Professional API for advanced logging operations
+/// </summary>
+public sealed class AdvancedLoggerFacade
+{
+    private readonly IAdvancedLoggerService _loggerService;
+    private readonly ILogger<AdvancedLoggerFacade>? _logger;
+
+    /// <summary>
+    /// CONSTRUCTOR: Parameterless constructor using default internal implementations
+    /// FACADE PATTERN: Simplifies usage without dependency injection
+    /// </summary>
+    public AdvancedLoggerFacade()
+    {
+        _loggerService = new AdvancedLoggerService();
+        _logger = null;
+    }
+
+    /// <summary>
+    /// CONSTRUCTOR: Dependency injection constructor for testing and advanced scenarios
+    /// INTERNAL: Not exposed to consumers, used by DI container
+    /// </summary>
+    internal AdvancedLoggerFacade(
+        IAdvancedLoggerService loggerService,
+        ILogger<AdvancedLoggerFacade>? logger = null)
+    {
+        _loggerService = loggerService ?? throw new ArgumentNullException(nameof(loggerService));
+        _logger = logger;
+    }
+
+    #region Logger Creation
+
+    /// <summary>
+    /// PUBLIC API: Create a simple file logger for basic logging needs
+    /// FACTORY METHOD: Convenient logger creation
+    /// </summary>
+    public async Task<ILogger?> CreateFileLoggerAsync(string logDirectory, string baseFileName = "application")
+    {
+        try
+        {
+            _logger?.LogInformation("Creating file logger with directory: {LogDirectory}, base name: {BaseFileName}",
+                logDirectory, baseFileName);
+
+            var result = await _loggerService.CreateFileLoggerAsync(logDirectory, baseFileName);
+
+            if (result.IsSuccess)
+            {
+                return result.Value;
+            }
+
+            _logger?.LogError("Failed to create file logger: {Error}", result.Error);
+            throw new InvalidOperationException($"Failed to create file logger: {result.Error}");
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error creating file logger");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// PUBLIC API: Create high-performance logger for high-throughput scenarios
+    /// PERFORMANCE: Optimized for enterprise applications
+    /// </summary>
+    public async Task<ILogger?> CreateHighPerformanceLoggerAsync(string logDirectory, string baseFileName = "application")
+    {
+        try
+        {
+            _logger?.LogInformation("Creating high-performance logger with directory: {LogDirectory}, base name: {BaseFileName}",
+                logDirectory, baseFileName);
+
+            var result = await _loggerService.CreateHighPerformanceLoggerAsync(logDirectory, baseFileName);
+
+            if (result.IsSuccess)
+            {
+                return result.Value;
+            }
+
+            _logger?.LogError("Failed to create high-performance logger: {Error}", result.Error);
+            throw new InvalidOperationException($"Failed to create high-performance logger: {result.Error}");
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error creating high-performance logger");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// PUBLIC API: Create development logger with detailed logging for debugging
+    /// DEVELOPMENT: Optimized for development and debugging scenarios
+    /// </summary>
+    public async Task<ILogger?> CreateDevelopmentLoggerAsync(string logDirectory, string baseFileName = "dev")
+    {
+        try
+        {
+            _logger?.LogInformation("Creating development logger with directory: {LogDirectory}, base name: {BaseFileName}",
+                logDirectory, baseFileName);
+
+            var result = await _loggerService.CreateDevelopmentLoggerAsync(logDirectory, baseFileName);
+
+            if (result.IsSuccess)
+            {
+                return result.Value;
+            }
+
+            _logger?.LogError("Failed to create development logger: {Error}", result.Error);
+            throw new InvalidOperationException($"Failed to create development logger: {result.Error}");
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error creating development logger");
+            throw;
+        }
+    }
+
+    #endregion
+
+    #region Logging Operations
+
+    /// <summary>
+    /// PUBLIC API: Write information log entry
+    /// CONVENIENCE: Simplified logging method
+    /// </summary>
+    public async Task LogInformationAsync(ILogger logger, string message)
+    {
+        try
+        {
+            await _loggerService.WriteLogEntryAsync(logger, LogLevel.Information, message);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error writing information log");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// PUBLIC API: Write warning log entry
+    /// CONVENIENCE: Simplified logging method
+    /// </summary>
+    public async Task LogWarningAsync(ILogger logger, string message)
+    {
+        try
+        {
+            await _loggerService.WriteLogEntryAsync(logger, LogLevel.Warning, message);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error writing warning log");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// PUBLIC API: Write error log entry with optional exception
+    /// CONVENIENCE: Simplified error logging
+    /// </summary>
+    public async Task LogErrorAsync(ILogger logger, string message, Exception? exception = null)
+    {
+        try
+        {
+            await _loggerService.WriteLogEntryAsync(logger, LogLevel.Error, message, exception);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error writing error log");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// PUBLIC API: Write structured log entry with parameters
+    /// STRUCTURED LOGGING: Modern logging approach
+    /// </summary>
+    public async Task LogStructuredAsync(ILogger logger, LogLevel level, string template, params object[] args)
+    {
+        try
+        {
+            await _loggerService.WriteStructuredLogAsync(logger, level, template, args);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error writing structured log");
+            throw;
+        }
+    }
+
+    #endregion
+
+    #region File Management
+
+    /// <summary>
+    /// PUBLIC API: Rotate log file to manage file sizes
+    /// FILE MANAGEMENT: Prevent log files from growing too large
+    /// </summary>
+    public async Task<bool> RotateLogFileAsync(ILogger logger, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger?.LogInformation("Starting log file rotation");
+
+            var result = await _loggerService.RotateLogFileAsync(logger, cancellationToken);
+
+            if (result.IsSuccess)
+            {
+                return result.Value;
+            }
+
+            _logger?.LogError("Failed to rotate log file: {Error}", result.Error);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error during log file rotation");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// PUBLIC API: Clean up old log files to manage disk space
+    /// MAINTENANCE: Automatic cleanup of old logs
+    /// </summary>
+    public async Task<bool> CleanupOldLogFilesAsync(
+        string logDirectory,
+        int maxAgeDays,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger?.LogInformation("Starting cleanup of old log files in {LogDirectory} older than {MaxAgeDays} days",
+                logDirectory, maxAgeDays);
+
+            var result = await _loggerService.CleanupOldLogFilesAsync(logDirectory, maxAgeDays, cancellationToken);
+
+            if (result.IsSuccess)
+            {
+                return result.Value;
+            }
+
+            _logger?.LogError("Failed to cleanup old log files: {Error}", result.Error);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error during old log files cleanup");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// PUBLIC API: Get information about log files in directory
+    /// MONITORING: Understand log file status and sizes
+    /// </summary>
+    public async Task<IReadOnlyList<object>> GetLogFilesInfoAsync(
+        string logDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger?.LogInformation("Getting log files info from directory: {LogDirectory}", logDirectory);
+
+            var result = await _loggerService.GetLogFilesInfoAsync(logDirectory, cancellationToken);
+
+            if (result.IsSuccess)
+            {
+                return result.Value.Cast<object>().ToList();
+            }
+
+            _logger?.LogError("Failed to get log files info: {Error}", result.Error);
+            return Array.Empty<object>();
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error getting log files info");
+            throw;
+        }
+    }
+
+    #endregion
+
+    #region Configuration Management
+
+    /// <summary>
+    /// PUBLIC API: Create minimal logger configuration for simple scenarios
+    /// FACTORY METHOD: Pre-configured settings for common use cases
+    /// </summary>
+    public object CreateMinimalConfiguration(string logDirectory, string baseFileName = "application")
+    {
+        try
+        {
+            return LoggerConfiguration.CreateMinimal(logDirectory, baseFileName);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error creating minimal configuration");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// PUBLIC API: Create high-performance logger configuration
+    /// FACTORY METHOD: Optimized for high-throughput scenarios
+    /// </summary>
+    public object CreateHighPerformanceConfiguration(string logDirectory, string baseFileName = "application")
+    {
+        try
+        {
+            return LoggerConfiguration.CreateHighPerformance(logDirectory, baseFileName);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error creating high-performance configuration");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// PUBLIC API: Create development logger configuration
+    /// FACTORY METHOD: Optimized for development and debugging
+    /// </summary>
+    public object CreateDevelopmentConfiguration(string logDirectory, string baseFileName = "dev")
+    {
+        try
+        {
+            return LoggerConfiguration.CreateDevelopment(logDirectory, baseFileName);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error creating development configuration");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// PUBLIC API: Validate logger configuration before use
+    /// VALIDATION: Ensure configuration is valid before creating logger
+    /// </summary>
+    public async Task<bool> ValidateConfigurationAsync(object configuration)
+    {
+        try
+        {
+            if (configuration is LoggerConfiguration loggerConfig)
+            {
+                var result = await _loggerService.ValidateConfigurationAsync(loggerConfig);
+
+                if (result.IsSuccess)
+                {
+                    return result.Value;
+                }
+
+                _logger?.LogError("Configuration validation failed: {Error}", result.Error);
+                return false;
+            }
+
+            _logger?.LogError("Invalid configuration type. Expected LoggerConfiguration.");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error validating configuration");
+            throw;
+        }
+    }
+
+    #endregion
+
+    #region Performance Monitoring
+
+    /// <summary>
+    /// PUBLIC API: Get performance metrics for logger monitoring
+    /// MONITORING: Track logger performance and health
+    /// </summary>
+    public async Task<LoggerPerformanceMetrics?> GetPerformanceMetricsAsync(ILogger logger)
+    {
+        try
+        {
+            var result = await _loggerService.GetPerformanceMetricsAsync(logger);
+
+            if (result.IsSuccess)
+            {
+                return result.Value;
+            }
+
+            _logger?.LogError("Failed to get performance metrics: {Error}", result.Error);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error getting performance metrics");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// PUBLIC API: Enable or disable performance monitoring
+    /// CONFIGURATION: Control performance monitoring overhead
+    /// </summary>
+    public async Task<bool> EnablePerformanceMonitoringAsync(ILogger logger, bool enable)
+    {
+        try
+        {
+            var result = await _loggerService.EnablePerformanceMonitoringAsync(logger, enable);
+
+            if (result.IsSuccess)
+            {
+                return result.Value;
+            }
+
+            _logger?.LogError("Failed to enable performance monitoring: {Error}", result.Error);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error enabling performance monitoring");
+            throw;
+        }
+    }
+
+    #endregion
+}

@@ -283,7 +283,7 @@ public readonly struct Result
 /// <summary>
 /// FUNCTIONAL: Extension methods for Result type
 /// </summary>
-public static class ResultExtensions
+internal static class ResultExtensions
 {
     /// <summary>Convert Task<T> to Task<Result<T>></summary>
     public static async Task<Result<T>> ToResult<T>(this Task<T> task)

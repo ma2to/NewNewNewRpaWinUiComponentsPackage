@@ -1,0 +1,151 @@
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Application.Interfaces;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Application.Services;
+
+namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
+
+/// <summary>
+/// PUBLIC EXTENSION: Dependency injection registration for AdvancedWinUiDataGrid
+/// DI PATTERN: Clean registration of internal services
+/// ENTERPRISE: Professional service registration for consumers
+/// </summary>
+public static class ServiceCollectionExtensions
+{
+    /// <summary>
+    /// PUBLIC API: Register AdvancedWinUiDataGrid services with dependency injection
+    /// MAIN REGISTRATION: Single method to register all component services
+    /// CLEAN API: Consumers only see this extension method, not internal types
+    /// </summary>
+    public static IServiceCollection AddAdvancedWinUiDataGrid(this IServiceCollection services)
+    {
+        if (services == null)
+        {
+            throw new ArgumentNullException(nameof(services));
+        }
+
+        // Register internal service interfaces with their implementations
+        // These registrations are internal - consumers don't see them in IntelliSense
+        services.AddScoped<ISearchFilterService, SearchFilterService>();
+        services.AddScoped<ISortService, SortService>();
+        services.AddScoped<IImportExportService, ImportExportService>();
+
+        // Register the public facade
+        // This uses the DI constructor of AdvancedDataGridFacade
+        services.AddScoped<AdvancedDataGridFacade>(serviceProvider =>
+        {
+            var searchFilterService = serviceProvider.GetRequiredService<ISearchFilterService>();
+            var sortService = serviceProvider.GetRequiredService<ISortService>();
+            var importExportService = serviceProvider.GetRequiredService<IImportExportService>();
+            var logger = serviceProvider.GetService<ILogger<AdvancedDataGridFacade>>();
+
+            return new AdvancedDataGridFacade(searchFilterService, sortService, importExportService, logger);
+        });
+
+        return services;
+    }
+
+    /// <summary>
+    /// PUBLIC API: Register AdvancedWinUiDataGrid services with custom logger configuration
+    /// ADVANCED REGISTRATION: For scenarios requiring specific logging setup
+    /// </summary>
+    public static IServiceCollection AddAdvancedWinUiDataGrid(
+        this IServiceCollection services,
+        Action<ILoggingBuilder>? configureLogging = null)
+    {
+        if (services == null)
+        {
+            throw new ArgumentNullException(nameof(services));
+        }
+
+        // Configure logging if provided
+        if (configureLogging != null)
+        {
+            services.AddLogging(configureLogging);
+        }
+
+        // Register main services
+        return services.AddAdvancedWinUiDataGrid();
+    }
+
+    /// <summary>
+    /// PUBLIC API: Register AdvancedWinUiDataGrid services as singletons for better performance
+    /// PERFORMANCE REGISTRATION: When thread-safety allows singleton usage
+    /// </summary>
+    public static IServiceCollection AddAdvancedWinUiDataGridSingleton(this IServiceCollection services)
+    {
+        if (services == null)
+        {
+            throw new ArgumentNullException(nameof(services));
+        }
+
+        // Register internal service interfaces as singletons
+        services.AddSingleton<ISearchFilterService, SearchFilterService>();
+        services.AddSingleton<ISortService, SortService>();
+        services.AddSingleton<IImportExportService, ImportExportService>();
+
+        // Register the public facade as singleton
+        services.AddSingleton<AdvancedDataGridFacade>(serviceProvider =>
+        {
+            var searchFilterService = serviceProvider.GetRequiredService<ISearchFilterService>();
+            var sortService = serviceProvider.GetRequiredService<ISortService>();
+            var importExportService = serviceProvider.GetRequiredService<IImportExportService>();
+            var logger = serviceProvider.GetService<ILogger<AdvancedDataGridFacade>>();
+
+            return new AdvancedDataGridFacade(searchFilterService, sortService, importExportService, logger);
+        });
+
+        return services;
+    }
+
+    /// <summary>
+    /// PUBLIC API: Check if AdvancedWinUiDataGrid services are registered
+    /// UTILITY: Help consumers verify registration status
+    /// </summary>
+    public static bool IsAdvancedWinUiDataGridRegistered(this IServiceCollection services)
+    {
+        if (services == null)
+        {
+            throw new ArgumentNullException(nameof(services));
+        }
+
+        return services.Any(serviceDescriptor =>
+            serviceDescriptor.ServiceType == typeof(AdvancedDataGridFacade));
+    }
+
+    /// <summary>
+    /// PUBLIC API: Remove AdvancedWinUiDataGrid services from registration
+    /// UTILITY: For testing or reconfiguration scenarios
+    /// </summary>
+    public static IServiceCollection RemoveAdvancedWinUiDataGrid(this IServiceCollection services)
+    {
+        if (services == null)
+        {
+            throw new ArgumentNullException(nameof(services));
+        }
+
+        // Remove facade registration
+        var facadeDescriptors = services
+            .Where(s => s.ServiceType == typeof(AdvancedDataGridFacade))
+            .ToList();
+
+        foreach (var descriptor in facadeDescriptors)
+        {
+            services.Remove(descriptor);
+        }
+
+        // Remove internal service registrations
+        var internalDescriptors = services
+            .Where(s => s.ServiceType == typeof(ISearchFilterService) ||
+                       s.ServiceType == typeof(ISortService) ||
+                       s.ServiceType == typeof(IImportExportService))
+            .ToList();
+
+        foreach (var descriptor in internalDescriptors)
+        {
+            services.Remove(descriptor);
+        }
+
+        return services;
+    }
+}

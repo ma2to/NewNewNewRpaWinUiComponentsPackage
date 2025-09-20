@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using RpaWinUiComponentsPackage.AdvancedWinUiLogger.Application.API;
+using RpaWinUiComponentsPackage.AdvancedWinUiLogger.Core.Entities;
 using RpaWinUiComponentsPackage.AdvancedWinUiLogger.Core.ValueObjects;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiLogger;
