@@ -269,6 +269,8 @@ internal sealed record ValidationRuleGroup : IValidationRule
         {
             ValidationLogicalOperator.And => results.All(r => r.IsValid),
             ValidationLogicalOperator.Or => results.Any(r => r.IsValid),
+            ValidationLogicalOperator.AndAlso => results.All(r => r.IsValid), // Same logic as And, but evaluation was short-circuited
+            ValidationLogicalOperator.OrElse => results.Any(r => r.IsValid), // Same logic as Or, but evaluation was short-circuited
             _ => results.All(r => r.IsValid)
         };
 

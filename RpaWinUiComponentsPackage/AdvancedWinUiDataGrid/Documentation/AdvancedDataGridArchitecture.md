@@ -540,6 +540,40 @@ var hierarchicalGroup = ValidationRuleGroup.CreateHierarchicalGroup(
 );
 
 await dataGrid.AddValidationRuleGroupAsync(hierarchicalGroup);
+
+// 🔢 AndAlso Group - Short-circuit AND (stops on first failure for performance)
+var andAlsoGroup = ValidationRuleGroup.CreateAndAlsoGroup(
+    "PersonalInfo",
+    ValidationRule.Create("FirstName", value => !string.IsNullOrEmpty(value?.ToString()), "First name required"),
+    ValidationRule.Create("LastName", value => !string.IsNullOrEmpty(value?.ToString()), "Last name required"),
+    ValidationRule.Create("BirthDate", value => IsValidDate(value), "Valid birth date required")
+);
+
+await dataGrid.AddValidationRuleGroupAsync(andAlsoGroup);
+
+// 🔢 OrElse Group - Short-circuit OR (stops on first success for performance)
+var orElseGroup = ValidationRuleGroup.CreateOrElseGroup(
+    "ContactMethod",
+    ValidationRule.Create("Email", value => !string.IsNullOrEmpty(value?.ToString()), "Email required"),
+    ValidationRule.Create("Phone", value => !string.IsNullOrEmpty(value?.ToString()), "Phone required"),
+    ValidationRule.Create("Address", value => !string.IsNullOrEmpty(value?.ToString()), "Address required")
+);
+
+await dataGrid.AddValidationRuleGroupAsync(orElseGroup);
+```
+
+**🚀 Performance Difference:**
+- **And/Or**: Always evaluate ALL rules, then combine results
+- **AndAlso**: Stop immediately on first FALSE (faster for AND logic)
+- **OrElse**: Stop immediately on first TRUE (faster for OR logic)
+
+**📊 Performance Example:**
+```csharp
+// Standard OR - evaluates all 3 rules even if first succeeds
+var standardOr = ValidationRuleGroup.CreateOrGroup("Contact", rule1, rule2, rule3);
+
+// OrElse - stops after rule1 if it succeeds (saves time on rule2, rule3)
+var fastOr = ValidationRuleGroup.CreateOrElseGroup("Contact", rule1, rule2, rule3);
 ```
 
 ### ✅ Column-Specific Validation Configuration
@@ -671,7 +705,36 @@ var paymentMethodGroup = ValidationRuleGroup.CreateHierarchicalGroup(
 
 await dataGrid.AddValidationRuleGroupAsync(customerTypeGroup);
 await dataGrid.AddValidationRuleGroupAsync(paymentMethodGroup);
+
+// Scenario 3: Complex AndAlso/OrElse Performance Example
+// ((emailValid OrElse phoneValid) AndAlso ageValid AndAlso (addressValid OrElse postalValid))
+
+var contactOrElse = ValidationRuleGroup.CreateOrElseGroup(
+    "ContactData",
+    ValidationRule.Create("Email", value => IsValidEmail(value?.ToString()), "Email required"),
+    ValidationRule.Create("Phone", value => IsValidPhone(value?.ToString()), "Phone required")
+);
+
+var locationOrElse = ValidationRuleGroup.CreateOrElseGroup(
+    "ContactData",
+    ValidationRule.Create("Address", value => !string.IsNullOrEmpty(value?.ToString()), "Address required"),
+    ValidationRule.Create("PostalCode", value => IsValidPostal(value?.ToString()), "Postal code required")
+);
+
+var complexAndAlso = ValidationRuleGroup.CreateHierarchicalGroup(
+    "ContactData",
+    ValidationLogicalOperator.AndAlso, // Stops on first group failure
+    "ComplexContactValidation",
+    contactOrElse,   // Stops on first valid contact method
+    ValidationRuleGroup.CreateAndAlsoGroup("ContactData", // Single age rule
+        ValidationRule.Create("Age", value => IsValidAge(value), "Valid age required")),
+    locationOrElse   // Stops on first valid location
+);
+
+await dataGrid.AddValidationRuleGroupAsync(complexAndAlso);
 ```
+
+**🎯 Performance Impact:** In the above example, if email is valid, phone validation is skipped (OrElse). If contact fails, age and location are never evaluated (AndAlso).
 
 ### ✅ Enhanced Data Import/Export (Dictionary & DataTable)
 ```csharp

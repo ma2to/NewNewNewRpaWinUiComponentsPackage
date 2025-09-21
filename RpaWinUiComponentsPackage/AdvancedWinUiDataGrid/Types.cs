@@ -424,7 +424,9 @@ public enum ValidationDeletionMode
 public enum ValidationLogicalOperator
 {
     And = 0,
-    Or = 1
+    Or = 1,
+    AndAlso = 2,
+    OrElse = 3
 }
 
 public enum ColumnValidationPolicy
@@ -699,6 +701,26 @@ public sealed record ValidationRuleGroup
             LogicalOperator = ValidationLogicalOperator.And,
             ValidationPolicy = ColumnValidationPolicy.StopOnFirstError,
             EvaluationStrategy = ValidationEvaluationStrategy.ShortCircuit
+        };
+
+    public static ValidationRuleGroup CreateAndAlsoGroup(string columnName, params ValidationRule[] rules) =>
+        new()
+        {
+            ColumnName = columnName,
+            Rules = rules,
+            LogicalOperator = ValidationLogicalOperator.AndAlso,
+            ValidationPolicy = ColumnValidationPolicy.ValidateAll,
+            EvaluationStrategy = ValidationEvaluationStrategy.Sequential
+        };
+
+    public static ValidationRuleGroup CreateOrElseGroup(string columnName, params ValidationRule[] rules) =>
+        new()
+        {
+            ColumnName = columnName,
+            Rules = rules,
+            LogicalOperator = ValidationLogicalOperator.OrElse,
+            ValidationPolicy = ColumnValidationPolicy.ValidateAll,
+            EvaluationStrategy = ValidationEvaluationStrategy.Sequential
         };
 
     public static ValidationRuleGroup CreateHierarchicalGroup(

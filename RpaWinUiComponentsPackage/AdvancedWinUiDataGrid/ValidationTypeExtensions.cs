@@ -241,6 +241,8 @@ internal static class ValidationTypeExtensions
         {
             ValidationLogicalOperator.And => CoreEnums.ValidationLogicalOperator.And,
             ValidationLogicalOperator.Or => CoreEnums.ValidationLogicalOperator.Or,
+            ValidationLogicalOperator.AndAlso => CoreEnums.ValidationLogicalOperator.AndAlso,
+            ValidationLogicalOperator.OrElse => CoreEnums.ValidationLogicalOperator.OrElse,
             _ => CoreEnums.ValidationLogicalOperator.And
         };
     }
@@ -403,6 +405,8 @@ internal static class ValidationTypeExtensions
         {
             CoreEnums.ValidationLogicalOperator.And => ValidationLogicalOperator.And,
             CoreEnums.ValidationLogicalOperator.Or => ValidationLogicalOperator.Or,
+            CoreEnums.ValidationLogicalOperator.AndAlso => ValidationLogicalOperator.AndAlso,
+            CoreEnums.ValidationLogicalOperator.OrElse => ValidationLogicalOperator.OrElse,
             _ => ValidationLogicalOperator.And
         };
     }
