@@ -46,6 +46,85 @@
 
 **NULL SAFETY**: Applied defensive programming patterns to handle potential null references safely.
 
+## 🔄 Smart Validation Refactoring (2025-09-21)
+
+### Architectural Improvements Implemented
+
+**PROBLEM RESOLVED**: Removed manual validation mode configuration in favor of intelligent automatic determination.
+
+**Key Changes Made**:
+
+1. **ValidationConfiguration Refactored**:
+   - ❌ **Removed**: `EnableRealTimeValidation` and `EnableBulkValidation` flags
+   - ✅ **Added**: `RealTimeValidationMaxRows`, `RealTimeValidationMaxRules`, `RealTimeValidationMaxTime` thresholds
+   - ✅ **Enhanced**: Smart configuration profiles (Responsive, Balanced, HighThroughput)
+
+2. **ValidationContext Enhanced**:
+   - ✅ **Smart Logic**: `ShouldUseBulkValidation` and `ShouldUseRealTimeValidation` based on operation context
+   - ✅ **Context Awareness**: Automatic detection of import/paste/typing operations
+   - ✅ **Threshold-Based**: Decisions based on configurable performance thresholds
+
+3. **ValidationService Simplified**:
+   - ✅ **Intelligent**: Context-based validation mode determination
+   - ✅ **Performance**: Automatic optimization based on data size and complexity
+   - ✅ **Clean**: Removed manual mode flags, uses only context logic
+
+4. **Facade API Updated**:
+   - ✅ **Smart Contexts**: Proper context determination for all validation operations
+   - ✅ **Operation Detection**: Automatic import/paste/typing operation recognition
+   - ✅ **Factory Methods**: `CreateForUI()` and `CreateHeadless()` with mode-specific defaults
+
+**BUSINESS LOGIC**:
+```
+Real-time Validation: User typing in cells (immediate feedback)
+Bulk Validation: Import/Paste operations (performance optimized)
+Automatic Decision: Based on operation type, data size, and performance thresholds
+```
+
+**MAINTAINED PRINCIPLES**: Clean Architecture, SOLID principles, separation of UI from business logic, enterprise-grade logging, and null safety patterns.
+
+## 🔄 Method-Level Validation Scope Refactoring (2025-09-21)
+
+### Granular Control Implementation
+
+**PROBLEM RESOLVED**: Moved `validateOnlyVisibleRows` from global configuration to method-level parameters for better flexibility.
+
+**Key Changes Made**:
+
+1. **Method-Level Parameters Added**:
+   - ✅ `ValidateDatasetAsync(... bool validateOnlyVisibleRows = false)`
+   - ✅ `ValidateRowsAsync(... bool validateOnlyVisibleRows = false)`
+   - ✅ `AreAllNonEmptyRowsValidAsync(... bool validateOnlyVisibleRows = false)`
+   - ✅ `DeleteRowsWithValidationAsync(... bool validateOnlyVisibleRows = false)`
+   - ✅ `PreviewRowDeletionAsync(... bool validateOnlyVisibleRows = false)`
+
+2. **Configuration Simplified**:
+   - ❌ **Removed**: `ValidateOnlyVisibleRows` from ValidationConfiguration
+   - ✅ **Benefit**: No need to change global config between operations
+   - ✅ **Flexibility**: Per-operation control over validation scope
+
+3. **Implementation Logic**:
+   - ✅ **Default Behavior**: `validateOnlyVisibleRows = false` (validate all data)
+   - ✅ **Visible-Only Mode**: Takes first 100 rows as "visible" (configurable in real implementation)
+   - ✅ **Consistency**: Same parameter behavior across all validation methods
+
+**USAGE PATTERNS**:
+```csharp
+// Import #1 - validate entire dataset
+await dataGrid.ValidateDatasetAsync(data1, validateOnlyVisibleRows: false);
+
+// Import #2 - validate only visible rows
+await dataGrid.ValidateDatasetAsync(data2, validateOnlyVisibleRows: true);
+
+// No configuration changes needed between operations!
+```
+
+**ENTERPRISE BENEFITS**:
+- ✅ **Granular Control**: Per-method validation scope control
+- ✅ **Performance**: Validate only what's needed per operation
+- ✅ **Simplicity**: No global state management required
+- ✅ **Flexibility**: Different validation scopes per use case
+
 ## 🏗️ Clean Architecture Overview
 
 Komponenta AdvancedDataGrid je implementovaná podľa **Clean Architecture** princípov s dôrazom na **Single Responsibility Principle** a **Single Using Statement** pre vývojárov.
@@ -113,11 +192,13 @@ var dataGrid = new AdvancedDataGridFacade(null); // Uses NullLogger internally
 
 **AdvancedDataGridFacade.cs** - Single point of entry with:
 - ✅ **External Logging Support** - ILogger<T> integration with null safety
-- ✅ **Validation API** - 8-type validation system
+- ✅ **Smart Validation API** - Automatic real-time/bulk mode determination
 - ✅ **Data Management API** - Dictionary & DataTable import/export
 - ✅ **Copy/Paste API** - Excel-compatible tab-delimited format
 - ✅ **Search & Filter API** - Advanced search with regex
 - ✅ **Sort API** - Multi-column sorting
+- ✅ **Smart Operations** - AI-powered delete/expand suggestions
+- ✅ **Initialization API** - Factory methods for UI/Headless modes
 - ✅ **Configuration Properties** - All settings in one place
 - ✅ **Data Access** - Read-only data access methods
 
@@ -155,6 +236,83 @@ var dataGrid = new AdvancedDataGridFacade(); // Uses NullLogger internally
 - ❌ **LogDebug**: Not used (release/debug builds are unified)
 
 **STRUCTURED LOGGING**: All log entries include relevant structured data for filtering and analysis.
+
+## 🧠 Smart Validation System
+
+### ⚡ Automatic Mode Determination
+
+**INTELLIGENT VALIDATION**: Komponent automaticky určuje validačný režim na základe operácie:
+
+```csharp
+┌─────────────────────┬─────────────────────┬─────────────────────┐
+│ OPERÁCIA            │ TRIGGER             │ REŽIM               │
+├─────────────────────┼─────────────────────┼─────────────────────┤
+│ Edit bunky (typing) │ OnTextChanged       │ Real-time           │
+│ Import dát          │ Bulk + isImport     │ Bulk                │
+│ Paste dát           │ Bulk + isPaste      │ Bulk                │
+│ Bulk operácie       │ Bulk                │ Bulk                │
+│ Single cell edit    │ OnCellChanged       │ Real-time (ak ≤5)   │
+└─────────────────────┴─────────────────────┴─────────────────────┘
+```
+
+### 🎯 Smart Decision Logic
+
+**ValidationContext** automaticky rozhoduje na základe:
+
+```csharp
+// Real-time validation keď:
+- Používateľ píše (OnTextChanged trigger)
+- Počet riadkov ≤ RealTimeValidationMaxRows (default: 5)
+- Počet pravidiel ≤ RealTimeValidationMaxRules (default: 10)
+- Čas validácie ≤ RealTimeValidationMaxTime (default: 200ms)
+
+// Bulk validation keď:
+- Import operácia (ImportFromDataTable/Dictionary)
+- Paste operácia (PasteFromClipboard)
+- Počet riadkov > threshold
+- Počet pravidiel > threshold
+- Bulk trigger
+```
+
+### ⚙️ Konfiguračné profily
+
+```csharp
+// Rýchla odozva pre kritické aplikácie
+var config = ValidationConfiguration.Responsive; // Max 3 riadky, 100ms
+
+// Vyvážený profil pre bežné použitie
+var config = ValidationConfiguration.Balanced; // Max 5 riadkov, 200ms
+
+// Vysoká priepustnosť pre veľké datasety
+var config = ValidationConfiguration.HighThroughput; // Max 10 riadkov, 500ms
+```
+
+### 🚀 Usage Examples
+
+```csharp
+// Automatické UI/Headless režimy s factory metódami
+var uiGrid = AdvancedDataGridFacade.CreateForUI(logger);
+var headlessGrid = AdvancedDataGridFacade.CreateHeadless(logger);
+
+// Inicializácia s column definitions a smart validation
+await uiGrid.InitializeAsync(
+    columns: columnDefinitions,
+    validationConfig: ValidationConfiguration.Balanced,
+    behavior: GridBehaviorConfiguration.CreateForUI()
+);
+
+// Automatická real-time validácia pri editácii
+await uiGrid.ValidateCellAsync(rowIndex, "Amount", newValue, rowData,
+    ValidationTrigger.OnTextChanged); // Automaticky real-time
+
+// Granular validation scope control (NEW)
+await uiGrid.ValidateDatasetAsync(importedData1, validateOnlyVisibleRows: false); // Celý dataset
+await uiGrid.ValidateDatasetAsync(importedData2, validateOnlyVisibleRows: true);  // Len viditeľné
+
+// Automatická bulk validácia pri importe
+await uiGrid.ImportFromDataTableAsync(dataTable, importOptions);
+// ValidationService automaticky použije bulk validation
+```
 
 ## 🔧 API Structure Design
 

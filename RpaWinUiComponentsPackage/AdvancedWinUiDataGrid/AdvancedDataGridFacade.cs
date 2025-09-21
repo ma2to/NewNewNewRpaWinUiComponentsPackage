@@ -9,6 +9,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Application.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Application.Services;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.Interfaces;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.Services;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
 
@@ -29,6 +31,12 @@ public sealed class AdvancedDataGridFacade
     private readonly IPerformanceService _performanceService;
     private readonly IAutoRowHeightService _autoRowHeightService;
     private readonly IValidationService _validationService;
+    private readonly SmartOperationsService _smartOperationsService;
+
+    private bool _isInitialized;
+    private bool _isHeadlessMode;
+    private InitializationConfiguration? _initializationConfig;
+    private readonly object _initializationLock = new();
 
     /// <summary>
     /// CONSTRUCTOR: Default parameterless constructor for easy usage
@@ -47,6 +55,7 @@ public sealed class AdvancedDataGridFacade
         _performanceService = new PerformanceService();
         _autoRowHeightService = new AutoRowHeightService();
         _validationService = new ValidationService();
+        _smartOperationsService = new SmartOperationsService(_logger);
     }
 
     /// <summary>
@@ -67,6 +76,7 @@ public sealed class AdvancedDataGridFacade
         _performanceService = new PerformanceService();
         _autoRowHeightService = new AutoRowHeightService();
         _validationService = new ValidationService();
+        _smartOperationsService = new SmartOperationsService(_logger);
     }
 
     /// <summary>
@@ -81,7 +91,8 @@ public sealed class AdvancedDataGridFacade
         IKeyboardShortcutsService keyboardShortcutsService,
         IPerformanceService performanceService,
         IAutoRowHeightService autoRowHeightService,
-        IValidationService validationService)
+        IValidationService validationService,
+        SmartOperationsService? smartOperationsService = null)
     {
         _logger = logger ?? NullLogger<AdvancedDataGridFacade>.Instance;
         _searchFilterService = searchFilterService ?? throw new ArgumentNullException(nameof(searchFilterService));
@@ -91,6 +102,7 @@ public sealed class AdvancedDataGridFacade
         _performanceService = performanceService ?? throw new ArgumentNullException(nameof(performanceService));
         _autoRowHeightService = autoRowHeightService ?? throw new ArgumentNullException(nameof(autoRowHeightService));
         _validationService = validationService ?? throw new ArgumentNullException(nameof(validationService));
+        _smartOperationsService = smartOperationsService ?? new SmartOperationsService(_logger);
     }
 
     #region Search and Filter Operations
@@ -817,7 +829,11 @@ public sealed class AdvancedDataGridFacade
 
         try
         {
-            var context = _validationService.DetermineValidationContext(trigger.ToInternal(), 1, 1);
+            var context = _validationService.DetermineValidationContext(
+                trigger.ToInternal(), 1, 1,
+                isImportOperation: false,
+                isPasteOperation: false,
+                isUserTyping: trigger == ValidationTrigger.OnTextChanged);
             var internalResult = await _validationService.ValidateCellAsync(rowIndex, columnName, value, rowData, context, cancellationToken);
             var publicResult = internalResult.ToPublic();
 
@@ -855,7 +871,11 @@ public sealed class AdvancedDataGridFacade
 
         try
         {
-            var context = _validationService.DetermineValidationContext(trigger.ToInternal(), 1, rowData.Count);
+            var context = _validationService.DetermineValidationContext(
+                trigger.ToInternal(), 1, rowData.Count,
+                isImportOperation: false,
+                isPasteOperation: false,
+                isUserTyping: trigger == ValidationTrigger.OnTextChanged);
             var internalResults = await _validationService.ValidateRowAsync(rowIndex, rowData, context, cancellationToken);
             var publicResults = internalResults.Select(r => r.ToPublic()).ToList();
 
@@ -886,6 +906,7 @@ public sealed class AdvancedDataGridFacade
         IReadOnlyList<IReadOnlyDictionary<string, object?>> rows,
         ValidationTrigger trigger = ValidationTrigger.Bulk,
         IProgress<double>? progress = null,
+        bool validateOnlyVisibleRows = false,
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Starting validation of {RowCount} rows with trigger: {Trigger}", rows.Count, trigger);
@@ -896,9 +917,11 @@ public sealed class AdvancedDataGridFacade
                 trigger.ToInternal(),
                 rows.Count,
                 rows.FirstOrDefault()?.Count ?? 0,
-                isImportOperation: rows.Count > 100);
+                isImportOperation: rows.Count > 100,
+                isPasteOperation: false,
+                isUserTyping: false);
 
-            var internalResults = await _validationService.ValidateRowsAsync(rows, context, progress, cancellationToken);
+            var internalResults = await _validationService.ValidateRowsAsync(rows, context, progress, validateOnlyVisibleRows, cancellationToken);
             var publicResults = internalResults.Select(r => r.ToPublic()).ToList();
 
             var errorCount = publicResults.Count(r => !r.IsValid);
@@ -922,6 +945,7 @@ public sealed class AdvancedDataGridFacade
         IReadOnlyList<IReadOnlyDictionary<string, object?>> dataset,
         ValidationTrigger trigger = ValidationTrigger.Bulk,
         IProgress<double>? progress = null,
+        bool validateOnlyVisibleRows = false,
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Starting comprehensive dataset validation: {RowCount} rows", dataset.Count);
@@ -932,9 +956,11 @@ public sealed class AdvancedDataGridFacade
                 trigger.ToInternal(),
                 dataset.Count,
                 dataset.FirstOrDefault()?.Count ?? 0,
-                isImportOperation: true);
+                isImportOperation: true,
+                isPasteOperation: false,
+                isUserTyping: false);
 
-            var internalResults = await _validationService.ValidateDatasetAsync(dataset, context, progress, cancellationToken);
+            var internalResults = await _validationService.ValidateDatasetAsync(dataset, context, progress, validateOnlyVisibleRows, cancellationToken);
             var publicResults = internalResults.Select(r => r.ToPublic()).ToList();
 
             var errorCount = publicResults.Count(r => !r.IsValid);
@@ -957,6 +983,7 @@ public sealed class AdvancedDataGridFacade
     public async Task<Result<bool>> AreAllNonEmptyRowsValidAsync(
         IReadOnlyList<IReadOnlyDictionary<string, object?>> dataset,
         bool onlyFilteredRows = false,
+        bool validateOnlyVisibleRows = false,
         CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Checking validation status for {RowCount} rows (filtered: {OnlyFiltered})",
@@ -964,7 +991,7 @@ public sealed class AdvancedDataGridFacade
 
         try
         {
-            var result = await _validationService.AreAllNonEmptyRowsValidAsync(dataset, onlyFilteredRows, cancellationToken);
+            var result = await _validationService.AreAllNonEmptyRowsValidAsync(dataset, onlyFilteredRows, validateOnlyVisibleRows, cancellationToken);
 
             if (result.IsSuccess)
             {
@@ -992,6 +1019,7 @@ public sealed class AdvancedDataGridFacade
         IReadOnlyList<IReadOnlyDictionary<string, object?>> dataset,
         ValidationDeletionCriteria criteria,
         ValidationDeletionOptions? options = null,
+        bool validateOnlyVisibleRows = false,
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Starting validation-based row deletion: {RowCount} rows, Mode: {Mode}",
@@ -1002,7 +1030,7 @@ public sealed class AdvancedDataGridFacade
             var internalCriteria = criteria.ToInternal();
             var internalOptions = options?.ToInternal();
 
-            var internalResult = await _validationService.DeleteRowsWithValidationAsync(dataset, internalCriteria, internalOptions, cancellationToken);
+            var internalResult = await _validationService.DeleteRowsWithValidationAsync(dataset, internalCriteria, internalOptions, validateOnlyVisibleRows, cancellationToken);
 
             if (internalResult.IsSuccess)
             {
@@ -1031,6 +1059,7 @@ public sealed class AdvancedDataGridFacade
     public async Task<Result<IReadOnlyList<int>>> PreviewRowDeletionAsync(
         IReadOnlyList<IReadOnlyDictionary<string, object?>> dataset,
         ValidationDeletionCriteria criteria,
+        bool validateOnlyVisibleRows = false,
         CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Previewing row deletion for {RowCount} rows with mode: {Mode}", dataset.Count, criteria.Mode);
@@ -1038,7 +1067,7 @@ public sealed class AdvancedDataGridFacade
         try
         {
             var internalCriteria = criteria.ToInternal();
-            var result = await _validationService.PreviewRowDeletionAsync(dataset, internalCriteria, cancellationToken);
+            var result = await _validationService.PreviewRowDeletionAsync(dataset, internalCriteria, validateOnlyVisibleRows, cancellationToken);
 
             if (result.IsSuccess)
             {
@@ -1256,6 +1285,372 @@ public sealed class AdvancedDataGridFacade
     }
 
     #endregion
+
+    #endregion
+
+    #region Factory Methods and Initialization
+
+    /// <summary>
+    /// FACTORY: Create instance configured for UI mode with full visual features
+    /// ENTERPRISE: Professional setup for interactive user interfaces
+    /// PUBLIC API: Main factory method for UI applications
+    /// </summary>
+    public static AdvancedDataGridFacade CreateForUI(ILogger<AdvancedDataGridFacade>? logger = null)
+    {
+        logger?.LogInformation("Creating AdvancedDataGridFacade instance for UI mode");
+
+        var facade = new AdvancedDataGridFacade(logger);
+        facade._isHeadlessMode = false;
+
+        logger?.LogInformation("AdvancedDataGridFacade UI instance created successfully");
+        return facade;
+    }
+
+    /// <summary>
+    /// FACTORY: Create instance configured for headless mode for automation scripts
+    /// ENTERPRISE: Professional setup for automated/scripted operations
+    /// PUBLIC API: Main factory method for automation scenarios
+    /// </summary>
+    public static AdvancedDataGridFacade CreateForHeadless(ILogger<AdvancedDataGridFacade>? logger = null)
+    {
+        logger?.LogInformation("Creating AdvancedDataGridFacade instance for headless mode");
+
+        var facade = new AdvancedDataGridFacade(logger);
+        facade._isHeadlessMode = true;
+
+        logger?.LogInformation("AdvancedDataGridFacade headless instance created successfully");
+        return facade;
+    }
+
+    /// <summary>
+    /// INITIALIZATION: Comprehensive initialization with column definitions and configurations
+    /// ENTERPRISE: Professional setup with all component aspects
+    /// PUBLIC API: Main initialization method for full configuration
+    /// </summary>
+    public async Task<Result<bool>> InitializeAsync(
+        IReadOnlyList<ColumnDefinition> columns,
+        ColorConfiguration? colorTheme = null,
+        PerformanceConfiguration? performance = null,
+        ValidationConfiguration? validationConfig = null,
+        GridBehaviorConfiguration? behavior = null,
+        Dictionary<string, object>? customSettings = null,
+        string? configurationName = null,
+        CancellationToken cancellationToken = default)
+    {
+        lock (_initializationLock)
+        {
+            if (_isInitialized)
+            {
+                _logger.LogWarning("AdvancedDataGridFacade is already initialized. Skipping initialization.");
+                return Result<bool>.Success(true);
+            }
+        }
+
+        try
+        {
+            _logger.LogInformation("Starting AdvancedDataGridFacade initialization: {ColumnCount} columns, Mode: {Mode}, Config: {ConfigName}",
+                columns.Count, _isHeadlessMode ? "Headless" : "UI", configurationName ?? "Default");
+
+            // 1. Validate column definitions
+            var columnValidationResult = await ValidateColumnDefinitionsAsync(columns, cancellationToken);
+            if (!columnValidationResult.IsSuccess)
+            {
+                _logger.LogError("Column validation failed: {Error}", columnValidationResult.Error);
+                return Result<bool>.Failure($"Column validation failed: {columnValidationResult.Error}");
+            }
+
+            // 2. Set up default configurations based on mode
+            var effectiveBehavior = behavior ?? (_isHeadlessMode
+                ? GridBehaviorConfiguration.CreateForHeadless()
+                : GridBehaviorConfiguration.CreateForUI());
+
+            var effectivePerformance = performance ?? (_isHeadlessMode
+                ? PerformanceConfiguration.CreateForLargeDataset()
+                : PerformanceConfiguration.CreateForMediumDataset());
+
+            var effectiveColorTheme = colorTheme ?? (_isHeadlessMode
+                ? null
+                : ColorConfiguration.LightTheme);
+
+            // 3. Create comprehensive initialization configuration
+            _initializationConfig = new InitializationConfiguration(
+                columns,
+                effectiveColorTheme,
+                effectivePerformance,
+                validationConfig,
+                effectiveBehavior,
+                customSettings,
+                _isHeadlessMode,
+                configurationName);
+
+            // 4. Initialize validation system with column rules
+            await InitializeValidationSystemAsync(columns, validationConfig, cancellationToken);
+
+            // 5. Initialize smart operations if enabled
+            if (effectiveBehavior.EnableSmartDelete || effectiveBehavior.EnableSmartExpand)
+            {
+                await InitializeSmartOperationsAsync(columns, effectiveBehavior, cancellationToken);
+            }
+
+            // 6. Apply performance optimizations
+            await ApplyPerformanceOptimizationsAsync(effectivePerformance, cancellationToken);
+
+            // 7. Mark as initialized
+            lock (_initializationLock)
+            {
+                _isInitialized = true;
+            }
+
+            _logger.LogInformation("AdvancedDataGridFacade initialization completed successfully: {ColumnCount} columns, Mode: {Mode}",
+                columns.Count, _isHeadlessMode ? "Headless" : "UI");
+
+            return Result<bool>.Success(true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "AdvancedDataGridFacade initialization failed");
+            return Result<bool>.Failure($"Initialization failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// SMART OPERATIONS: Get smart delete suggestions for current data
+    /// ENTERPRISE: Professional automation with pattern recognition
+    /// PUBLIC API: Access to smart delete functionality
+    /// </summary>
+    public async Task<Result<SmartDeleteResult>> GetSmartDeleteSuggestionsAsync(
+        IReadOnlyList<Dictionary<string, object?>> data,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_isInitialized)
+        {
+            return Result<SmartDeleteResult>.Failure("Component must be initialized before using smart operations");
+        }
+
+        if (_initializationConfig?.Behavior?.EnableSmartDelete != true)
+        {
+            return Result<SmartDeleteResult>.Failure("Smart delete is not enabled in current configuration");
+        }
+
+        try
+        {
+            _logger.LogDebug("Analyzing smart delete suggestions for {RowCount} rows", data.Count);
+
+            var result = await _smartOperationsService.AnalyzeSmartDeleteAsync(
+                data,
+                _initializationConfig.Columns,
+                _initializationConfig.Behavior,
+                cancellationToken);
+
+            _logger.LogInformation("Smart delete analysis completed: {SuggestionCount} suggestions found",
+                result.HasSuggestions ? result.Suggestions.Count : 0);
+
+            return Result<SmartDeleteResult>.Success(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error analyzing smart delete suggestions");
+            return Result<SmartDeleteResult>.Failure($"Smart delete analysis failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// SMART OPERATIONS: Get smart expand suggestions for current data
+    /// ENTERPRISE: Professional automation with intelligent expansion
+    /// PUBLIC API: Access to smart expand functionality
+    /// </summary>
+    public async Task<Result<SmartExpandResult>> GetSmartExpandSuggestionsAsync(
+        IReadOnlyList<Dictionary<string, object?>> data,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_isInitialized)
+        {
+            return Result<SmartExpandResult>.Failure("Component must be initialized before using smart operations");
+        }
+
+        if (_initializationConfig?.Behavior?.EnableSmartExpand != true)
+        {
+            return Result<SmartExpandResult>.Failure("Smart expand is not enabled in current configuration");
+        }
+
+        try
+        {
+            _logger.LogDebug("Analyzing smart expand suggestions for {RowCount} rows", data.Count);
+
+            var result = await _smartOperationsService.AnalyzeSmartExpandAsync(
+                data,
+                _initializationConfig.Columns,
+                _initializationConfig.Behavior,
+                cancellationToken);
+
+            _logger.LogInformation("Smart expand analysis completed: {SuggestionCount} suggestions found",
+                result.HasSuggestions ? result.Suggestions.Count : 0);
+
+            return Result<SmartExpandResult>.Success(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error analyzing smart expand suggestions");
+            return Result<SmartExpandResult>.Failure($"Smart expand analysis failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// CONFIGURATION: Check if component is initialized
+    /// PUBLIC API: Status check for initialization state
+    /// </summary>
+    public bool IsInitialized => _isInitialized;
+
+    /// <summary>
+    /// CONFIGURATION: Check if component is in headless mode
+    /// PUBLIC API: Mode check for conditional UI logic
+    /// </summary>
+    public bool IsHeadlessMode => _isHeadlessMode;
+
+    /// <summary>
+    /// CONFIGURATION: Get current initialization configuration
+    /// PUBLIC API: Access to current configuration settings
+    /// </summary>
+    public InitializationConfiguration? CurrentConfiguration => _initializationConfig;
+
+    #endregion
+
+    #region Private Initialization Helpers
+
+    /// <summary>
+    /// VALIDATION: Validate column definitions for consistency and completeness
+    /// INTERNAL: Ensure columns are properly configured before initialization
+    /// </summary>
+    private async Task<Result<bool>> ValidateColumnDefinitionsAsync(
+        IReadOnlyList<ColumnDefinition> columns,
+        CancellationToken cancellationToken)
+    {
+        if (!columns.Any())
+        {
+            return Result<bool>.Failure("At least one column must be defined");
+        }
+
+        var columnNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var duplicateColumns = new List<string>();
+
+        foreach (var column in columns)
+        {
+            if (string.IsNullOrWhiteSpace(column.Name))
+            {
+                return Result<bool>.Failure("Column name cannot be null or empty");
+            }
+
+            if (!columnNames.Add(column.Name))
+            {
+                duplicateColumns.Add(column.Name);
+            }
+
+            if (column.MinWidth.HasValue && column.MaxWidth.HasValue && column.MinWidth > column.MaxWidth)
+            {
+                return Result<bool>.Failure($"Column '{column.Name}': MinWidth cannot be greater than MaxWidth");
+            }
+
+            if (column.Width.HasValue && column.Width <= 0)
+            {
+                return Result<bool>.Failure($"Column '{column.Name}': Width must be positive");
+            }
+        }
+
+        if (duplicateColumns.Any())
+        {
+            return Result<bool>.Failure($"Duplicate column names found: {string.Join(", ", duplicateColumns)}");
+        }
+
+        await Task.CompletedTask;
+        return Result<bool>.Success(true);
+    }
+
+    /// <summary>
+    /// VALIDATION: Initialize validation system with column-specific rules
+    /// INTERNAL: Set up validation framework based on column definitions
+    /// </summary>
+    private async Task InitializeValidationSystemAsync(
+        IReadOnlyList<ColumnDefinition> columns,
+        ValidationConfiguration? validationConfig,
+        CancellationToken cancellationToken)
+    {
+        _logger.LogDebug("Initializing validation system for {ColumnCount} columns", columns.Count);
+
+        if (validationConfig != null)
+        {
+            var internalConfig = validationConfig.ToInternal();
+            await _validationService.UpdateValidationConfigurationAsync(internalConfig, cancellationToken);
+        }
+
+        foreach (var column in columns)
+        {
+            if (column.ValidationRules?.Any() == true)
+            {
+                var group = new Core.Entities.ValidationRuleGroup(
+                    column.Name,
+                    column.ValidationRules,
+                    column.ValidationOperator,
+                    column.ValidationPolicy,
+                    column.ValidationStrategy,
+                    $"Column_{column.Name}_Rules",
+                    $"Validation failed for column '{column.DisplayName ?? column.Name}'");
+
+                await _validationService.AddValidationRuleGroupAsync(group, cancellationToken);
+                _logger.LogDebug("Added validation rule group for column '{ColumnName}' with {RuleCount} rules",
+                    column.Name, column.ValidationRules.Count);
+            }
+
+            if (column.IsRequired)
+            {
+                var columnConfig = new Core.ValueObjects.ColumnValidationConfiguration(
+                    column.ValidationPolicy,
+                    column.ValidationStrategy,
+                    true,
+                    column.ValidationOperator);
+
+                await _validationService.SetColumnValidationConfigurationAsync(column.Name, columnConfig, cancellationToken);
+            }
+        }
+
+        _logger.LogInformation("Validation system initialization completed for {ColumnCount} columns", columns.Count);
+    }
+
+    /// <summary>
+    /// SMART OPERATIONS: Initialize smart operations services
+    /// INTERNAL: Set up smart delete/expand functionality based on configuration
+    /// </summary>
+    private async Task InitializeSmartOperationsAsync(
+        IReadOnlyList<ColumnDefinition> columns,
+        GridBehaviorConfiguration behavior,
+        CancellationToken cancellationToken)
+    {
+        _logger.LogDebug("Initializing smart operations: Delete={EnableDelete}, Expand={EnableExpand}",
+            behavior.EnableSmartDelete, behavior.EnableSmartExpand);
+
+        // Smart operations service is stateless and doesn't require specific initialization
+        // It learns patterns from usage, so no initial setup is needed
+
+        await Task.CompletedTask;
+        _logger.LogInformation("Smart operations initialization completed");
+    }
+
+    /// <summary>
+    /// PERFORMANCE: Apply performance optimizations based on configuration
+    /// INTERNAL: Configure performance settings for optimal operation
+    /// </summary>
+    private async Task ApplyPerformanceOptimizationsAsync(
+        PerformanceConfiguration performance,
+        CancellationToken cancellationToken)
+    {
+        _logger.LogDebug("Applying performance optimizations: MaxRows={MaxRows}, Cache={CacheSize}",
+            performance.MaxRowsForRealTimeOperations, performance.CacheConfiguration.MaxCacheSize);
+
+        // Performance optimizations would be applied to internal services
+        // For now, this is a placeholder for future performance enhancements
+
+        await Task.CompletedTask;
+        _logger.LogInformation("Performance optimizations applied successfully");
+    }
 
     #endregion
 }

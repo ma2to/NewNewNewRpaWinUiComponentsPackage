@@ -106,6 +106,7 @@ internal interface IValidationService
         IReadOnlyList<IReadOnlyDictionary<string, object?>> rows,
         ValidationContext? context = null,
         IProgress<double>? progress = null,
+        bool validateOnlyVisibleRows = false,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -116,6 +117,7 @@ internal interface IValidationService
         IReadOnlyList<IReadOnlyDictionary<string, object?>> dataset,
         ValidationContext? context = null,
         IProgress<double>? progress = null,
+        bool validateOnlyVisibleRows = false,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -125,6 +127,7 @@ internal interface IValidationService
     Task<Result<bool>> AreAllNonEmptyRowsValidAsync(
         IReadOnlyList<IReadOnlyDictionary<string, object?>> dataset,
         bool onlyFilteredRows = false,
+        bool validateOnlyVisibleRows = false,
         CancellationToken cancellationToken = default);
 
     #endregion
@@ -167,6 +170,7 @@ internal interface IValidationService
         IReadOnlyList<IReadOnlyDictionary<string, object?>> dataset,
         ValidationDeletionCriteria criteria,
         ValidationDeletionOptions? options = null,
+        bool validateOnlyVisibleRows = false,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -176,6 +180,7 @@ internal interface IValidationService
     Task<Result<IReadOnlyList<int>>> PreviewRowDeletionAsync(
         IReadOnlyList<IReadOnlyDictionary<string, object?>> dataset,
         ValidationDeletionCriteria criteria,
+        bool validateOnlyVisibleRows = false,
         CancellationToken cancellationToken = default);
 
     #endregion

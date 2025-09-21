@@ -777,46 +777,59 @@ public sealed record ColumnValidationConfiguration
 }
 
 // Enhanced Validation Configuration
+/// <summary>
+/// PUBLIC API: Validation configuration with automatic mode determination
+/// SMART: Real-time vs Bulk validation automatically determined by operation context
+/// ENTERPRISE: Professional validation configuration for production use
+/// </summary>
 public sealed record ValidationConfiguration
 {
     public bool EnableValidation { get; init; } = true;
     public ValidationTrigger DefaultTrigger { get; init; } = ValidationTrigger.OnCellChanged;
     public TimeSpan DefaultTimeout { get; init; } = TimeSpan.FromSeconds(2);
-    public bool EnableRealTimeValidation { get; init; } = true;
-    public bool EnableBulkValidation { get; init; } = true;
     public int MaxConcurrentValidations { get; init; } = 10;
     public bool MakeValidateAllStopOnFirstError { get; init; } = false;
-    public bool ValidateOnlyVisibleRows { get; init; } = false;
 
-    // New group validation properties
+    // Smart validation thresholds for automatic mode determination
+    public int RealTimeValidationMaxRows { get; init; } = 5;
+    public int RealTimeValidationMaxRules { get; init; } = 10;
+    public TimeSpan RealTimeValidationMaxTime { get; init; } = TimeSpan.FromMilliseconds(200);
+
+    // Group validation properties
     public ColumnValidationPolicy DefaultColumnPolicy { get; init; } = ColumnValidationPolicy.ValidateAll;
     public ValidationEvaluationStrategy DefaultEvaluationStrategy { get; init; } = ValidationEvaluationStrategy.Sequential;
     public bool EnableGroupValidation { get; init; } = true;
     public IReadOnlyDictionary<string, ColumnValidationConfiguration>? ColumnSpecificConfigurations { get; init; }
 
     public static ValidationConfiguration Default => new();
-    public static ValidationConfiguration RealTime => new()
+
+    public static ValidationConfiguration Responsive => new()
     {
-        EnableRealTimeValidation = true,
         DefaultTrigger = ValidationTrigger.OnTextChanged,
-        EnableBulkValidation = false,
+        RealTimeValidationMaxRows = 3,
+        RealTimeValidationMaxRules = 5,
+        RealTimeValidationMaxTime = TimeSpan.FromMilliseconds(100),
         DefaultEvaluationStrategy = ValidationEvaluationStrategy.ShortCircuit
     };
-    public static ValidationConfiguration Bulk => new()
+
+    public static ValidationConfiguration Balanced => new()
     {
-        EnableRealTimeValidation = false,
-        DefaultTrigger = ValidationTrigger.Bulk,
-        EnableBulkValidation = true,
-        DefaultEvaluationStrategy = ValidationEvaluationStrategy.Parallel
+        DefaultTrigger = ValidationTrigger.OnCellChanged,
+        RealTimeValidationMaxRows = 5,
+        RealTimeValidationMaxRules = 10,
+        RealTimeValidationMaxTime = TimeSpan.FromMilliseconds(200),
+        DefaultEvaluationStrategy = ValidationEvaluationStrategy.Sequential
     };
-    public static ValidationConfiguration HighPerformance => new()
+
+    public static ValidationConfiguration HighThroughput => new()
     {
-        EnableRealTimeValidation = false,
         DefaultTrigger = ValidationTrigger.OnCellExit,
         MaxConcurrentValidations = 20,
-        ValidateOnlyVisibleRows = true,
+        RealTimeValidationMaxRows = 10,
+        RealTimeValidationMaxRules = 20,
+        RealTimeValidationMaxTime = TimeSpan.FromMilliseconds(500),
         DefaultColumnPolicy = ColumnValidationPolicy.StopOnFirstError,
-        DefaultEvaluationStrategy = ValidationEvaluationStrategy.ShortCircuit
+        DefaultEvaluationStrategy = ValidationEvaluationStrategy.Parallel
     };
 }
 
@@ -888,3 +901,187 @@ public sealed record ValidationBasedDeleteResult
             OperationDuration = duration
         };
 }
+
+#region Initialization API Types
+
+/// <summary>
+/// PUBLIC API: Column definition for component initialization
+/// ENTERPRISE: Professional column configuration with validation and behavior
+/// </summary>
+public sealed record ColumnDefinition
+{
+    public string Name { get; init; } = string.Empty;
+    public string? DisplayName { get; init; }
+    public Type DataType { get; init; } = typeof(string);
+    public bool IsVisible { get; init; } = true;
+    public bool IsReadOnly { get; init; } = false;
+    public bool IsSortable { get; init; } = true;
+    public bool IsFilterable { get; init; } = true;
+    public bool IsResizable { get; init; } = true;
+    public double? Width { get; init; }
+    public double? MinWidth { get; init; }
+    public double? MaxWidth { get; init; }
+    public string? Format { get; init; }
+    public object? DefaultValue { get; init; }
+    public IReadOnlyList<ValidationRule>? ValidationRules { get; init; }
+    public ValidationLogicalOperator ValidationOperator { get; init; } = ValidationLogicalOperator.And;
+    public ColumnValidationPolicy ValidationPolicy { get; init; } = ColumnValidationPolicy.ValidateAll;
+    public ValidationEvaluationStrategy ValidationStrategy { get; init; } = ValidationEvaluationStrategy.Sequential;
+    public Dictionary<string, object>? CustomProperties { get; init; }
+    public bool IsRequired { get; init; } = false;
+    public string? Tooltip { get; init; }
+    public string? PlaceholderText { get; init; }
+
+    public static ColumnDefinition CreateText(string name, string? displayName = null, bool isRequired = false) =>
+        new() { Name = name, DataType = typeof(string), DisplayName = displayName, IsRequired = isRequired };
+
+    public static ColumnDefinition CreateNumber(string name, string? displayName = null, string? format = null, bool isRequired = false) =>
+        new() { Name = name, DataType = typeof(decimal), DisplayName = displayName, Format = format, IsRequired = isRequired };
+
+    public static ColumnDefinition CreateDate(string name, string? displayName = null, string? format = null, bool isRequired = false) =>
+        new() { Name = name, DataType = typeof(DateTime), DisplayName = displayName, Format = format ?? "yyyy-MM-dd", IsRequired = isRequired };
+
+    public static ColumnDefinition CreateBoolean(string name, string? displayName = null, bool defaultValue = false) =>
+        new() { Name = name, DataType = typeof(bool), DisplayName = displayName, DefaultValue = defaultValue };
+
+    public static ColumnDefinition CreateReadOnly(string name, Type dataType, string? displayName = null) =>
+        new() { Name = name, DataType = dataType, DisplayName = displayName, IsReadOnly = true };
+
+    public static ColumnDefinition CreateHidden(string name, Type dataType) =>
+        new() { Name = name, DataType = dataType, IsVisible = false };
+
+    public static ColumnDefinition CreateWithValidation(
+        string name,
+        Type dataType,
+        IReadOnlyList<ValidationRule> validationRules,
+        ValidationLogicalOperator validationOperator = ValidationLogicalOperator.And,
+        string? displayName = null) =>
+        new() { Name = name, DataType = dataType, DisplayName = displayName, ValidationRules = validationRules, ValidationOperator = validationOperator };
+}
+
+/// <summary>
+/// PUBLIC API: Grid behavior configuration
+/// ENTERPRISE: Professional behavior control with smart features
+/// </summary>
+public sealed record GridBehaviorConfiguration
+{
+    public bool EnableSmartDelete { get; init; } = true;
+    public bool EnableSmartExpand { get; init; } = true;
+    public bool EnableAutoSave { get; init; } = false;
+    public bool EnableInlineEditing { get; init; } = true;
+    public bool EnableBulkOperations { get; init; } = true;
+    public bool EnableKeyboardNavigation { get; init; } = true;
+    public bool EnableRowSelection { get; init; } = true;
+    public bool EnableMultiSelect { get; init; } = false;
+    public bool EnableColumnReordering { get; init; } = true;
+    public bool EnableExport { get; init; } = true;
+    public TimeSpan AutoSaveInterval { get; init; } = TimeSpan.FromMinutes(5);
+    public int MaxRowsForSmartOperations { get; init; } = 10000;
+    public Dictionary<string, object>? CustomBehaviors { get; init; }
+
+    public static GridBehaviorConfiguration CreateForUI() =>
+        new() { EnableSmartDelete = true, EnableSmartExpand = true, EnableInlineEditing = true, EnableBulkOperations = true };
+
+    public static GridBehaviorConfiguration CreateForHeadless() =>
+        new() { EnableSmartDelete = true, EnableSmartExpand = true, EnableInlineEditing = false, EnableBulkOperations = true,
+                EnableKeyboardNavigation = false, EnableColumnReordering = false };
+
+    public static GridBehaviorConfiguration CreateReadOnly() =>
+        new() { EnableSmartDelete = false, EnableSmartExpand = true, EnableInlineEditing = false, EnableBulkOperations = false,
+                EnableRowSelection = true, EnableMultiSelect = true };
+}
+
+/// <summary>
+/// PUBLIC API: Smart delete result with suggestions
+/// ENTERPRISE: Professional automation results
+/// </summary>
+public sealed record SmartDeleteResult
+{
+    public bool HasSuggestions { get; init; }
+    public bool IsError { get; init; }
+    public IReadOnlyList<SmartDeleteSuggestion> Suggestions { get; init; } = Array.Empty<SmartDeleteSuggestion>();
+    public string? ErrorMessage { get; init; }
+    public DateTime AnalyzedAt { get; init; } = DateTime.UtcNow;
+}
+
+/// <summary>
+/// PUBLIC API: Individual smart delete suggestion
+/// ENTERPRISE: Professional suggestion with reasoning
+/// </summary>
+public sealed record SmartDeleteSuggestion
+{
+    public string Title { get; init; } = string.Empty;
+    public string Description { get; init; } = string.Empty;
+    public IReadOnlyList<int> RowIndexes { get; init; } = Array.Empty<int>();
+    public SmartDeleteReason Reason { get; init; }
+    public float Confidence { get; init; }
+    public bool IsAutoApplicable => Confidence >= 0.90f;
+}
+
+/// <summary>
+/// PUBLIC API: Smart expand result with suggestions
+/// ENTERPRISE: Professional expansion results
+/// </summary>
+public sealed record SmartExpandResult
+{
+    public bool HasSuggestions { get; init; }
+    public bool IsError { get; init; }
+    public IReadOnlyList<SmartExpandSuggestion> Suggestions { get; init; } = Array.Empty<SmartExpandSuggestion>();
+    public string? ErrorMessage { get; init; }
+    public DateTime AnalyzedAt { get; init; } = DateTime.UtcNow;
+}
+
+/// <summary>
+/// PUBLIC API: Individual smart expand suggestion
+/// ENTERPRISE: Professional expansion suggestion
+/// </summary>
+public sealed record SmartExpandSuggestion
+{
+    public string Title { get; init; } = string.Empty;
+    public string Description { get; init; } = string.Empty;
+    public object? SuggestionData { get; init; }
+    public SmartExpandReason Reason { get; init; }
+    public float Confidence { get; init; }
+    public bool IsAutoApplicable => Confidence >= 0.85f;
+}
+
+/// <summary>
+/// PUBLIC API: Smart delete reasons
+/// ENTERPRISE: Professional categorization
+/// </summary>
+public enum SmartDeleteReason
+{
+    Duplicates,
+    EmptyData,
+    DataOutliers,
+    PatternViolation,
+    UserPattern,
+    ValidationFailure
+}
+
+/// <summary>
+/// PUBLIC API: Smart expand reasons
+/// ENTERPRISE: Professional categorization
+/// </summary>
+public enum SmartExpandReason
+{
+    MissingValues,
+    SequenceCompletion,
+    DerivedFields,
+    DataEnrichment,
+    PatternCompletion,
+    RelatedData
+}
+
+/// <summary>
+/// PUBLIC API: Evaluation strategies for validation
+/// ENTERPRISE: Professional evaluation control
+/// </summary>
+public enum ValidationEvaluationStrategy
+{
+    Sequential = 0,
+    Parallel = 1,
+    ShortCircuit = 2
+}
+
+#endregion

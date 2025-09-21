@@ -163,11 +163,17 @@ internal static class ValidationTypeExtensions
             publicConfig.EnableValidation,
             publicConfig.DefaultTrigger.ToInternal(),
             publicConfig.DefaultTimeout,
-            publicConfig.EnableRealTimeValidation,
-            publicConfig.EnableBulkValidation,
             publicConfig.MaxConcurrentValidations,
             publicConfig.MakeValidateAllStopOnFirstError,
-            publicConfig.ValidateOnlyVisibleRows);
+            publicConfig.RealTimeValidationMaxRows,
+            publicConfig.RealTimeValidationMaxRules,
+            publicConfig.RealTimeValidationMaxTime,
+            publicConfig.DefaultColumnPolicy.ToInternal(),
+            publicConfig.DefaultEvaluationStrategy.ToInternal(),
+            publicConfig.EnableGroupValidation,
+            publicConfig.ColumnSpecificConfigurations?.ToDictionary(
+                kvp => kvp.Key,
+                kvp => kvp.Value.ToInternal()));
     }
 
     /// <summary>Map public ValidationDeletionCriteria to internal ValidationDeletionCriteria</summary>
@@ -348,11 +354,17 @@ internal static class ValidationTypeExtensions
             EnableValidation = internalConfig.EnableValidation,
             DefaultTrigger = internalConfig.DefaultTrigger.ToPublic(),
             DefaultTimeout = internalConfig.DefaultTimeout,
-            EnableRealTimeValidation = internalConfig.EnableRealTimeValidation,
-            EnableBulkValidation = internalConfig.EnableBulkValidation,
             MaxConcurrentValidations = internalConfig.MaxConcurrentValidations,
             MakeValidateAllStopOnFirstError = internalConfig.MakeValidateAllStopOnFirstError,
-            ValidateOnlyVisibleRows = internalConfig.ValidateOnlyVisibleRows
+            RealTimeValidationMaxRows = internalConfig.RealTimeValidationMaxRows,
+            RealTimeValidationMaxRules = internalConfig.RealTimeValidationMaxRules,
+            RealTimeValidationMaxTime = internalConfig.RealTimeValidationMaxTime,
+            DefaultColumnPolicy = internalConfig.DefaultColumnPolicy.ToPublic(),
+            DefaultEvaluationStrategy = internalConfig.DefaultEvaluationStrategy.ToPublic(),
+            EnableGroupValidation = internalConfig.EnableGroupValidation,
+            ColumnSpecificConfigurations = internalConfig.ColumnSpecificConfigurations?.ToDictionary(
+                kvp => kvp.Key,
+                kvp => kvp.Value.ToPublic())
         };
     }
 
@@ -471,6 +483,227 @@ internal static class ValidationTypeExtensions
                 ? CoreTypes.ValidationResult.Success()
                 : CoreTypes.ValidationResult.Error(errorMessage ?? "Validation failed", severity, ruleName);
             return Task.FromResult(result);
+        };
+    }
+
+    #endregion
+
+    #region Initialization Type Mappings
+
+    /// <summary>Convert public ColumnDefinition to internal ColumnDefinition</summary>
+    public static CoreTypes.ColumnDefinition ToInternal(this ColumnDefinition publicColumn)
+    {
+        return new CoreTypes.ColumnDefinition(
+            publicColumn.Name,
+            publicColumn.DataType,
+            publicColumn.DisplayName,
+            publicColumn.IsVisible,
+            publicColumn.IsReadOnly,
+            publicColumn.IsSortable,
+            publicColumn.IsFilterable,
+            publicColumn.IsResizable,
+            publicColumn.Width,
+            publicColumn.MinWidth,
+            publicColumn.MaxWidth,
+            publicColumn.Format,
+            publicColumn.DefaultValue,
+            publicColumn.ValidationRules?.Select(r => r.ToInternal()).ToList(),
+            publicColumn.ValidationOperator.ToInternal(),
+            publicColumn.ValidationPolicy.ToInternal(),
+            publicColumn.ValidationStrategy.ToInternal(),
+            publicColumn.CustomProperties,
+            publicColumn.IsRequired,
+            publicColumn.Tooltip,
+            publicColumn.PlaceholderText);
+    }
+
+    /// <summary>Convert internal ColumnDefinition to public ColumnDefinition</summary>
+    public static ColumnDefinition ToPublic(this CoreTypes.ColumnDefinition internalColumn)
+    {
+        return new ColumnDefinition
+        {
+            Name = internalColumn.Name,
+            DisplayName = internalColumn.DisplayName,
+            DataType = internalColumn.DataType,
+            IsVisible = internalColumn.IsVisible,
+            IsReadOnly = internalColumn.IsReadOnly,
+            IsSortable = internalColumn.IsSortable,
+            IsFilterable = internalColumn.IsFilterable,
+            IsResizable = internalColumn.IsResizable,
+            Width = internalColumn.Width,
+            MinWidth = internalColumn.MinWidth,
+            MaxWidth = internalColumn.MaxWidth,
+            Format = internalColumn.Format,
+            DefaultValue = internalColumn.DefaultValue,
+            ValidationRules = internalColumn.ValidationRules?.Select(r => ToPublicValidationRule(r)).ToList(),
+            ValidationOperator = internalColumn.ValidationOperator.ToPublic(),
+            ValidationPolicy = internalColumn.ValidationPolicy.ToPublic(),
+            ValidationStrategy = internalColumn.ValidationStrategy.ToPublic(),
+            CustomProperties = internalColumn.CustomProperties,
+            IsRequired = internalColumn.IsRequired,
+            Tooltip = internalColumn.Tooltip,
+            PlaceholderText = internalColumn.PlaceholderText
+        };
+    }
+
+    /// <summary>Convert public GridBehaviorConfiguration to internal GridBehaviorConfiguration</summary>
+    public static CoreTypes.GridBehaviorConfiguration ToInternal(this GridBehaviorConfiguration publicBehavior)
+    {
+        return new CoreTypes.GridBehaviorConfiguration(
+            publicBehavior.EnableSmartDelete,
+            publicBehavior.EnableSmartExpand,
+            publicBehavior.EnableAutoSave,
+            publicBehavior.EnableInlineEditing,
+            publicBehavior.EnableBulkOperations,
+            publicBehavior.EnableKeyboardNavigation,
+            publicBehavior.EnableRowSelection,
+            publicBehavior.EnableMultiSelect,
+            publicBehavior.EnableColumnReordering,
+            publicBehavior.EnableExport,
+            publicBehavior.AutoSaveInterval,
+            publicBehavior.MaxRowsForSmartOperations,
+            publicBehavior.CustomBehaviors);
+    }
+
+    /// <summary>Convert internal GridBehaviorConfiguration to public GridBehaviorConfiguration</summary>
+    public static GridBehaviorConfiguration ToPublic(this CoreTypes.GridBehaviorConfiguration internalBehavior)
+    {
+        return new GridBehaviorConfiguration
+        {
+            EnableSmartDelete = internalBehavior.EnableSmartDelete,
+            EnableSmartExpand = internalBehavior.EnableSmartExpand,
+            EnableAutoSave = internalBehavior.EnableAutoSave,
+            EnableInlineEditing = internalBehavior.EnableInlineEditing,
+            EnableBulkOperations = internalBehavior.EnableBulkOperations,
+            EnableKeyboardNavigation = internalBehavior.EnableKeyboardNavigation,
+            EnableRowSelection = internalBehavior.EnableRowSelection,
+            EnableMultiSelect = internalBehavior.EnableMultiSelect,
+            EnableColumnReordering = internalBehavior.EnableColumnReordering,
+            EnableExport = internalBehavior.EnableExport,
+            AutoSaveInterval = internalBehavior.AutoSaveInterval,
+            MaxRowsForSmartOperations = internalBehavior.MaxRowsForSmartOperations,
+            CustomBehaviors = internalBehavior.CustomBehaviors
+        };
+    }
+
+    /// <summary>Convert public ValidationEvaluationStrategy to internal ValidationEvaluationStrategy</summary>
+    public static CoreEnums.ValidationEvaluationStrategy ToInternal(this ValidationEvaluationStrategy publicStrategy)
+    {
+        return publicStrategy switch
+        {
+            ValidationEvaluationStrategy.Sequential => CoreEnums.ValidationEvaluationStrategy.Sequential,
+            ValidationEvaluationStrategy.Parallel => CoreEnums.ValidationEvaluationStrategy.Parallel,
+            ValidationEvaluationStrategy.ShortCircuit => CoreEnums.ValidationEvaluationStrategy.ShortCircuit,
+            _ => CoreEnums.ValidationEvaluationStrategy.Sequential
+        };
+    }
+
+    /// <summary>Convert internal ValidationEvaluationStrategy to public ValidationEvaluationStrategy</summary>
+    public static ValidationEvaluationStrategy ToPublic(this CoreEnums.ValidationEvaluationStrategy internalStrategy)
+    {
+        return internalStrategy switch
+        {
+            CoreEnums.ValidationEvaluationStrategy.Sequential => ValidationEvaluationStrategy.Sequential,
+            CoreEnums.ValidationEvaluationStrategy.Parallel => ValidationEvaluationStrategy.Parallel,
+            CoreEnums.ValidationEvaluationStrategy.ShortCircuit => ValidationEvaluationStrategy.ShortCircuit,
+            _ => ValidationEvaluationStrategy.Sequential
+        };
+    }
+
+    /// <summary>Convert internal SmartDeleteResult to public SmartDeleteResult</summary>
+    public static SmartDeleteResult ToPublic(this CoreTypes.SmartDeleteResult internalResult)
+    {
+        return new SmartDeleteResult
+        {
+            HasSuggestions = internalResult.HasSuggestions,
+            IsError = internalResult.IsError,
+            Suggestions = internalResult.Suggestions.Select(s => s.ToPublic()).ToList(),
+            ErrorMessage = internalResult.ErrorMessage,
+            AnalyzedAt = internalResult.AnalyzedAt
+        };
+    }
+
+    /// <summary>Convert internal SmartDeleteSuggestion to public SmartDeleteSuggestion</summary>
+    public static SmartDeleteSuggestion ToPublic(this CoreTypes.SmartDeleteSuggestion internalSuggestion)
+    {
+        return new SmartDeleteSuggestion
+        {
+            Title = internalSuggestion.Title,
+            Description = internalSuggestion.Description,
+            RowIndexes = internalSuggestion.RowIndexes,
+            Reason = internalSuggestion.Reason.ToPublic(),
+            Confidence = internalSuggestion.Confidence
+        };
+    }
+
+    /// <summary>Convert internal SmartExpandResult to public SmartExpandResult</summary>
+    public static SmartExpandResult ToPublic(this CoreTypes.SmartExpandResult internalResult)
+    {
+        return new SmartExpandResult
+        {
+            HasSuggestions = internalResult.HasSuggestions,
+            IsError = internalResult.IsError,
+            Suggestions = internalResult.Suggestions.Select(s => s.ToPublic()).ToList(),
+            ErrorMessage = internalResult.ErrorMessage,
+            AnalyzedAt = internalResult.AnalyzedAt
+        };
+    }
+
+    /// <summary>Convert internal SmartExpandSuggestion to public SmartExpandSuggestion</summary>
+    public static SmartExpandSuggestion ToPublic(this CoreTypes.SmartExpandSuggestion internalSuggestion)
+    {
+        return new SmartExpandSuggestion
+        {
+            Title = internalSuggestion.Title,
+            Description = internalSuggestion.Description,
+            SuggestionData = internalSuggestion.SuggestionData,
+            Reason = internalSuggestion.Reason.ToPublic(),
+            Confidence = internalSuggestion.Confidence
+        };
+    }
+
+    /// <summary>Convert internal SmartDeleteReason to public SmartDeleteReason</summary>
+    public static SmartDeleteReason ToPublic(this CoreTypes.SmartDeleteReason internalReason)
+    {
+        return internalReason switch
+        {
+            CoreTypes.SmartDeleteReason.Duplicates => SmartDeleteReason.Duplicates,
+            CoreTypes.SmartDeleteReason.EmptyData => SmartDeleteReason.EmptyData,
+            CoreTypes.SmartDeleteReason.DataOutliers => SmartDeleteReason.DataOutliers,
+            CoreTypes.SmartDeleteReason.PatternViolation => SmartDeleteReason.PatternViolation,
+            CoreTypes.SmartDeleteReason.UserPattern => SmartDeleteReason.UserPattern,
+            CoreTypes.SmartDeleteReason.ValidationFailure => SmartDeleteReason.ValidationFailure,
+            _ => SmartDeleteReason.PatternViolation
+        };
+    }
+
+    /// <summary>Convert internal SmartExpandReason to public SmartExpandReason</summary>
+    public static SmartExpandReason ToPublic(this CoreTypes.SmartExpandReason internalReason)
+    {
+        return internalReason switch
+        {
+            CoreTypes.SmartExpandReason.MissingValues => SmartExpandReason.MissingValues,
+            CoreTypes.SmartExpandReason.SequenceCompletion => SmartExpandReason.SequenceCompletion,
+            CoreTypes.SmartExpandReason.DerivedFields => SmartExpandReason.DerivedFields,
+            CoreTypes.SmartExpandReason.DataEnrichment => SmartExpandReason.DataEnrichment,
+            CoreTypes.SmartExpandReason.PatternCompletion => SmartExpandReason.PatternCompletion,
+            CoreTypes.SmartExpandReason.RelatedData => SmartExpandReason.RelatedData,
+            _ => SmartExpandReason.MissingValues
+        };
+    }
+
+    /// <summary>Helper method to convert internal validation rule to public (simplified)</summary>
+    private static ValidationRule ToPublicValidationRule(CoreInterfaces.IValidationRule internalRule)
+    {
+        // This is a simplified conversion - in a full implementation, we would need
+        // a more sophisticated mapping system to handle all validation rule types
+        return new ValidationRule
+        {
+            RuleName = internalRule.RuleName,
+            ColumnName = "Unknown", // Would need proper type inspection
+            Validator = _ => Task.FromResult(true), // Placeholder
+            ErrorMessage = internalRule.ErrorMessage,
+            Severity = internalRule.Severity.ToPublic()
         };
     }
 

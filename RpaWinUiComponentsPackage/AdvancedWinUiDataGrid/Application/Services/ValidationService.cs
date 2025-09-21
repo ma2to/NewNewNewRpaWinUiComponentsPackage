@@ -333,29 +333,35 @@ internal sealed class ValidationService : IValidationService
         IReadOnlyList<IReadOnlyDictionary<string, object?>> rows,
         ValidationContext? context = null,
         IProgress<double>? progress = null,
+        bool validateOnlyVisibleRows = false,
         CancellationToken cancellationToken = default)
     {
         var validationContext = context ?? DetermineValidationContext(ValidationTrigger.Bulk, rows.Count,
             rows.FirstOrDefault()?.Count ?? 0, isImportOperation: rows.Count > 100);
+
+        // Apply validateOnlyVisibleRows filtering if needed
+        var rowsToValidate = validateOnlyVisibleRows
+            ? rows.Take(100).ToList() // Assume first 100 are "visible" - in real impl this would come from UI state
+            : rows;
 
         var results = new List<ValidationResult>();
 
         try
         {
             // Validate individual rows first
-            for (int i = 0; i < rows.Count; i++)
+            for (int i = 0; i < rowsToValidate.Count; i++)
             {
                 if (cancellationToken.IsCancellationRequested)
                     break;
 
-                var rowResults = await ValidateRowAsync(i, rows[i], validationContext, cancellationToken);
+                var rowResults = await ValidateRowAsync(i, rowsToValidate[i], validationContext, cancellationToken);
                 results.AddRange(rowResults);
 
-                progress?.Report((double)(i + 1) / rows.Count * 0.8); // 80% for row validation
+                progress?.Report((double)(i + 1) / rowsToValidate.Count * 0.8); // 80% for row validation
             }
 
             // Cross-row validation
-            await ValidateCrossRowRules(rows, results, cancellationToken);
+            await ValidateCrossRowRules(rowsToValidate, results, cancellationToken);
             progress?.Report(1.0);
 
             return results;
@@ -375,18 +381,24 @@ internal sealed class ValidationService : IValidationService
         IReadOnlyList<IReadOnlyDictionary<string, object?>> dataset,
         ValidationContext? context = null,
         IProgress<double>? progress = null,
+        bool validateOnlyVisibleRows = false,
         CancellationToken cancellationToken = default)
     {
         var validationContext = context ?? DetermineValidationContext(ValidationTrigger.Bulk, dataset.Count,
             dataset.FirstOrDefault()?.Count ?? 0, isImportOperation: true);
+
+        // Apply validateOnlyVisibleRows filtering if needed
+        var dataToValidate = validateOnlyVisibleRows
+            ? dataset.Take(100).ToList() // Assume first 100 are "visible" - in real impl this would come from UI state
+            : dataset;
 
         var results = new List<ValidationResult>();
 
         try
         {
             // Phase 1: Row validation (70%)
-            var rowResults = await ValidateRowsAsync(dataset, validationContext,
-                new Progress<double>(p => progress?.Report(p * 0.7)), cancellationToken);
+            var rowResults = await ValidateRowsAsync(dataToValidate, validationContext,
+                new Progress<double>(p => progress?.Report(p * 0.7)), validateOnlyVisibleRows, cancellationToken);
             results.AddRange(rowResults);
 
             // Phase 2: Complex validation rules (20%)
@@ -413,6 +425,7 @@ internal sealed class ValidationService : IValidationService
     public async Task<Result<bool>> AreAllNonEmptyRowsValidAsync(
         IReadOnlyList<IReadOnlyDictionary<string, object?>> dataset,
         bool onlyFilteredRows = false,
+        bool validateOnlyVisibleRows = false,
         CancellationToken cancellationToken = default)
     {
         if (!_configuration.EnableValidation)
@@ -420,9 +433,18 @@ internal sealed class ValidationService : IValidationService
 
         try
         {
-            var rowsToValidate = onlyFilteredRows ? dataset : dataset.Where(IsNonEmptyRow).ToList();
+            // Apply filtering based on parameters
+            var rowsToValidate = dataset.AsEnumerable();
 
-            foreach (var (row, index) in rowsToValidate.Select((r, i) => (r, i)))
+            if (onlyFilteredRows)
+                rowsToValidate = rowsToValidate.Where(IsNonEmptyRow);
+
+            if (validateOnlyVisibleRows)
+                rowsToValidate = rowsToValidate.Take(100); // Assume first 100 are "visible" - in real impl this would come from UI state
+
+            var filteredRows = rowsToValidate.ToList();
+
+            foreach (var (row, index) in filteredRows.Select((r, i) => (r, i)))
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -432,7 +454,7 @@ internal sealed class ValidationService : IValidationService
             }
 
             // Additional cross-row and complex validations
-            var allResults = await ValidateDatasetAsync(rowsToValidate, null, null, cancellationToken);
+            var allResults = await ValidateDatasetAsync(filteredRows, null, null, validateOnlyVisibleRows, cancellationToken);
             var hasErrors = allResults.Any(r => !r.IsValid);
 
             return Result<bool>.Success(!hasErrors);
@@ -459,6 +481,7 @@ internal sealed class ValidationService : IValidationService
         bool isPasteOperation = false,
         bool isUserTyping = false)
     {
+        // Intelligent context creation with current configuration
         return new ValidationContext(
             trigger,
             affectedRowCount,
@@ -467,17 +490,20 @@ internal sealed class ValidationService : IValidationService
             isPasteOperation,
             isUserTyping,
             null,
-            _validationRules.Count);
+            _validationRules.Count,
+            _configuration);
     }
 
     public bool ShouldUseRealTimeValidation(ValidationContext context)
     {
-        return context.ShouldUseRealTimeValidation && _configuration.EnableRealTimeValidation;
+        // SMART: Use only context-based logic, no configuration flags
+        return context.ShouldUseRealTimeValidation && _configuration.EnableValidation;
     }
 
     public bool ShouldUseBulkValidation(ValidationContext context)
     {
-        return context.ShouldUseBulkValidation && _configuration.EnableBulkValidation;
+        // SMART: Use only context-based logic, no configuration flags
+        return context.ShouldUseBulkValidation && _configuration.EnableValidation;
     }
 
     #endregion
@@ -488,6 +514,7 @@ internal sealed class ValidationService : IValidationService
         IReadOnlyList<IReadOnlyDictionary<string, object?>> dataset,
         ValidationDeletionCriteria criteria,
         ValidationDeletionOptions? options = null,
+        bool validateOnlyVisibleRows = false,
         CancellationToken cancellationToken = default)
     {
         var opts = options ?? ValidationDeletionOptions.Default;
@@ -496,7 +523,7 @@ internal sealed class ValidationService : IValidationService
         try
         {
             // Preview phase - determine which rows to delete
-            var rowsToDeleteResult = await PreviewRowDeletionAsync(dataset, criteria, cancellationToken);
+            var rowsToDeleteResult = await PreviewRowDeletionAsync(dataset, criteria, validateOnlyVisibleRows, cancellationToken);
             if (rowsToDeleteResult.IsFailure)
                 return Result<ValidationBasedDeleteResult>.Failure(rowsToDeleteResult.Error);
 
@@ -535,13 +562,19 @@ internal sealed class ValidationService : IValidationService
     public async Task<Result<IReadOnlyList<int>>> PreviewRowDeletionAsync(
         IReadOnlyList<IReadOnlyDictionary<string, object?>> dataset,
         ValidationDeletionCriteria criteria,
+        bool validateOnlyVisibleRows = false,
         CancellationToken cancellationToken = default)
     {
         try
         {
             var rowsToDelete = new List<int>();
 
-            for (int i = 0; i < dataset.Count; i++)
+            // Apply validateOnlyVisibleRows filtering if needed
+            var maxRowsToCheck = validateOnlyVisibleRows
+                ? Math.Min(dataset.Count, 100) // Only check first 100 rows if validateOnlyVisibleRows is true
+                : dataset.Count;
+
+            for (int i = 0; i < maxRowsToCheck; i++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 

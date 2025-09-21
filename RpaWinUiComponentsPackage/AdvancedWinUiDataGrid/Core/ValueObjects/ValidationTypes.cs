@@ -6,18 +6,21 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
 
 /// <summary>
 /// CORE: Configuration for validation system
-/// ENTERPRISE: Professional validation configuration with comprehensive settings
+/// ENTERPRISE: Professional validation configuration with automatic mode determination
+/// SMART: Real-time vs Bulk validation automatically determined by operation context
 /// </summary>
 internal readonly record struct ValidationConfiguration
 {
     public bool EnableValidation { get; }
     public ValidationTrigger DefaultTrigger { get; }
     public TimeSpan DefaultTimeout { get; }
-    public bool EnableRealTimeValidation { get; }
-    public bool EnableBulkValidation { get; }
     public int MaxConcurrentValidations { get; }
     public bool MakeValidateAllStopOnFirstError { get; }
-    public bool ValidateOnlyVisibleRows { get; }
+
+    // Smart validation thresholds for automatic mode determination
+    public int RealTimeValidationMaxRows { get; }
+    public int RealTimeValidationMaxRules { get; }
+    public TimeSpan RealTimeValidationMaxTime { get; }
 
     // New properties for group validation support
     public ColumnValidationPolicy DefaultColumnPolicy { get; }
@@ -29,11 +32,11 @@ internal readonly record struct ValidationConfiguration
         bool enableValidation = true,
         ValidationTrigger defaultTrigger = ValidationTrigger.OnCellChanged,
         TimeSpan? defaultTimeout = null,
-        bool enableRealTimeValidation = true,
-        bool enableBulkValidation = true,
         int maxConcurrentValidations = 10,
         bool makeValidateAllStopOnFirstError = false,
-        bool validateOnlyVisibleRows = false,
+        int realTimeValidationMaxRows = 5,
+        int realTimeValidationMaxRules = 10,
+        TimeSpan? realTimeValidationMaxTime = null,
         ColumnValidationPolicy defaultColumnPolicy = ColumnValidationPolicy.ValidateAll,
         ValidationEvaluationStrategy defaultEvaluationStrategy = ValidationEvaluationStrategy.Sequential,
         bool enableGroupValidation = true,
@@ -42,11 +45,11 @@ internal readonly record struct ValidationConfiguration
         EnableValidation = enableValidation;
         DefaultTrigger = defaultTrigger;
         DefaultTimeout = defaultTimeout ?? TimeSpan.FromSeconds(2);
-        EnableRealTimeValidation = enableRealTimeValidation;
-        EnableBulkValidation = enableBulkValidation;
         MaxConcurrentValidations = maxConcurrentValidations;
         MakeValidateAllStopOnFirstError = makeValidateAllStopOnFirstError;
-        ValidateOnlyVisibleRows = validateOnlyVisibleRows;
+        RealTimeValidationMaxRows = realTimeValidationMaxRows;
+        RealTimeValidationMaxRules = realTimeValidationMaxRules;
+        RealTimeValidationMaxTime = realTimeValidationMaxTime ?? TimeSpan.FromMilliseconds(200);
         DefaultColumnPolicy = defaultColumnPolicy;
         DefaultEvaluationStrategy = defaultEvaluationStrategy;
         EnableGroupValidation = enableGroupValidation;
@@ -55,21 +58,24 @@ internal readonly record struct ValidationConfiguration
 
     public static ValidationConfiguration Default => new();
 
-    public static ValidationConfiguration RealTime => new(
-        enableRealTimeValidation: true,
+    public static ValidationConfiguration Responsive => new(
         defaultTrigger: ValidationTrigger.OnTextChanged,
-        enableBulkValidation: false);
+        realTimeValidationMaxRows: 3,
+        realTimeValidationMaxRules: 5,
+        realTimeValidationMaxTime: TimeSpan.FromMilliseconds(100));
 
-    public static ValidationConfiguration Bulk => new(
-        enableRealTimeValidation: false,
-        defaultTrigger: ValidationTrigger.Bulk,
-        enableBulkValidation: true);
+    public static ValidationConfiguration Balanced => new(
+        defaultTrigger: ValidationTrigger.OnCellChanged,
+        realTimeValidationMaxRows: 5,
+        realTimeValidationMaxRules: 10,
+        realTimeValidationMaxTime: TimeSpan.FromMilliseconds(200));
 
-    public static ValidationConfiguration HighPerformance => new(
-        enableRealTimeValidation: false,
+    public static ValidationConfiguration HighThroughput => new(
         defaultTrigger: ValidationTrigger.OnCellExit,
         maxConcurrentValidations: 20,
-        validateOnlyVisibleRows: true);
+        realTimeValidationMaxRows: 10,
+        realTimeValidationMaxRules: 20,
+        realTimeValidationMaxTime: TimeSpan.FromMilliseconds(500));
 }
 
 /// <summary>
@@ -230,6 +236,7 @@ internal readonly record struct ValidationBasedDeleteResult
 /// <summary>
 /// CORE: Context for smart validation decision making
 /// ENTERPRISE: Intelligence for determining when to use real-time vs bulk validation
+/// SMART: Automatic mode determination based on operation characteristics
 /// </summary>
 internal readonly record struct ValidationContext
 {
@@ -241,6 +248,7 @@ internal readonly record struct ValidationContext
     public bool IsUserTyping { get; }
     public TimeSpan? AvailableTime { get; }
     public int ValidationRuleCount { get; }
+    public ValidationConfiguration Configuration { get; }
 
     public ValidationContext(
         ValidationTrigger trigger,
@@ -250,7 +258,8 @@ internal readonly record struct ValidationContext
         bool isPasteOperation = false,
         bool isUserTyping = false,
         TimeSpan? availableTime = null,
-        int validationRuleCount = 0)
+        int validationRuleCount = 0,
+        ValidationConfiguration? configuration = null)
     {
         Trigger = trigger;
         AffectedRowCount = affectedRowCount;
@@ -260,28 +269,30 @@ internal readonly record struct ValidationContext
         IsUserTyping = isUserTyping;
         AvailableTime = availableTime;
         ValidationRuleCount = validationRuleCount;
+        Configuration = configuration ?? ValidationConfiguration.Default;
     }
 
     /// <summary>
     /// SMART DECISION: Determine if bulk validation should be used
-    /// PERFORMANCE: Optimize validation strategy based on context
+    /// LOGIC: Import/Paste operations OR exceeding real-time thresholds
     /// </summary>
     public bool ShouldUseBulkValidation =>
         IsImportOperation ||
         IsPasteOperation ||
-        AffectedRowCount > 10 ||
-        (AffectedRowCount * ValidationRuleCount) > 50 ||
-        Trigger == ValidationTrigger.Bulk;
+        AffectedRowCount > Configuration.RealTimeValidationMaxRows ||
+        ValidationRuleCount > Configuration.RealTimeValidationMaxRules ||
+        Trigger == ValidationTrigger.Bulk ||
+        (AvailableTime.HasValue && AvailableTime.Value > Configuration.RealTimeValidationMaxTime);
 
     /// <summary>
     /// SMART DECISION: Determine if real-time validation should be used
-    /// UX: Provide immediate feedback when appropriate
+    /// LOGIC: User typing AND within real-time thresholds
     /// </summary>
     public bool ShouldUseRealTimeValidation =>
         !ShouldUseBulkValidation &&
-        (IsUserTyping || Trigger == ValidationTrigger.OnTextChanged) &&
-        AffectedRowCount <= 5 &&
-        ValidationRuleCount <= 10;
+        (IsUserTyping || Trigger == ValidationTrigger.OnTextChanged || Trigger == ValidationTrigger.OnCellChanged) &&
+        AffectedRowCount <= Configuration.RealTimeValidationMaxRows &&
+        ValidationRuleCount <= Configuration.RealTimeValidationMaxRules;
 }
 
 /// <summary>
