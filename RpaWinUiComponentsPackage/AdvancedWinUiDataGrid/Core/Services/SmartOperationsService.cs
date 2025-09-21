@@ -224,24 +224,20 @@ internal sealed class SmartOperationsService
         IReadOnlyList<ColumnDefinition> columns,
         CancellationToken cancellationToken)
     {
-        var duplicateIndexes = new List<int>();
+        await Task.CompletedTask;
+
+        // LINQ OPTIMIZATION: Replace nested loops with functional approach
         var keyColumns = columns.Where(c => !c.Name.Contains("Id", StringComparison.OrdinalIgnoreCase)).ToList();
 
-        for (int i = 0; i < data.Count; i++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
+        var duplicateIndexes = data
+            .SelectMany((row, index) => data
+                .Skip(index + 1)
+                .Select((otherRow, otherIndex) => new { index, otherIndex = index + 1 + otherIndex, row, otherRow }))
+            .Where(pair => !cancellationToken.IsCancellationRequested && AreRowsEqual(pair.row, pair.otherRow, keyColumns))
+            .Select(pair => pair.otherIndex)
+            .Distinct()
+            .ToList();
 
-            for (int j = i + 1; j < data.Count; j++)
-            {
-                if (AreRowsEqual(data[i], data[j], keyColumns))
-                {
-                    if (!duplicateIndexes.Contains(j))
-                        duplicateIndexes.Add(j);
-                }
-            }
-        }
-
-        await Task.CompletedTask;
         return duplicateIndexes;
     }
 
@@ -250,33 +246,23 @@ internal sealed class SmartOperationsService
         IReadOnlyList<ColumnDefinition> columns,
         CancellationToken cancellationToken)
     {
-        var emptyRowIndexes = new List<int>();
-
-        for (int i = 0; i < data.Count; i++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var row = data[i];
-            var nonEmptyColumns = 0;
-
-            foreach (var column in columns)
-            {
-                if (row.TryGetValue(column.Name, out var value) &&
-                    value != null &&
-                    !string.IsNullOrWhiteSpace(value.ToString()))
-                {
-                    nonEmptyColumns++;
-                }
-            }
-
-            var emptyRatio = 1.0 - (double)nonEmptyColumns / columns.Count;
-            if (emptyRatio >= 0.7) // 70% or more columns are empty
-            {
-                emptyRowIndexes.Add(i);
-            }
-        }
-
         await Task.CompletedTask;
+
+        // LINQ OPTIMIZATION: Replace manual loop with functional pipeline
+        var emptyRowIndexes = data
+            .TakeWhile(_ => !cancellationToken.IsCancellationRequested)
+            .Select((row, index) => new
+            {
+                Index = index,
+                EmptyRatio = 1.0 - (double)columns.Count(column =>
+                    row.TryGetValue(column.Name, out var value) &&
+                    value != null &&
+                    !string.IsNullOrWhiteSpace(value.ToString())) / columns.Count
+            })
+            .Where(item => item.EmptyRatio >= 0.7) // 70% or more columns are empty
+            .Select(item => item.Index)
+            .ToList();
+
         return emptyRowIndexes;
     }
 
@@ -298,6 +284,7 @@ internal sealed class SmartOperationsService
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            // LINQ OPTIMIZATION: Functional approach with statistical calculations
             var values = data
                 .Select((row, index) => new { Value = row.GetValueOrDefault(column.Name), Index = index })
                 .Where(x => x.Value != null && decimal.TryParse(x.Value.ToString(), out _))
@@ -310,15 +297,13 @@ internal sealed class SmartOperationsService
             var variance = values.Average(v => (double)((v.DecimalValue - mean) * (v.DecimalValue - mean)));
             var stdDev = Math.Sqrt(variance);
 
-            foreach (var value in values)
-            {
-                var zScore = Math.Abs((double)(value.DecimalValue - mean)) / stdDev;
-                if (zScore > 3.0) // Z-score threshold for outliers
-                {
-                    if (!outlierIndexes.Contains(value.Index))
-                        outlierIndexes.Add(value.Index);
-                }
-            }
+            // LINQ OPTIMIZATION: Replace foreach with functional approach
+            var columnOutliers = values
+                .Where(value => Math.Abs((double)(value.DecimalValue - mean)) / stdDev > 3.0)
+                .Select(value => value.Index)
+                .Where(index => !outlierIndexes.Contains(index));
+
+            outlierIndexes.AddRange(columnOutliers);
         }
 
         await Task.CompletedTask;
@@ -352,25 +337,20 @@ internal sealed class SmartOperationsService
     {
         var predictions = new List<SmartValuePrediction>();
 
-        foreach (var column in columns)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
+        // LINQ OPTIMIZATION: Replace nested loops with functional pipeline
+        var columnPredictions = columns
+            .TakeWhile(_ => !cancellationToken.IsCancellationRequested)
+            .SelectMany(column => data
+                .Select((row, index) => new { row, index, column })
+                .Where(item => !item.row.TryGetValue(item.column.Name, out var value) ||
+                              value == null ||
+                              string.IsNullOrWhiteSpace(value.ToString()))
+                .Select(item => new { item.index, item.column, item.row })
+                .Select(item => new { item.index, item.column, predictedValue = PredictValueFromPattern(item.row, item.column, data, columns) })
+                .Where(item => item.predictedValue != null)
+                .Select(item => new SmartValuePrediction(item.index, item.column.Name, item.predictedValue!, 0.75f)));
 
-            for (int i = 0; i < data.Count; i++)
-            {
-                var row = data[i];
-                if (!row.TryGetValue(column.Name, out var value) ||
-                    value == null ||
-                    string.IsNullOrWhiteSpace(value.ToString()))
-                {
-                    var predictedValue = PredictValueFromPattern(row, column, data, columns);
-                    if (predictedValue != null)
-                    {
-                        predictions.Add(new SmartValuePrediction(i, column.Name, predictedValue, 0.75f));
-                    }
-                }
-            }
-        }
+        predictions.AddRange(columnPredictions);
 
         await Task.CompletedTask;
         return predictions;
@@ -383,26 +363,20 @@ internal sealed class SmartOperationsService
     {
         var suggestions = new List<SmartRowSuggestion>();
 
-        // Detect numeric sequences and suggest completions
+        // LINQ OPTIMIZATION: Replace manual loops with functional approach
         var numericColumns = columns.Where(c =>
             c.DataType == typeof(int) ||
             c.DataType == typeof(decimal)).ToList();
 
-        foreach (var column in numericColumns)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
+        var sequenceSuggestions = numericColumns
+            .TakeWhile(_ => !cancellationToken.IsCancellationRequested)
+            .Select(column => new { column, sequence = DetectNumericSequence(data, column) })
+            .Where(item => item.sequence != null)
+            .SelectMany(item => GenerateSequenceCompletions(item.sequence!, 3)
+                .Select(nextValue => new SmartRowSuggestion(
+                    CreateRowFromSequence(data.LastOrDefault(), item.column, nextValue), 0.70f)));
 
-            var sequence = DetectNumericSequence(data, column);
-            if (sequence != null)
-            {
-                var nextValues = GenerateSequenceCompletions(sequence, 3);
-                foreach (var nextValue in nextValues)
-                {
-                    var newRow = CreateRowFromSequence(data.LastOrDefault(), column, nextValue);
-                    suggestions.Add(new SmartRowSuggestion(newRow, 0.70f));
-                }
-            }
-        }
+        suggestions.AddRange(sequenceSuggestions);
 
         await Task.CompletedTask;
         return suggestions;
@@ -485,15 +459,13 @@ internal sealed class SmartOperationsService
 
         if (column.DataType == typeof(string))
         {
-            // Find most common value for this column
-            var commonValues = allData
+            // LINQ OPTIMIZATION: Functional approach for finding most common value
+            return allData
                 .Select(r => r.GetValueOrDefault(column.Name)?.ToString())
                 .Where(v => !string.IsNullOrEmpty(v))
                 .GroupBy(v => v)
                 .OrderByDescending(g => g.Count())
-                .FirstOrDefault();
-
-            return commonValues?.Key;
+                .FirstOrDefault()?.Key;
         }
 
         return null;
@@ -501,6 +473,7 @@ internal sealed class SmartOperationsService
 
     private NumericSequence? DetectNumericSequence(IReadOnlyList<Dictionary<string, object?>> data, ColumnDefinition column)
     {
+        // LINQ OPTIMIZATION: Functional approach for sequence detection
         var values = data
             .Select(row => row.GetValueOrDefault(column.Name))
             .Where(v => v != null && decimal.TryParse(v.ToString(), out _))
@@ -509,11 +482,10 @@ internal sealed class SmartOperationsService
 
         if (values.Count < 3) return null;
 
-        var differences = new List<decimal>();
-        for (int i = 1; i < values.Count; i++)
-        {
-            differences.Add(values[i] - values[i - 1]);
-        }
+        var differences = values
+            .Skip(1)
+            .Select((value, index) => value - values[index])
+            .ToList();
 
         var avgDifference = differences.Average();
         var isSequence = differences.All(d => Math.Abs(d - avgDifference) < 0.01m);

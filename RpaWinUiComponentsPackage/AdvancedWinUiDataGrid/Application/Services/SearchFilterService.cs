@@ -23,37 +23,29 @@ internal sealed class SearchFilterService : ISearchFilterService
     {
         return await Task.Run(() =>
         {
-            var results = new List<SearchResult>();
             var dataList = data.ToList();
             var timeout = searchCriteria.Timeout ?? TimeSpan.FromSeconds(5);
             var stopwatch = Stopwatch.StartNew();
+            var maxMatches = searchCriteria.MaxMatches ?? int.MaxValue;
 
-            for (int rowIndex = 0; rowIndex < dataList.Count; rowIndex++)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                if (stopwatch.Elapsed > timeout)
-                    break;
-
-                if (searchCriteria.MaxMatches.HasValue && results.Count >= searchCriteria.MaxMatches.Value)
-                    break;
-
-                var row = dataList[rowIndex];
-                var columnsToSearch = searchCriteria.TargetColumns?.ToList() ?? row.Keys.ToList();
-
-                foreach (var columnName in columnsToSearch)
-                {
-                    if (!row.TryGetValue(columnName, out var value) || value == null)
-                        continue;
-
-                    var valueStr = value.ToString() ?? string.Empty;
-
-                    if (IsMatch(valueStr, searchCriteria.SearchText, searchCriteria.UseRegex, searchCriteria.CaseSensitive))
-                    {
-                        results.Add(SearchResult.Create(rowIndex, columnName, value, searchCriteria.SearchText));
-                    }
-                }
-            }
+            // LINQ OPTIMIZATION: Replace manual loops with functional pipeline
+            var results = dataList
+                .Select((row, rowIndex) => new { row, rowIndex })
+                .TakeWhile(_ => !cancellationToken.IsCancellationRequested && stopwatch.Elapsed <= timeout)
+                .SelectMany(x => (searchCriteria.TargetColumns ?? x.row.Keys)
+                    .Where(columnName => x.row.TryGetValue(columnName, out var value) && value != null)
+                    .Where(columnName => IsMatch(
+                        x.row[columnName]?.ToString() ?? "",
+                        searchCriteria.SearchText,
+                        searchCriteria.UseRegex,
+                        searchCriteria.CaseSensitive))
+                    .Select(columnName => SearchResult.Create(
+                        x.rowIndex,
+                        columnName,
+                        x.row[columnName],
+                        searchCriteria.SearchText)))
+                .Take(maxMatches)
+                .ToList();
 
             return (IReadOnlyList<SearchResult>)results;
         }, cancellationToken);
@@ -64,28 +56,16 @@ internal sealed class SearchFilterService : ISearchFilterService
         string searchText,
         bool caseSensitive = false)
     {
-        var results = new List<SearchResult>();
-        var dataList = data.ToList();
+        // LINQ OPTIMIZATION: Replace nested loops with functional pipeline
+        var results = data
+            .Select((row, rowIndex) => new { row, rowIndex })
+            .SelectMany(x => x.row
+                .Where(kvp => kvp.Value != null)
+                .Where(kvp => IsMatch(kvp.Value.ToString() ?? string.Empty, searchText, useRegex: false, caseSensitive))
+                .Select(kvp => SearchResult.Create(x.rowIndex, kvp.Key, kvp.Value, searchText)))
+            .ToList();
 
-        for (int rowIndex = 0; rowIndex < dataList.Count; rowIndex++)
-        {
-            var row = dataList[rowIndex];
-
-            foreach (var kvp in row)
-            {
-                if (kvp.Value == null)
-                    continue;
-
-                var valueStr = kvp.Value.ToString() ?? string.Empty;
-
-                if (IsMatch(valueStr, searchText, useRegex: false, caseSensitive))
-                {
-                    results.Add(SearchResult.Create(rowIndex, kvp.Key, kvp.Value, searchText));
-                }
-            }
-        }
-
-        return results;
+        return (IReadOnlyList<SearchResult>)results;
     }
 
     public FilterResult ApplyFilter(
@@ -94,15 +74,13 @@ internal sealed class SearchFilterService : ISearchFilterService
     {
         var stopwatch = Stopwatch.StartNew();
         var dataList = data.ToList();
-        var matchingIndices = new List<int>();
 
-        for (int i = 0; i < dataList.Count; i++)
-        {
-            if (EvaluateFilter(dataList[i], filter))
-            {
-                matchingIndices.Add(i);
-            }
-        }
+        // LINQ OPTIMIZATION: Replace manual loop with Where().Select() pipeline
+        var matchingIndices = dataList
+            .Select((row, index) => new { row, index })
+            .Where(x => EvaluateFilter(x.row, filter))
+            .Select(x => x.index)
+            .ToList();
 
         stopwatch.Stop();
         return FilterResult.Create(dataList.Count, matchingIndices.Count, stopwatch.Elapsed, matchingIndices);
@@ -115,36 +93,29 @@ internal sealed class SearchFilterService : ISearchFilterService
     {
         var stopwatch = Stopwatch.StartNew();
         var dataList = data.ToList();
-        var matchingIndices = new List<int>();
 
-        for (int i = 0; i < dataList.Count; i++)
-        {
-            bool matches = logicOperator == FilterLogicOperator.And;
-
-            foreach (var filter in filters)
-            {
-                bool filterMatches = EvaluateFilter(dataList[i], filter);
-
-                if (logicOperator == FilterLogicOperator.And)
-                {
-                    matches = matches && filterMatches;
-                    if (!matches) break; // Early exit for AND
-                }
-                else // OR
-                {
-                    matches = matches || filterMatches;
-                    if (matches) break; // Early exit for OR
-                }
-            }
-
-            if (matches)
-            {
-                matchingIndices.Add(i);
-            }
-        }
+        // LINQ OPTIMIZATION: Replace manual loop with functional approach
+        var matchingIndices = dataList
+            .Select((row, index) => new { row, index })
+            .Where(x => EvaluateFiltersForRow(x.row, filters, logicOperator))
+            .Select(x => x.index)
+            .ToList();
 
         stopwatch.Stop();
         return FilterResult.Create(dataList.Count, matchingIndices.Count, stopwatch.Elapsed, matchingIndices);
+    }
+
+    private static bool EvaluateFiltersForRow(
+        IReadOnlyDictionary<string, object?> row,
+        IReadOnlyList<FilterDefinition> filters,
+        FilterLogicOperator logicOperator)
+    {
+        if (!filters.Any()) return true;
+
+        // LINQ OPTIMIZATION: Use functional approach with early termination
+        return logicOperator == FilterLogicOperator.And
+            ? filters.All(filter => EvaluateFilter(row, filter))
+            : filters.Any(filter => EvaluateFilter(row, filter));
     }
 
     public async Task<FilterResult> ApplyAdvancedFilterAsync(
@@ -156,17 +127,18 @@ internal sealed class SearchFilterService : ISearchFilterService
         {
             var stopwatch = Stopwatch.StartNew();
             var dataList = data.ToList();
-            var matchingIndices = new List<int>();
 
-            for (int i = 0; i < dataList.Count; i++)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                if (EvaluateAdvancedFilters(dataList[i], filters))
+            // LINQ OPTIMIZATION: Replace manual loop with functional pipeline and cancellation support
+            var matchingIndices = dataList
+                .Select((row, index) => new { row, index })
+                .TakeWhile(_ => !cancellationToken.IsCancellationRequested)
+                .Where(x =>
                 {
-                    matchingIndices.Add(i);
-                }
-            }
+                    cancellationToken.ThrowIfCancellationRequested();
+                    return EvaluateAdvancedFilters(x.row, filters);
+                })
+                .Select(x => x.index)
+                .ToList();
 
             stopwatch.Stop();
             return FilterResult.Create(dataList.Count, matchingIndices.Count, stopwatch.Elapsed, matchingIndices);
@@ -196,17 +168,11 @@ internal sealed class SearchFilterService : ISearchFilterService
 
     public IReadOnlyList<string> GetFilterableColumns(IEnumerable<IReadOnlyDictionary<string, object?>> data)
     {
-        var columns = new HashSet<string>();
-
-        foreach (var row in data)
-        {
-            foreach (var key in row.Keys)
-            {
-                columns.Add(key);
-            }
-        }
-
-        return columns.ToList();
+        // LINQ OPTIMIZATION: Replace nested loops with functional pipeline
+        return data
+            .SelectMany(row => row.Keys)
+            .Distinct()
+            .ToList();
     }
 
     private static bool IsMatch(string value, string searchText, bool useRegex, bool caseSensitive)

@@ -154,24 +154,22 @@ internal sealed class ValidationService : IValidationService
 
         try
         {
-            var removedCount = 0;
-
-            foreach (var columnName in columnNames)
-            {
-                if (_columnRules.TryGetValue(columnName, out var rules))
+            // LINQ OPTIMIZATION: Replace manual loops with functional approach
+            var removedCount = columnNames
+                .Where(columnName => _columnRules.TryGetValue(columnName, out var rules))
+                .SelectMany(columnName =>
                 {
-                    foreach (var rule in rules.ToList())
-                    {
-                        var ruleKey = rule.RuleName ?? rule.GetHashCode().ToString();
-                        if (_validationRules.TryRemove(ruleKey, out _))
-                        {
-                            removedCount++;
-                            _ruleTypeStatistics.AddOrUpdate(rule.RuleType, 0, (key, value) => Math.Max(0, value - 1));
-                        }
-                    }
+                    var rules = _columnRules[columnName];
                     _columnRules.TryRemove(columnName, out _);
-                }
-            }
+                    return rules.Select(rule => new { Rule = rule, Key = rule.RuleName ?? rule.GetHashCode().ToString() });
+                })
+                .Count(item =>
+                {
+                    var removed = _validationRules.TryRemove(item.Key, out _);
+                    if (removed)
+                        _ruleTypeStatistics.AddOrUpdate(item.Rule.RuleType, 0, (key, value) => Math.Max(0, value - 1));
+                    return removed;
+                });
 
             return Result<bool>.Success(removedCount > 0);
         }
@@ -433,25 +431,32 @@ internal sealed class ValidationService : IValidationService
 
         try
         {
-            // Apply filtering based on parameters
-            var rowsToValidate = dataset.AsEnumerable();
+            // LINQ OPTIMIZATION: Chain filters with deferred execution
+            var filteredRows = dataset.AsEnumerable()
+                .Where(row => !onlyFilteredRows || IsNonEmptyRow(row))
+                .Take(validateOnlyVisibleRows ? 100 : int.MaxValue)
+                .ToList();
 
-            if (onlyFilteredRows)
-                rowsToValidate = rowsToValidate.Where(IsNonEmptyRow);
-
-            if (validateOnlyVisibleRows)
-                rowsToValidate = rowsToValidate.Take(100); // Assume first 100 are "visible" - in real impl this would come from UI state
-
-            var filteredRows = rowsToValidate.ToList();
-
-            foreach (var (row, index) in filteredRows.Select((r, i) => (r, i)))
+            // LINQ OPTIMIZATION: Use efficient validation with early termination
+            var hasInvalidRow = false;
+            await Task.Run(async () =>
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                await foreach (var validationTask in filteredRows
+                    .Select((row, index) => new { row, index })
+                    .TakeWhile(_ => !cancellationToken.IsCancellationRequested && !hasInvalidRow)
+                    .ToAsyncEnumerable())
+                {
+                    var rowResults = await ValidateRowAsync(validationTask.index, validationTask.row, null, cancellationToken);
+                    if (rowResults.Any(r => !r.IsValid))
+                    {
+                        hasInvalidRow = true;
+                        break;
+                    }
+                }
+            }, cancellationToken);
 
-                var rowResults = await ValidateRowAsync(index, row, null, cancellationToken);
-                if (rowResults.Any(r => !r.IsValid))
-                    return Result<bool>.Success(false);
-            }
+            if (hasInvalidRow)
+                return Result<bool>.Success(false);
 
             // Additional cross-row and complex validations
             var allResults = await ValidateDatasetAsync(filteredRows, null, null, validateOnlyVisibleRows, cancellationToken);

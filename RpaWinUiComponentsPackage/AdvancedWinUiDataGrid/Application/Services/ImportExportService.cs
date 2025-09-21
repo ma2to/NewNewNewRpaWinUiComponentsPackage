@@ -30,31 +30,29 @@ internal sealed class ImportExportService : IImportExportService
 
             try
             {
-                var importedRows = 0;
-                var skippedRows = 0;
+                // LINQ OPTIMIZATION: Replace manual loop with functional approach
+                var rowsData = dataTable.Rows.Cast<DataRow>()
+                    .TakeWhile(_ => !cancellationToken.IsCancellationRequested)
+                    .Select((row, index) => new
+                    {
+                        Row = row,
+                        Index = index,
+                        IsValid = !options.ValidateBeforeImport || ValidateDataRow(row)
+                    })
+                    .ToList();
 
-                foreach (DataRow row in dataTable.Rows)
+                var importedRows = rowsData.Count(r => r.IsValid);
+                var skippedRows = rowsData.Count(r => !r.IsValid);
+
+                // Report final progress if available
+                if (options.Progress != null)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    if (options.ValidateBeforeImport && !ValidateDataRow(row))
-                    {
-                        skippedRows++;
-                        continue;
-                    }
-
-                    importedRows++;
-
-                    // Report progress if available
-                    if (options.Progress != null)
-                    {
-                        var progress = CoreTypes.ImportProgress.Create(
-                            importedRows + skippedRows,
-                            dataTable.Rows.Count,
-                            stopwatch.Elapsed,
-                            "Importing DataTable rows");
-                        options.Progress.Report(progress);
-                    }
+                    var progress = CoreTypes.ImportProgress.Create(
+                        importedRows + skippedRows,
+                        dataTable.Rows.Count,
+                        stopwatch.Elapsed,
+                        "Importing DataTable rows");
+                    options.Progress.Report(progress);
                 }
 
                 stopwatch.Stop();
@@ -80,34 +78,30 @@ internal sealed class ImportExportService : IImportExportService
 
             try
             {
+                // LINQ OPTIMIZATION: Replace manual loop with functional approach
                 var dataList = sourceData.ToList();
-                var importedRows = 0;
-                var skippedRows = 0;
+                var processedRows = dataList
+                    .TakeWhile(_ => !cancellationToken.IsCancellationRequested)
+                    .Select((row, index) => new
+                    {
+                        Row = row,
+                        Index = index,
+                        IsValid = !options.ValidateBeforeImport || ValidateDictionaryRow(row)
+                    })
+                    .ToList();
 
-                for (var i = 0; i < dataList.Count; i++)
+                var importedRows = processedRows.Count(r => r.IsValid);
+                var skippedRows = processedRows.Count(r => !r.IsValid);
+
+                // Report final progress if available
+                if (options.Progress != null)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    var row = dataList[i];
-
-                    if (options.ValidateBeforeImport && !ValidateDictionaryRow(row))
-                    {
-                        skippedRows++;
-                        continue;
-                    }
-
-                    importedRows++;
-
-                    // Report progress if available
-                    if (options.Progress != null)
-                    {
-                        var progress = CoreTypes.ImportProgress.Create(
-                            importedRows + skippedRows,
-                            dataList.Count,
-                            stopwatch.Elapsed,
-                            "Importing dictionary rows");
-                        options.Progress.Report(progress);
-                    }
+                    var progress = CoreTypes.ImportProgress.Create(
+                        importedRows + skippedRows,
+                        dataList.Count,
+                        stopwatch.Elapsed,
+                        "Importing dictionary rows");
+                    options.Progress.Report(progress);
                 }
 
                 stopwatch.Stop();
@@ -135,48 +129,37 @@ internal sealed class ImportExportService : IImportExportService
             if (!dataList.Any())
                 return dataTable;
 
-            // Determine columns to export
+            // LINQ OPTIMIZATION: Functional approach for column and row processing
             var allColumns = dataList.SelectMany(row => row.Keys).Distinct().ToList();
             var columnsToExport = options.ColumnsToExport?.ToList() ?? allColumns;
 
-            // Create DataTable columns
-            foreach (var columnName in columnsToExport)
-            {
-                dataTable.Columns.Add(columnName, typeof(object));
-            }
+            // Create DataTable columns using LINQ
+            columnsToExport.ForEach(columnName => dataTable.Columns.Add(columnName, typeof(object)));
 
-            // Add data rows
-            for (var i = 0; i < dataList.Count; i++)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                var row = dataList[i];
-                var dataRow = dataTable.NewRow();
-
-                foreach (var columnName in columnsToExport)
+            // Add data rows using functional approach
+            var processedRows = dataList
+                .TakeWhile(_ => !cancellationToken.IsCancellationRequested)
+                .Select((row, index) =>
                 {
-                    if (row.TryGetValue(columnName, out var value))
-                    {
-                        dataRow[columnName] = value ?? DBNull.Value;
-                    }
-                    else
-                    {
-                        dataRow[columnName] = DBNull.Value;
-                    }
-                }
+                    var dataRow = dataTable.NewRow();
+                    columnsToExport.ForEach(columnName =>
+                        dataRow[columnName] = row.TryGetValue(columnName, out var value) ? value ?? DBNull.Value : DBNull.Value);
+                    return new { DataRow = dataRow, Index = index };
+                })
+                .ToList();
 
-                dataTable.Rows.Add(dataRow);
+            // Add all rows to DataTable
+            processedRows.ForEach(item => dataTable.Rows.Add(item.DataRow));
 
-                // Report progress if available
-                if (options.Progress != null)
-                {
-                    var progress = CoreTypes.ExportProgress.Create(
-                        i + 1,
-                        dataList.Count,
-                        TimeSpan.Zero, // Would need to track elapsed time
-                        "Exporting to DataTable");
-                    options.Progress.Report(progress);
-                }
+            // Report final progress if available
+            if (options.Progress != null)
+            {
+                var progress = CoreTypes.ExportProgress.Create(
+                    processedRows.Count,
+                    dataList.Count,
+                    TimeSpan.Zero,
+                    "Exporting to DataTable");
+                options.Progress.Report(progress);
             }
 
             return dataTable;
@@ -197,41 +180,29 @@ internal sealed class ImportExportService : IImportExportService
             if (!dataList.Any())
                 return result;
 
-            // Determine columns to export
+            // LINQ OPTIMIZATION: Functional approach for data transformation
             var allColumns = dataList.SelectMany(row => row.Keys).Distinct().ToList();
             var columnsToExport = options.ColumnsToExport?.ToList() ?? allColumns;
 
-            for (var i = 0; i < dataList.Count; i++)
+            var exportedRows = dataList
+                .TakeWhile(_ => !cancellationToken.IsCancellationRequested)
+                .Select(row => columnsToExport.ToDictionary(
+                    columnName => columnName,
+                    columnName => row.TryGetValue(columnName, out var value) ? value : null))
+                .Cast<IReadOnlyDictionary<string, object?>>()
+                .ToList();
+
+            result.AddRange(exportedRows);
+
+            // Report final progress if available
+            if (options.Progress != null)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                var row = dataList[i];
-                var exportedRow = new Dictionary<string, object?>();
-
-                foreach (var columnName in columnsToExport)
-                {
-                    if (row.TryGetValue(columnName, out var value))
-                    {
-                        exportedRow[columnName] = value;
-                    }
-                    else
-                    {
-                        exportedRow[columnName] = null;
-                    }
-                }
-
-                result.Add(exportedRow);
-
-                // Report progress if available
-                if (options.Progress != null)
-                {
-                    var progress = CoreTypes.ExportProgress.Create(
-                        i + 1,
-                        dataList.Count,
-                        TimeSpan.Zero, // Would need to track elapsed time
-                        "Exporting to Dictionary");
-                    options.Progress.Report(progress);
-                }
+                var progress = CoreTypes.ExportProgress.Create(
+                    exportedRows.Count,
+                    dataList.Count,
+                    TimeSpan.Zero,
+                    "Exporting to Dictionary");
+                options.Progress.Report(progress);
             }
 
             return (IReadOnlyList<IReadOnlyDictionary<string, object?>>)result;
@@ -251,6 +222,7 @@ internal sealed class ImportExportService : IImportExportService
                 if (!dataList.Any())
                     return CoreTypes.CopyPasteResult.CreateSuccess(0, string.Empty);
 
+                // LINQ OPTIMIZATION: Functional approach for clipboard data preparation
                 var allColumns = dataList.SelectMany(row => row.Keys).Distinct().ToList();
                 var lines = new List<string>();
 
@@ -260,15 +232,13 @@ internal sealed class ImportExportService : IImportExportService
                     lines.Add(string.Join("\t", allColumns));
                 }
 
-                // Add data rows
-                foreach (var row in dataList)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
+                // Add data rows using LINQ
+                var dataRows = dataList
+                    .TakeWhile(_ => !cancellationToken.IsCancellationRequested)
+                    .Select(row => string.Join("\t", allColumns.Select(column =>
+                        row.TryGetValue(column, out var value) ? value?.ToString() ?? string.Empty : string.Empty)));
 
-                    var values = allColumns.Select(column =>
-                        row.TryGetValue(column, out var value) ? value?.ToString() ?? string.Empty : string.Empty);
-                    lines.Add(string.Join("\t", values));
-                }
+                lines.AddRange(dataRows);
 
                 var clipboardData = string.Join(Environment.NewLine, lines);
 
@@ -315,18 +285,15 @@ internal sealed class ImportExportService : IImportExportService
                 if (string.IsNullOrEmpty(clipboardData))
                     return CoreTypes.CopyPasteResult.CreateSuccess(0);
 
+                // LINQ OPTIMIZATION: Functional approach for clipboard data processing
                 var lines = clipboardData.Split(new[] { Environment.NewLine, "\n", "\r\n" }, StringSplitOptions.RemoveEmptyEntries);
-                var processedRows = 0;
 
-                foreach (var line in lines)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
+                var processedRows = lines
+                    .TakeWhile(_ => !cancellationToken.IsCancellationRequested)
+                    .Select(line => line.Split('\t'))
+                    .Count();
 
-                    var values = line.Split('\t');
-                    processedRows++;
-
-                    // In a real implementation, would apply the values based on target position and mode
-                }
+                // In a real implementation, would apply the values based on target position and mode
 
                 return CoreTypes.CopyPasteResult.CreateSuccess(processedRows);
             }
