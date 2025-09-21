@@ -169,7 +169,7 @@ internal static class LoggerApi
     public static async Task<RotationResult> RotateLogFileAsync(ILogger logger, CancellationToken cancellationToken = default)
     {
         await Task.Delay(1, cancellationToken); // Placeholder
-        return RotationResult.Success("", "", TimeSpan.Zero);
+        return RotationResult.Success("", 0, "", 1, 0, TimeSpan.Zero);
     }
 
     public static async Task<CleanupResult> CleanupOldLogFilesAsync(string logDirectory, int maxAgeDays, CancellationToken cancellationToken = default)

@@ -9,9 +9,80 @@ using RpaWinUiComponentsPackage.AdvancedWinUiLogger.Core.ValueObjects;
 namespace RpaWinUiComponentsPackage.AdvancedWinUiLogger;
 
 /// <summary>
-/// PUBLIC TYPES: Facade types that shadow internal Core types to avoid namespace pollution
-/// These types are exactly the same as internal Core types but public in facade namespace
+/// PUBLIC API TYPES: Public DTO and enums with mapping to internal types
+/// Internal types remain internal, accessed via facade mapping pattern
 /// </summary>
+
+// LogFileInfo Type - Public DTO
+public sealed record LogFileInfo
+{
+    public string FilePath { get; init; } = string.Empty;
+    public string FileName { get; init; } = string.Empty;
+    public long SizeBytes { get; init; }
+    public DateTime CreatedUtc { get; init; }
+    public DateTime ModifiedUtc { get; init; }
+    public bool IsCompressed { get; init; }
+    public Microsoft.Extensions.Logging.LogLevel LogLevel { get; init; }
+
+    public double SizeMB => SizeBytes / (1024.0 * 1024.0);
+    public double SizeKB => SizeBytes / 1024.0;
+    public double AgeDays => (DateTime.UtcNow - CreatedUtc).TotalDays;
+
+    public static LogFileInfo Create(string filePath, long sizeBytes, DateTime createdUtc, DateTime modifiedUtc) =>
+        new()
+        {
+            FilePath = filePath,
+            FileName = System.IO.Path.GetFileName(filePath),
+            SizeBytes = sizeBytes,
+            CreatedUtc = createdUtc,
+            ModifiedUtc = modifiedUtc
+        };
+}
+
+// RotationResult Type - Public DTO
+public sealed record RotationResult
+{
+    public bool IsSuccess { get; init; }
+    public string? OriginalFilePath { get; init; }
+    public long OriginalFileSize { get; init; }
+    public string? NewFilePath { get; init; }
+    public int RotationNumber { get; init; }
+    public long CompressedSize { get; init; }
+    public TimeSpan OperationDuration { get; init; }
+    public string? ErrorMessage { get; init; }
+
+    public static RotationResult Success(string newFilePath, long fileSize, string? oldFilePath, int rotationNumber, long compressedSize, TimeSpan duration) =>
+        new()
+        {
+            IsSuccess = true,
+            OriginalFilePath = oldFilePath,
+            OriginalFileSize = fileSize,
+            NewFilePath = newFilePath,
+            RotationNumber = rotationNumber,
+            CompressedSize = compressedSize,
+            OperationDuration = duration
+        };
+
+    public static RotationResult Failure(string errorMessage) =>
+        new() { IsSuccess = false, ErrorMessage = errorMessage };
+}
+
+// LoggerConfiguration Type - Public DTO
+public sealed record LoggerConfiguration
+{
+    public string LogDirectory { get; init; } = string.Empty;
+    public string BaseFileName { get; init; } = string.Empty;
+    public Microsoft.Extensions.Logging.LogLevel MinimumLevel { get; init; } = Microsoft.Extensions.Logging.LogLevel.Information;
+    public long MaxFileSize { get; init; } = 10 * 1024 * 1024; // 10MB
+    public int MaxFiles { get; init; } = 10;
+    public bool EnableCompression { get; init; } = false;
+    public bool EnableStructuredLogging { get; init; } = true;
+    public string OutputTemplate { get; init; } = "{Timestamp:yyyy-MM-dd HH:mm:ss} [{Level:u3}] {Message}{NewLine}{Exception}";
+    public bool EnablePerformanceCounters { get; init; } = false;
+
+    public static LoggerConfiguration CreateMinimal(string logDirectory, string baseFileName) =>
+        new() { LogDirectory = logDirectory, BaseFileName = baseFileName };
+}
 
 // Cleanup Types
 public sealed record CleanupResult
@@ -55,8 +126,8 @@ public sealed record LogDirectorySummary
             DirectoryPath = directoryPath,
             TotalFiles = files.Count,
             TotalSizeBytes = files.Sum(f => f.SizeBytes),
-            OldestFileDate = files.Any() ? files.Min(f => f.CreatedDate) : DateTime.MinValue,
-            NewestFileDate = files.Any() ? files.Max(f => f.LastModifiedDate) : DateTime.MinValue,
+            OldestFileDate = files.Any() ? files.Min(f => f.CreatedUtc) : DateTime.MinValue,
+            NewestFileDate = files.Any() ? files.Max(f => f.ModifiedUtc) : DateTime.MinValue,
             Files = files
         };
 }

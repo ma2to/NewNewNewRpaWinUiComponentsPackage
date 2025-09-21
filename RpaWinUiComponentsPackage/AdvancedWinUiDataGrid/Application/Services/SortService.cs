@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Application.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
+using CoreTypes = RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Application.Services;
 
@@ -128,7 +129,7 @@ internal sealed class SortService : ISortService
             sortColumns = sortColumns.Take(configuration.MaxSortColumns).ToList();
         }
 
-        return MultiSort(data, sortColumns);
+        return MultiSort(data, sortColumns.ToPublicSortList());
     }
 
     public bool CanSort(string columnName, IEnumerable<IReadOnlyDictionary<string, object?>> data)

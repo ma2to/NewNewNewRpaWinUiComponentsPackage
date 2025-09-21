@@ -1,3 +1,5 @@
+using System;
+using System.Linq;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using RpaWinUiComponentsPackage.AdvancedWinUiLogger.Application.Interfaces;
@@ -27,17 +29,11 @@ public static class ServiceCollectionExtensions
 
         // Register internal service interface with implementation
         // This registration is internal - consumers don't see it in IntelliSense
-        services.AddScoped<IAdvancedLoggerService, AdvancedLoggerService>();
+        services.AddScoped<ILoggerService, LoggerService>();
 
         // Register the public facade
-        // This uses the DI constructor of AdvancedLoggerFacade
-        services.AddScoped<AdvancedLoggerFacade>(serviceProvider =>
-        {
-            var loggerService = serviceProvider.GetRequiredService<IAdvancedLoggerService>();
-            var logger = serviceProvider.GetService<ILogger<AdvancedLoggerFacade>>();
-
-            return new AdvancedLoggerFacade(loggerService, logger);
-        });
+        // Using parameterless constructor since facade delegates to internal services
+        services.AddScoped<AdvancedLoggerFacade>();
 
         return services;
     }
@@ -175,16 +171,11 @@ public static class ServiceCollectionExtensions
         }
 
         // Register internal service interface as singleton
-        services.AddSingleton<IAdvancedLoggerService, AdvancedLoggerService>();
+        services.AddSingleton<ILoggerService, LoggerService>();
 
         // Register the public facade as singleton
-        services.AddSingleton<AdvancedLoggerFacade>(serviceProvider =>
-        {
-            var loggerService = serviceProvider.GetRequiredService<IAdvancedLoggerService>();
-            var logger = serviceProvider.GetService<ILogger<AdvancedLoggerFacade>>();
-
-            return new AdvancedLoggerFacade(loggerService, logger);
-        });
+        // Using parameterless constructor since facade delegates to internal services
+        services.AddSingleton<AdvancedLoggerFacade>();
 
         return services;
     }
@@ -227,7 +218,7 @@ public static class ServiceCollectionExtensions
 
         // Remove internal service registrations
         var internalDescriptors = services
-            .Where(s => s.ServiceType == typeof(IAdvancedLoggerService))
+            .Where(s => s.ServiceType == typeof(ILoggerService))
             .ToList();
 
         foreach (var descriptor in internalDescriptors)

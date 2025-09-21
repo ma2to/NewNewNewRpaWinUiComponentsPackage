@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
+using CoreTypes = RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Application.Interfaces;
 
@@ -13,35 +14,35 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Application.Interfaces
 internal interface IAutoRowHeightService
 {
     // Auto row height operations
-    Task<AutoRowHeightResult> EnableAutoRowHeightAsync(
-        AutoRowHeightConfiguration configuration,
+    Task<CoreTypes.AutoRowHeightResult> EnableAutoRowHeightAsync(
+        CoreTypes.AutoRowHeightConfiguration configuration,
         CancellationToken cancellationToken = default);
 
-    Task<AutoRowHeightResult> CalculateOptimalRowHeightsAsync(
+    Task<CoreTypes.AutoRowHeightResult> CalculateOptimalRowHeightsAsync(
         IEnumerable<IReadOnlyDictionary<string, object?>> data,
-        RowHeightCalculationOptions options,
+        CoreTypes.RowHeightCalculationOptions options,
         CancellationToken cancellationToken = default);
 
     // Single row operations
-    Task<RowHeightCalculationResult> CalculateRowHeightAsync(
+    Task<CoreTypes.RowHeightCalculationResult> CalculateRowHeightAsync(
         IReadOnlyDictionary<string, object?> rowData,
         int rowIndex,
-        AutoRowHeightConfiguration configuration,
+        CoreTypes.AutoRowHeightConfiguration configuration,
         CancellationToken cancellationToken = default);
 
     // Text measurement operations
-    Task<TextMeasurementResult> MeasureTextAsync(
+    Task<CoreTypes.TextMeasurementResult> MeasureTextAsync(
         string text,
         double maxWidth,
-        AutoRowHeightConfiguration configuration,
+        CoreTypes.AutoRowHeightConfiguration configuration,
         CancellationToken cancellationToken = default);
 
     // Configuration operations
     Task ApplyConfigurationAsync(
-        AutoRowHeightConfiguration configuration,
+        CoreTypes.AutoRowHeightConfiguration configuration,
         CancellationToken cancellationToken = default);
 
-    AutoRowHeightConfiguration GetCurrentConfiguration();
+    CoreTypes.AutoRowHeightConfiguration GetCurrentConfiguration();
 
     // Utility operations
     bool IsAutoRowHeightEnabled();

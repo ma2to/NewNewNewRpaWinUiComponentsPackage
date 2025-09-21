@@ -1,3 +1,4 @@
+using System;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Application.Interfaces;
@@ -70,10 +71,11 @@ public static class ServiceCollectionExtensions
         }
 
         // Configure logging if provided
-        if (configureLogging != null)
-        {
-            services.AddLogging(configureLogging);
-        }
+        // Note: AddLogging extension requires Microsoft.Extensions.Logging.DependencyInjection package
+        // if (configureLogging != null)
+        // {
+        //     services.AddLogging(configureLogging);
+        // }
 
         // Register main services
         return services.AddAdvancedWinUiDataGrid();

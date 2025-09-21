@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Application.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
+using CoreTypes = RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Application.Services;
 
@@ -16,12 +17,12 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Application.Services;
 /// </summary>
 internal sealed class AutoRowHeightService : IAutoRowHeightService
 {
-    private readonly ConcurrentDictionary<string, TextMeasurementResult> _measurementCache = new();
-    private AutoRowHeightConfiguration _currentConfiguration = AutoRowHeightConfiguration.Default;
+    private readonly ConcurrentDictionary<string, CoreTypes.TextMeasurementResult> _measurementCache = new();
+    private CoreTypes.AutoRowHeightConfiguration _currentConfiguration = CoreTypes.AutoRowHeightConfiguration.Default;
     private bool _isEnabled = false;
 
-    public async Task<AutoRowHeightResult> EnableAutoRowHeightAsync(
-        AutoRowHeightConfiguration configuration,
+    public async Task<CoreTypes.AutoRowHeightResult> EnableAutoRowHeightAsync(
+        CoreTypes.AutoRowHeightConfiguration configuration,
         CancellationToken cancellationToken = default)
     {
         return await Task.Run(() =>
@@ -39,21 +40,21 @@ internal sealed class AutoRowHeightService : IAutoRowHeightService
                 }
 
                 stopwatch.Stop();
-                return AutoRowHeightResult.CreateSuccess(
-                    Array.Empty<RowHeightCalculationResult>(),
+                return CoreTypes.AutoRowHeightResult.CreateSuccess(
+                    Array.Empty<CoreTypes.RowHeightCalculationResult>(),
                     stopwatch.Elapsed);
             }
             catch (Exception ex)
             {
                 stopwatch.Stop();
-                return AutoRowHeightResult.Failure($"Failed to enable auto row height: {ex.Message}");
+                return CoreTypes.AutoRowHeightResult.Failure($"Failed to enable auto row height: {ex.Message}");
             }
         }, cancellationToken);
     }
 
-    public async Task<AutoRowHeightResult> CalculateOptimalRowHeightsAsync(
+    public async Task<CoreTypes.AutoRowHeightResult> CalculateOptimalRowHeightsAsync(
         IEnumerable<IReadOnlyDictionary<string, object?>> data,
-        RowHeightCalculationOptions options,
+        CoreTypes.RowHeightCalculationOptions options,
         CancellationToken cancellationToken = default)
     {
         return await Task.Run(() =>
@@ -63,7 +64,7 @@ internal sealed class AutoRowHeightService : IAutoRowHeightService
             try
             {
                 var dataList = data.ToList();
-                var results = new List<RowHeightCalculationResult>();
+                var results = new List<CoreTypes.RowHeightCalculationResult>();
 
                 for (int i = 0; i < dataList.Count; i++)
                 {
@@ -76,31 +77,31 @@ internal sealed class AutoRowHeightService : IAutoRowHeightService
                     // Report progress if available
                     if (options.Progress != null)
                     {
-                        var progress = BatchCalculationProgress.Create(i + 1, dataList.Count, stopwatch.Elapsed);
+                        var progress = CoreTypes.BatchCalculationProgress.Create(i + 1, dataList.Count, stopwatch.Elapsed);
                         options.Progress.Report(progress);
                     }
                 }
 
                 stopwatch.Stop();
-                return AutoRowHeightResult.CreateSuccess(results, stopwatch.Elapsed);
+                return CoreTypes.AutoRowHeightResult.CreateSuccess(results, stopwatch.Elapsed);
             }
             catch (Exception ex)
             {
                 stopwatch.Stop();
-                return AutoRowHeightResult.Failure($"Failed to calculate row heights: {ex.Message}");
+                return CoreTypes.AutoRowHeightResult.Failure($"Failed to calculate row heights: {ex.Message}");
             }
         }, cancellationToken);
     }
 
-    public async Task<RowHeightCalculationResult> CalculateRowHeightAsync(
+    public async Task<CoreTypes.RowHeightCalculationResult> CalculateRowHeightAsync(
         IReadOnlyDictionary<string, object?> rowData,
         int rowIndex,
-        AutoRowHeightConfiguration configuration,
+        CoreTypes.AutoRowHeightConfiguration configuration,
         CancellationToken cancellationToken = default)
     {
         return await Task.Run(() =>
         {
-            var options = new RowHeightCalculationOptions
+            var options = new CoreTypes.RowHeightCalculationOptions
             {
                 MaximumRowHeight = configuration.MaximumRowHeight,
                 MinimumRowHeight = configuration.MinimumRowHeight,
@@ -111,10 +112,10 @@ internal sealed class AutoRowHeightService : IAutoRowHeightService
         }, cancellationToken);
     }
 
-    public async Task<TextMeasurementResult> MeasureTextAsync(
+    public async Task<CoreTypes.TextMeasurementResult> MeasureTextAsync(
         string text,
         double maxWidth,
-        AutoRowHeightConfiguration configuration,
+        CoreTypes.AutoRowHeightConfiguration configuration,
         CancellationToken cancellationToken = default)
     {
         return await Task.Run(() =>
@@ -138,7 +139,7 @@ internal sealed class AutoRowHeightService : IAutoRowHeightService
     }
 
     public async Task ApplyConfigurationAsync(
-        AutoRowHeightConfiguration configuration,
+        CoreTypes.AutoRowHeightConfiguration configuration,
         CancellationToken cancellationToken = default)
     {
         await Task.Run(() =>
@@ -153,7 +154,7 @@ internal sealed class AutoRowHeightService : IAutoRowHeightService
         }, cancellationToken);
     }
 
-    public AutoRowHeightConfiguration GetCurrentConfiguration()
+    public CoreTypes.AutoRowHeightConfiguration GetCurrentConfiguration()
     {
         return _currentConfiguration;
     }
@@ -168,13 +169,13 @@ internal sealed class AutoRowHeightService : IAutoRowHeightService
         await Task.Run(() => _measurementCache.Clear(), cancellationToken);
     }
 
-    private RowHeightCalculationResult CalculateRowHeightInternal(
+    private CoreTypes.RowHeightCalculationResult CalculateRowHeightInternal(
         IReadOnlyDictionary<string, object?> rowData,
         int rowIndex,
-        RowHeightCalculationOptions options)
+        CoreTypes.RowHeightCalculationOptions options)
     {
         var stopwatch = Stopwatch.StartNew();
-        var columnMeasurements = new Dictionary<string, TextMeasurementResult>();
+        var columnMeasurements = new Dictionary<string, CoreTypes.TextMeasurementResult>();
 
         double maxHeight = options.MinimumRowHeight;
 
@@ -205,7 +206,7 @@ internal sealed class AutoRowHeightService : IAutoRowHeightService
 
         stopwatch.Stop();
 
-        return RowHeightCalculationResult.Create(
+        return CoreTypes.RowHeightCalculationResult.Create(
             rowIndex,
             maxHeight,
             columnMeasurements,
@@ -213,14 +214,14 @@ internal sealed class AutoRowHeightService : IAutoRowHeightService
             fromCache: false);
     }
 
-    private TextMeasurementResult MeasureTextInternal(
+    private CoreTypes.TextMeasurementResult MeasureTextInternal(
         string text,
         double maxWidth,
-        AutoRowHeightConfiguration configuration)
+        CoreTypes.AutoRowHeightConfiguration configuration)
     {
         if (string.IsNullOrEmpty(text))
         {
-            return TextMeasurementResult.Create(0, configuration.MinimumRowHeight, 1);
+            return CoreTypes.TextMeasurementResult.Create(0, configuration.MinimumRowHeight, 1);
         }
 
         // Simple text measurement simulation
@@ -257,7 +258,7 @@ internal sealed class AutoRowHeightService : IAutoRowHeightService
             }
         }
 
-        return TextMeasurementResult.Create(
+        return CoreTypes.TextMeasurementResult.Create(
             Math.Min(maxWidth, text.Length * (configuration.FontSize * 0.6)),
             totalHeight,
             lines,

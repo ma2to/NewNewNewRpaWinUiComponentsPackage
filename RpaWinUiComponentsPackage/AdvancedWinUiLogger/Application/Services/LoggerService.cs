@@ -46,9 +46,9 @@ internal sealed class LoggerService : ILoggerService
             var sessionStatus = new SessionStatus
             {
                 SessionId = sessionId,
-                StartTime = DateTime.UtcNow,
+                StartedAt = DateTime.UtcNow,
                 IsActive = true,
-                Configuration = configuration
+                LastActivity = DateTime.UtcNow
             };
 
             _activeSessions.Add(sessionStatus);
@@ -101,7 +101,7 @@ internal sealed class LoggerService : ILoggerService
         try
         {
             // Basic implementation
-            Log(entry.Level, new EventId(), entry.Message, entry.Exception, (msg, ex) => msg);
+            Log(entry.Level, new EventId(), entry.Message, null, (msg, ex) => msg);
             await Task.CompletedTask;
             return Result<bool>.Success(true);
         }

@@ -3,8 +3,12 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using RpaWinUiComponentsPackage.AdvancedWinUiLogger.Application.Interfaces;
+using RpaWinUiComponentsPackage.AdvancedWinUiLogger.Application.Services;
+using RpaWinUiComponentsPackage.AdvancedWinUiLogger.Application.UseCases.FileOperations;
+using RpaWinUiComponentsPackage.AdvancedWinUiLogger.Application.UseCases.LoggingOperations;
 using RpaWinUiComponentsPackage.AdvancedWinUiLogger.Core.Entities;
-using RpaWinUiComponentsPackage.AdvancedWinUiLogger.Core.ValueObjects;
+using CoreTypes = RpaWinUiComponentsPackage.AdvancedWinUiLogger.Core.ValueObjects;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiLogger;
 
@@ -15,12 +19,46 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiLogger;
 /// </summary>
 public sealed class AdvancedLoggerFacade
 {
+    private readonly ILoggerCreationService _loggerCreationService;
+    private readonly ILoggerConfigurationService _loggerConfigurationService;
+    private readonly ILoggerPerformanceService _loggerPerformanceService;
+    private readonly ILoggerComponentInfoService _loggerComponentInfoService;
+    private readonly ILogFileOperationsUseCase _logFileOperationsUseCase;
+    private readonly ILoggingOperationsUseCase _loggingOperationsUseCase;
+
     /// <summary>
     /// CONSTRUCTOR: Default parameterless constructor for easy usage
+    /// Creates internal services for standalone use
     /// </summary>
     public AdvancedLoggerFacade()
     {
-        // Simple facade - delegates directly to internal API classes
+        // Create internal service instances for standalone usage
+        _loggerCreationService = new LoggerCreationService();
+        _loggerConfigurationService = new LoggerConfigurationService();
+        _loggerPerformanceService = new LoggerPerformanceService();
+        _loggerComponentInfoService = new LoggerComponentInfoService();
+        _logFileOperationsUseCase = new LogFileOperationsUseCase();
+        _loggingOperationsUseCase = new LoggingOperationsUseCase();
+    }
+
+    /// <summary>
+    /// CONSTRUCTOR: Dependency injection constructor for advanced scenarios
+    /// INTERNAL: Used by DI container when services are registered
+    /// </summary>
+    internal AdvancedLoggerFacade(
+        ILoggerCreationService loggerCreationService,
+        ILoggerConfigurationService loggerConfigurationService,
+        ILoggerPerformanceService loggerPerformanceService,
+        ILoggerComponentInfoService loggerComponentInfoService,
+        ILogFileOperationsUseCase logFileOperationsUseCase,
+        ILoggingOperationsUseCase loggingOperationsUseCase)
+    {
+        _loggerCreationService = loggerCreationService ?? throw new ArgumentNullException(nameof(loggerCreationService));
+        _loggerConfigurationService = loggerConfigurationService ?? throw new ArgumentNullException(nameof(loggerConfigurationService));
+        _loggerPerformanceService = loggerPerformanceService ?? throw new ArgumentNullException(nameof(loggerPerformanceService));
+        _loggerComponentInfoService = loggerComponentInfoService ?? throw new ArgumentNullException(nameof(loggerComponentInfoService));
+        _logFileOperationsUseCase = logFileOperationsUseCase ?? throw new ArgumentNullException(nameof(logFileOperationsUseCase));
+        _loggingOperationsUseCase = loggingOperationsUseCase ?? throw new ArgumentNullException(nameof(loggingOperationsUseCase));
     }
 
     #region Logger Creation
@@ -29,36 +67,37 @@ public sealed class AdvancedLoggerFacade
     /// PUBLIC API: Create a simple file logger for basic logging needs
     /// FACTORY METHOD: Convenient logger creation
     /// </summary>
-    public Result<ILogger> CreateFileLogger(string logDirectory, string baseFileName = "application")
+    public CoreTypes.Result<ILogger> CreateFileLogger(string logDirectory, string baseFileName = "application")
     {
-        return LoggerApi.CreateFileLogger(logDirectory, baseFileName);
+        return _loggerCreationService.CreateFileLogger(logDirectory, baseFileName);
     }
 
     /// <summary>
     /// PUBLIC API: Create high-performance logger for high-throughput scenarios
     /// PERFORMANCE: Optimized for enterprise applications
     /// </summary>
-    public Result<ILogger> CreateHighPerformanceLogger(string logDirectory, string baseFileName = "application")
+    public CoreTypes.Result<ILogger> CreateHighPerformanceLogger(string logDirectory, string baseFileName = "application")
     {
-        return LoggerApi.CreateHighPerformanceLogger(logDirectory, baseFileName);
+        return _loggerCreationService.CreateHighPerformanceLogger(logDirectory, baseFileName);
     }
 
     /// <summary>
     /// PUBLIC API: Create development logger with detailed logging for debugging
     /// DEVELOPMENT: Optimized for development and debugging scenarios
     /// </summary>
-    public Result<ILogger> CreateDevelopmentLogger(string logDirectory, string baseFileName = "dev")
+    public CoreTypes.Result<ILogger> CreateDevelopmentLogger(string logDirectory, string baseFileName = "dev")
     {
-        return LoggerApi.CreateDevelopmentLogger(logDirectory, baseFileName);
+        return _loggerCreationService.CreateDevelopmentLogger(logDirectory, baseFileName);
     }
 
     /// <summary>
     /// PUBLIC API: Create logger with custom configuration
     /// ADVANCED: Full control over logger configuration
     /// </summary>
-    public Result<ILogger> CreateCustomLogger(LoggerConfiguration configuration)
+    public CoreTypes.Result<ILogger> CreateCustomLogger(LoggerConfiguration configuration)
     {
-        return LoggerApi.CreateCustomLogger(configuration);
+        var internalConfig = configuration.ToInternal();
+        return _loggerCreationService.CreateCustomLogger(internalConfig);
     }
 
     #endregion
@@ -73,7 +112,8 @@ public sealed class AdvancedLoggerFacade
         ILogger logger,
         CancellationToken cancellationToken = default)
     {
-        return await LoggerApi.RotateLogFileAsync(logger, cancellationToken);
+        var result = await _logFileOperationsUseCase.RotateLogFileAsync(logger, cancellationToken);
+        return result.ToPublic();
     }
 
     /// <summary>
@@ -85,7 +125,8 @@ public sealed class AdvancedLoggerFacade
         int maxAgeDays,
         CancellationToken cancellationToken = default)
     {
-        return await LoggerApi.CleanupOldLogFilesAsync(logDirectory, maxAgeDays, cancellationToken);
+        var result = await _logFileOperationsUseCase.CleanupOldLogFilesAsync(logDirectory, maxAgeDays, cancellationToken);
+        return result.ToPublic();
     }
 
     /// <summary>
@@ -96,7 +137,8 @@ public sealed class AdvancedLoggerFacade
         string logDirectory,
         CancellationToken cancellationToken = default)
     {
-        return await LoggerApi.GetLogFilesInfoAsync(logDirectory, cancellationToken);
+        var result = await _logFileOperationsUseCase.GetLogFilesInfoAsync(logDirectory, cancellationToken);
+        return result.ToPublicLogFileList();
     }
 
     /// <summary>
@@ -107,7 +149,8 @@ public sealed class AdvancedLoggerFacade
         string logDirectory,
         CancellationToken cancellationToken = default)
     {
-        return await LoggerApi.GetLogDirectorySummaryAsync(logDirectory, cancellationToken);
+        var result = await _logFileOperationsUseCase.GetLogDirectorySummaryAsync(logDirectory, cancellationToken);
+        return result.ToPublic();
     }
 
     #endregion

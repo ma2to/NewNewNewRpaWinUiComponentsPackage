@@ -106,14 +106,16 @@ internal static class TypeExtensions
         StartRowIndex = options.StartRowIndex,
         ValidateBeforeImport = options.ValidateBeforeImport,
         CreateMissingColumns = options.CreateMissingColumns,
-        ColumnMapping = options.ColumnMapping
+        ColumnMapping = options.ColumnMapping,
+        Progress = options.Progress != null ? new ImportProgressAdapter(options.Progress) : null
     };
 
     public static CoreTypes.ExportOptions ToInternal(this ExportOptions options) => new()
     {
         IncludeHeaders = options.IncludeHeaders,
         ColumnsToExport = options.ColumnsToExport,
-        DateTimeFormat = options.DateTimeFormat
+        DateTimeFormat = options.DateTimeFormat,
+        Progress = options.Progress != null ? new ExportProgressAdapter(options.Progress) : null
     };
 
     public static ImportResult ToPublic(this CoreTypes.ImportResult result) => new()
@@ -140,11 +142,11 @@ internal static class TypeExtensions
     {
         IsValid = result.IsValid,
         Severity = (ValidationSeverity)(int)result.Severity,
-        Message = result.Message,
+        Message = result.ErrorMessage ?? "",
         RuleName = result.RuleName,
-        ValidationTime = result.ValidationTime,
-        Value = result.Value,
-        IsTimeout = result.IsTimeout
+        ValidationTime = TimeSpan.Zero, // Default placeholder
+        Value = null, // Default placeholder
+        IsTimeout = false // Default placeholder
     };
 
     // Collection conversions
@@ -156,5 +158,162 @@ internal static class TypeExtensions
     public static IReadOnlyList<TInternal> ToInternalList<T, TInternal>(this IReadOnlyList<T> publicList, Func<T, TInternal> converter)
     {
         return publicList.Select(converter).ToArray();
+    }
+
+    // Additional missing extensions for list conversions
+    public static IReadOnlyList<AdvancedFilter> ToPublicAdvancedFilterList(this IReadOnlyList<CoreTypes.AdvancedFilter> internalList)
+    {
+        return internalList.Select(ToPublic).ToArray();
+    }
+
+    public static IReadOnlyList<CoreTypes.AdvancedFilter> ToInternalAdvancedFilterList(this IReadOnlyList<AdvancedFilter> publicList)
+    {
+        return publicList.Select(ToInternal).ToArray();
+    }
+
+    public static IReadOnlyList<FilterDefinition> ToPublicFilterList(this IReadOnlyList<CoreTypes.FilterDefinition> internalList)
+    {
+        return internalList.Select(ToPublic).ToArray();
+    }
+
+    public static IReadOnlyList<CoreTypes.FilterDefinition> ToInternalFilterList(this IReadOnlyList<FilterDefinition> publicList)
+    {
+        return publicList.Select(ToInternal).ToArray();
+    }
+
+    public static IReadOnlyList<SearchResult> ToPublicSearchResultList(this IReadOnlyList<CoreTypes.SearchResult> internalList)
+    {
+        return internalList.Select(ToPublic).ToArray();
+    }
+
+    public static IReadOnlyList<SortColumnConfiguration> ToPublicSortList(this IReadOnlyList<CoreTypes.SortColumnConfiguration> internalList)
+    {
+        return internalList.Select(ToPublic).ToArray();
+    }
+
+    public static IReadOnlyList<CoreTypes.SortColumnConfiguration> ToInternalSortList(this IReadOnlyList<SortColumnConfiguration> publicList)
+    {
+        return publicList.Select(ToInternal).ToArray();
+    }
+
+    // Missing ToPublic conversion for AdvancedFilter
+    public static AdvancedFilter ToPublic(this CoreTypes.AdvancedFilter filter) => new()
+    {
+        ColumnName = filter.ColumnName,
+        Operator = (FilterOperator)(int)filter.Operator,
+        Value = filter.Value,
+        SecondValue = filter.SecondValue,
+        LogicOperator = (FilterLogicOperator)(int)filter.LogicOperator,
+        GroupStart = filter.GroupStart,
+        GroupEnd = filter.GroupEnd,
+        FilterName = filter.FilterName
+    };
+
+    // Direction conversions
+    public static CoreTypes.SortDirection ToInternal(this SortDirection direction) => (CoreTypes.SortDirection)(int)direction;
+    public static SortDirection ToPublic(this CoreTypes.SortDirection direction) => (SortDirection)(int)direction;
+
+    // Mode conversions
+    public static CoreTypes.ImportMode ToInternal(this ImportMode mode) => (CoreTypes.ImportMode)(int)mode;
+    public static ImportMode ToPublic(this CoreTypes.ImportMode mode) => (ImportMode)(int)mode;
+
+    // Logic operator conversions
+    public static CoreTypes.FilterLogicOperator ToInternal(this FilterLogicOperator op) => (CoreTypes.FilterLogicOperator)(int)op;
+    public static FilterLogicOperator ToPublic(this CoreTypes.FilterLogicOperator op) => (FilterLogicOperator)(int)op;
+
+    // AutoRowHeight conversion helpers for architectural debt resolution
+    public static Dictionary<int, double> ToHeightDictionary(this CoreTypes.RowHeightCalculationResult[] results)
+    {
+        return results.ToDictionary(r => r.RowIndex, r => r.CalculatedHeight);
+    }
+
+    public static Dictionary<int, double> ToHeightDictionary(this IReadOnlyList<CoreTypes.RowHeightCalculationResult> results)
+    {
+        return results.ToDictionary(r => r.RowIndex, r => r.CalculatedHeight);
+    }
+
+    public static Dictionary<int, double> ToHeightDictionary(this List<CoreTypes.RowHeightCalculationResult> results)
+    {
+        return results.ToDictionary(r => r.RowIndex, r => r.CalculatedHeight);
+    }
+
+    // AutoRowHeight Extensions
+    public static CoreTypes.AutoRowHeightConfiguration ToInternal(this AutoRowHeightConfiguration config) => new()
+    {
+        IsEnabled = config.IsEnabled,
+        MinimumRowHeight = config.MinimumRowHeight,
+        MaximumRowHeight = config.MaximumRowHeight,
+        CellPadding = new Microsoft.UI.Xaml.Thickness(config.CellPadding),
+        TextWrapping = config.TextWrapping ? Microsoft.UI.Xaml.TextWrapping.Wrap : Microsoft.UI.Xaml.TextWrapping.NoWrap,
+        EnableTextTrimming = config.EnableTextTrimming,
+        FontSize = config.FontSize,
+        FontFamily = config.FontFamily,
+        LineHeight = config.LineHeight,
+        EnableMeasurementCache = config.EnableMeasurementCache
+    };
+
+    public static CoreTypes.RowHeightCalculationOptions ToInternal(this RowHeightCalculationOptions options) => new()
+    {
+        MaximumRowHeight = options.MaximumRowHeight,
+        MinimumRowHeight = options.MinimumRowHeight,
+        UseCache = options.UseCache,
+        SpecificColumns = options.SpecificColumns,
+        Progress = options.Progress != null ? new CoreProgressAdapter(options.Progress) : null
+    };
+
+    public static AutoRowHeightResult ToPublic(this CoreTypes.AutoRowHeightResult result) => new()
+    {
+        Success = result.Success,
+        CalculatedHeights = result.CalculatedHeights.ToHeightDictionary(),
+        CalculationTime = result.TotalCalculationTime,
+        ErrorMessage = result.ErrorMessage
+    };
+
+    // Progress adapter to convert IProgress<double> to IProgress<BatchCalculationProgress>
+    private sealed class CoreProgressAdapter : IProgress<CoreTypes.BatchCalculationProgress>
+    {
+        private readonly IProgress<double> _progress;
+
+        public CoreProgressAdapter(IProgress<double> progress)
+        {
+            _progress = progress;
+        }
+
+        public void Report(CoreTypes.BatchCalculationProgress value)
+        {
+            _progress.Report(value.CompletionPercentage / 100.0);
+        }
+    }
+
+    // Progress adapter for Import operations
+    private sealed class ImportProgressAdapter : IProgress<CoreTypes.ImportProgress>
+    {
+        private readonly IProgress<double> _progress;
+
+        public ImportProgressAdapter(IProgress<double> progress)
+        {
+            _progress = progress;
+        }
+
+        public void Report(CoreTypes.ImportProgress value)
+        {
+            _progress.Report(value.CompletionPercentage / 100.0);
+        }
+    }
+
+    // Progress adapter for Export operations
+    private sealed class ExportProgressAdapter : IProgress<CoreTypes.ExportProgress>
+    {
+        private readonly IProgress<double> _progress;
+
+        public ExportProgressAdapter(IProgress<double> progress)
+        {
+            _progress = progress;
+        }
+
+        public void Report(CoreTypes.ExportProgress value)
+        {
+            _progress.Report(value.CompletionPercentage / 100.0);
+        }
     }
 }

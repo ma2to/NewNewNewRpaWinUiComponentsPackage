@@ -6,7 +6,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Application.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Application.Services;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
 
@@ -69,9 +68,8 @@ public sealed class AdvancedDataGridFacade
         IReadOnlyList<AdvancedFilter> filters,
         CancellationToken cancellationToken = default)
     {
-        var internalFilters = filters.ToInternalList(f => f.ToInternal());
-        var result = await _searchFilterService.ApplyAdvancedFilterAsync(data, internalFilters, cancellationToken);
-        return result.ToPublic();
+        var result = await _searchFilterService.ApplyAdvancedFilterAsync(data, filters, cancellationToken);
+        return result;
     }
 
     /// <summary>
@@ -81,8 +79,8 @@ public sealed class AdvancedDataGridFacade
         IEnumerable<IReadOnlyDictionary<string, object?>> data,
         FilterDefinition filter)
     {
-        var result = _searchFilterService.ApplyFilter(data, filter.ToInternal());
-        return result.ToPublic();
+        var result = _searchFilterService.ApplyFilter(data, filter);
+        return result;
     }
 
     /// <summary>
@@ -93,10 +91,8 @@ public sealed class AdvancedDataGridFacade
         IReadOnlyList<FilterDefinition> filters,
         FilterLogicOperator logicOperator = FilterLogicOperator.And)
     {
-        var internalFilters = filters.ToInternalList(f => f.ToInternal());
-        var internalLogicOperator = (Core.ValueObjects.FilterLogicOperator)(int)logicOperator;
-        var result = _searchFilterService.ApplyFilters(data, internalFilters, internalLogicOperator);
-        return result.ToPublic();
+        var result = _searchFilterService.ApplyFilters(data, filters, logicOperator);
+        return result;
     }
 
     /// <summary>
@@ -107,8 +103,8 @@ public sealed class AdvancedDataGridFacade
         AdvancedSearchCriteria searchCriteria,
         CancellationToken cancellationToken = default)
     {
-        var results = await _searchFilterService.SearchAsync(data, searchCriteria.ToInternal(), cancellationToken);
-        return results.ToPublicList(r => r.ToPublic());
+        var results = await _searchFilterService.SearchAsync(data, searchCriteria, cancellationToken);
+        return results;
     }
 
     /// <summary>
@@ -120,7 +116,7 @@ public sealed class AdvancedDataGridFacade
         bool caseSensitive = false)
     {
         var results = _searchFilterService.QuickSearch(data, searchText, caseSensitive);
-        return results.ToPublicList(r => r.ToPublic());
+        return results;
     }
 
     #endregion
@@ -136,9 +132,8 @@ public sealed class AdvancedDataGridFacade
         SortDirection direction = SortDirection.Ascending,
         CancellationToken cancellationToken = default)
     {
-        var internalDirection = (Core.ValueObjects.SortDirection)(int)direction;
-        var result = await _sortService.SortAsync(data, columnName, internalDirection, cancellationToken);
-        return result.ToPublic();
+        var result = await _sortService.SortAsync(data, columnName, direction, cancellationToken);
+        return result;
     }
 
     /// <summary>
@@ -149,9 +144,8 @@ public sealed class AdvancedDataGridFacade
         IReadOnlyList<SortColumnConfiguration> sortConfigurations,
         CancellationToken cancellationToken = default)
     {
-        var internalConfigs = sortConfigurations.ToInternalList(c => c.ToInternal());
-        var result = await _sortService.MultiSortAsync(data, internalConfigs, cancellationToken);
-        return result.ToPublic();
+        var result = await _sortService.MultiSortAsync(data, sortConfigurations, cancellationToken);
+        return result;
     }
 
     /// <summary>
@@ -162,9 +156,8 @@ public sealed class AdvancedDataGridFacade
         string columnName,
         SortDirection direction = SortDirection.Ascending)
     {
-        var internalDirection = (Core.ValueObjects.SortDirection)(int)direction;
-        var result = _sortService.Sort(data, columnName, internalDirection);
-        return result.ToPublic();
+        var result = _sortService.Sort(data, columnName, direction);
+        return result;
     }
 
     #endregion
@@ -250,7 +243,7 @@ public sealed class AdvancedDataGridFacade
         ImportMode mode = ImportMode.Replace,
         CancellationToken cancellationToken = default)
     {
-        var internalMode = (Core.ValueObjects.ImportMode)(int)mode;
+        var internalMode = mode.ToInternal();
         var result = await _importExportService.PasteFromClipboardAsync(targetRowIndex, targetColumnIndex, internalMode, cancellationToken);
         return result.ToPublic();
     }
@@ -309,22 +302,26 @@ public sealed class AdvancedDataGridFacade
     /// <summary>
     /// PUBLIC API: Enable automatic row height adjustment
     /// </summary>
-    public Task<AutoRowHeightResult> EnableAutoRowHeightAsync(
+    public async Task<AutoRowHeightResult> EnableAutoRowHeightAsync(
         AutoRowHeightConfiguration configuration,
         CancellationToken cancellationToken = default)
     {
-        return _autoRowHeightService.EnableAutoRowHeightAsync(configuration, cancellationToken);
+        var internalConfig = configuration.ToInternal();
+        var result = await _autoRowHeightService.EnableAutoRowHeightAsync(internalConfig, cancellationToken);
+        return result.ToPublic();
     }
 
     /// <summary>
     /// PUBLIC API: Calculate optimal row heights
     /// </summary>
-    public Task<AutoRowHeightResult> CalculateOptimalRowHeightsAsync(
+    public async Task<AutoRowHeightResult> CalculateOptimalRowHeightsAsync(
         IEnumerable<IReadOnlyDictionary<string, object?>> data,
         RowHeightCalculationOptions options,
         CancellationToken cancellationToken = default)
     {
-        return _autoRowHeightService.CalculateOptimalRowHeightsAsync(data, options, cancellationToken);
+        var internalOptions = options.ToInternal();
+        var result = await _autoRowHeightService.CalculateOptimalRowHeightsAsync(data, internalOptions, cancellationToken);
+        return result.ToPublic();
     }
 
     #endregion

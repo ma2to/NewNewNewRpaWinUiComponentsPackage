@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Application.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
+using CoreTypes = RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Application.Services;
 
@@ -17,15 +18,15 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Application.Services;
 /// </summary>
 internal sealed class ImportExportService : IImportExportService
 {
-    public async Task<ImportResult> ImportFromDataTableAsync(
+    public async Task<CoreTypes.ImportResult> ImportFromDataTableAsync(
         DataTable dataTable,
-        ImportOptions? options = null,
+        CoreTypes.ImportOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         return await Task.Run(() =>
         {
             var stopwatch = Stopwatch.StartNew();
-            options ??= ImportOptions.Default;
+            options ??= CoreTypes.ImportOptions.Default;
 
             try
             {
@@ -47,7 +48,7 @@ internal sealed class ImportExportService : IImportExportService
                     // Report progress if available
                     if (options.Progress != null)
                     {
-                        var progress = ImportProgress.Create(
+                        var progress = CoreTypes.ImportProgress.Create(
                             importedRows + skippedRows,
                             dataTable.Rows.Count,
                             stopwatch.Elapsed,
@@ -57,25 +58,25 @@ internal sealed class ImportExportService : IImportExportService
                 }
 
                 stopwatch.Stop();
-                return ImportResult.CreateSuccess(importedRows, dataTable.Rows.Count, stopwatch.Elapsed);
+                return CoreTypes.ImportResult.CreateSuccess(importedRows, dataTable.Rows.Count, stopwatch.Elapsed);
             }
             catch (Exception ex)
             {
                 stopwatch.Stop();
-                return ImportResult.Failure(new[] { ex.Message }, stopwatch.Elapsed);
+                return CoreTypes.ImportResult.Failure(new[] { ex.Message }, stopwatch.Elapsed);
             }
         }, cancellationToken);
     }
 
-    public async Task<ImportResult> ImportFromDictionaryAsync(
+    public async Task<CoreTypes.ImportResult> ImportFromDictionaryAsync(
         IEnumerable<IReadOnlyDictionary<string, object?>> sourceData,
-        ImportOptions? options = null,
+        CoreTypes.ImportOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         return await Task.Run(() =>
         {
             var stopwatch = Stopwatch.StartNew();
-            options ??= ImportOptions.Default;
+            options ??= CoreTypes.ImportOptions.Default;
 
             try
             {
@@ -100,7 +101,7 @@ internal sealed class ImportExportService : IImportExportService
                     // Report progress if available
                     if (options.Progress != null)
                     {
-                        var progress = ImportProgress.Create(
+                        var progress = CoreTypes.ImportProgress.Create(
                             importedRows + skippedRows,
                             dataList.Count,
                             stopwatch.Elapsed,
@@ -110,24 +111,24 @@ internal sealed class ImportExportService : IImportExportService
                 }
 
                 stopwatch.Stop();
-                return ImportResult.CreateSuccess(importedRows, dataList.Count, stopwatch.Elapsed);
+                return CoreTypes.ImportResult.CreateSuccess(importedRows, dataList.Count, stopwatch.Elapsed);
             }
             catch (Exception ex)
             {
                 stopwatch.Stop();
-                return ImportResult.Failure(new[] { ex.Message }, stopwatch.Elapsed);
+                return CoreTypes.ImportResult.Failure(new[] { ex.Message }, stopwatch.Elapsed);
             }
         }, cancellationToken);
     }
 
     public async Task<DataTable> ExportToDataTableAsync(
         IEnumerable<IReadOnlyDictionary<string, object?>> data,
-        ExportOptions? options = null,
+        CoreTypes.ExportOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         return await Task.Run(() =>
         {
-            options ??= ExportOptions.Default;
+            options ??= CoreTypes.ExportOptions.Default;
             var dataList = data.ToList();
             var dataTable = new DataTable();
 
@@ -169,7 +170,7 @@ internal sealed class ImportExportService : IImportExportService
                 // Report progress if available
                 if (options.Progress != null)
                 {
-                    var progress = ExportProgress.Create(
+                    var progress = CoreTypes.ExportProgress.Create(
                         i + 1,
                         dataList.Count,
                         TimeSpan.Zero, // Would need to track elapsed time
@@ -184,12 +185,12 @@ internal sealed class ImportExportService : IImportExportService
 
     public async Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> ExportToDictionaryAsync(
         IEnumerable<IReadOnlyDictionary<string, object?>> data,
-        ExportOptions? options = null,
+        CoreTypes.ExportOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         return await Task.Run(() =>
         {
-            options ??= ExportOptions.Default;
+            options ??= CoreTypes.ExportOptions.Default;
             var dataList = data.ToList();
             var result = new List<IReadOnlyDictionary<string, object?>>();
 
@@ -224,7 +225,7 @@ internal sealed class ImportExportService : IImportExportService
                 // Report progress if available
                 if (options.Progress != null)
                 {
-                    var progress = ExportProgress.Create(
+                    var progress = CoreTypes.ExportProgress.Create(
                         i + 1,
                         dataList.Count,
                         TimeSpan.Zero, // Would need to track elapsed time
@@ -237,7 +238,7 @@ internal sealed class ImportExportService : IImportExportService
         }, cancellationToken);
     }
 
-    public async Task<CopyPasteResult> CopyToClipboardAsync(
+    public async Task<CoreTypes.CopyPasteResult> CopyToClipboardAsync(
         IEnumerable<IReadOnlyDictionary<string, object?>> selectedData,
         bool includeHeaders = true,
         CancellationToken cancellationToken = default)
@@ -248,7 +249,7 @@ internal sealed class ImportExportService : IImportExportService
             {
                 var dataList = selectedData.ToList();
                 if (!dataList.Any())
-                    return CopyPasteResult.CreateSuccess(0, string.Empty);
+                    return CoreTypes.CopyPasteResult.CreateSuccess(0, string.Empty);
 
                 var allColumns = dataList.SelectMany(row => row.Keys).Distinct().ToList();
                 var lines = new List<string>();
@@ -281,19 +282,19 @@ internal sealed class ImportExportService : IImportExportService
                     // Clipboard operation might fail in some contexts
                 }
 
-                return CopyPasteResult.CreateSuccess(dataList.Count, clipboardData);
+                return CoreTypes.CopyPasteResult.CreateSuccess(dataList.Count, clipboardData);
             }
             catch (Exception ex)
             {
-                return CopyPasteResult.Failure(ex.Message);
+                return CoreTypes.CopyPasteResult.Failure(ex.Message);
             }
         }, cancellationToken);
     }
 
-    public async Task<CopyPasteResult> PasteFromClipboardAsync(
+    public async Task<CoreTypes.CopyPasteResult> PasteFromClipboardAsync(
         int targetRowIndex = 0,
         int targetColumnIndex = 0,
-        ImportMode mode = ImportMode.Replace,
+        CoreTypes.ImportMode mode = CoreTypes.ImportMode.Replace,
         CancellationToken cancellationToken = default)
     {
         return await Task.Run(() =>
@@ -308,11 +309,11 @@ internal sealed class ImportExportService : IImportExportService
                 }
                 catch
                 {
-                    return CopyPasteResult.Failure("Unable to access clipboard");
+                    return CoreTypes.CopyPasteResult.Failure("Unable to access clipboard");
                 }
 
                 if (string.IsNullOrEmpty(clipboardData))
-                    return CopyPasteResult.CreateSuccess(0);
+                    return CoreTypes.CopyPasteResult.CreateSuccess(0);
 
                 var lines = clipboardData.Split(new[] { Environment.NewLine, "\n", "\r\n" }, StringSplitOptions.RemoveEmptyEntries);
                 var processedRows = 0;
@@ -327,11 +328,11 @@ internal sealed class ImportExportService : IImportExportService
                     // In a real implementation, would apply the values based on target position and mode
                 }
 
-                return CopyPasteResult.CreateSuccess(processedRows);
+                return CoreTypes.CopyPasteResult.CreateSuccess(processedRows);
             }
             catch (Exception ex)
             {
-                return CopyPasteResult.Failure(ex.Message);
+                return CoreTypes.CopyPasteResult.Failure(ex.Message);
             }
         }, cancellationToken);
     }
@@ -341,7 +342,7 @@ internal sealed class ImportExportService : IImportExportService
         return source is DataTable || source is IEnumerable<IReadOnlyDictionary<string, object?>>;
     }
 
-    public bool ValidateImportData(object source, ImportOptions? options = null)
+    public bool ValidateImportData(object source, CoreTypes.ImportOptions? options = null)
     {
         if (!CanImport(source))
             return false;

@@ -8,11 +8,11 @@ using Microsoft.UI.Xaml;
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
 
 /// <summary>
-/// PUBLIC TYPES: Facade types that shadow internal Core types to avoid namespace pollution
-/// These types are exactly the same as internal Core types but public in facade namespace
+/// PUBLIC API TYPES: Public DTO and enums with mapping to internal types
+/// Internal types remain internal, accessed via facade mapping pattern
 /// </summary>
 
-// Search and Filter Types
+// Public API enums - part of public API
 public enum FilterOperator
 {
     Equals,
@@ -213,6 +213,7 @@ public sealed record ImportOptions
     public bool ValidateBeforeImport { get; init; } = true;
     public bool CreateMissingColumns { get; init; } = true;
     public Dictionary<string, string>? ColumnMapping { get; init; }
+    public IProgress<double>? Progress { get; init; }
 
     public static ImportOptions Default => new();
 }
@@ -222,6 +223,7 @@ public sealed record ExportOptions
     public bool IncludeHeaders { get; init; } = true;
     public IReadOnlyList<string>? ColumnsToExport { get; init; }
     public string? DateTimeFormat { get; init; }
+    public IProgress<double>? Progress { get; init; }
 
     public static ExportOptions Default => new();
 }
@@ -288,6 +290,9 @@ public readonly record struct ValidationResult
     public bool IsTimeout { get; init; }
 
     public static ValidationResult Valid() => new() { IsValid = true, Message = "Valid" };
+    public static ValidationResult Success() => Valid();
+    public static ValidationResult Error(string message, ValidationSeverity severity = ValidationSeverity.Error, string? ruleName = null) =>
+        new() { IsValid = false, Message = message, Severity = severity, RuleName = ruleName };
     public static ValidationResult Invalid(string message, ValidationSeverity severity = ValidationSeverity.Error, string? ruleName = null) =>
         new() { IsValid = false, Message = message, Severity = severity, RuleName = ruleName };
     public static ValidationResult Timeout(string? ruleName = null) =>
@@ -351,6 +356,17 @@ public sealed record AutoRowHeightConfiguration
     public bool EnableTextWrapping { get; init; } = true;
     public double Padding { get; init; } = 4;
 
+    // Additional properties needed by services
+    public bool EnableMeasurementCache { get; init; } = true;
+    public double FontSize { get; init; } = 12;
+    public string FontFamily { get; init; } = "Segoe UI";
+    public double CellPadding { get; init; } = 4;
+    public double LineHeight { get; init; } = 1.2;
+    public bool EnableTextTrimming { get; init; } = false;
+    public bool TextWrapping { get; init; } = true;
+    public double MinimumRowHeight { get; init; } = 20;
+    public double MaximumRowHeight { get; init; } = 200;
+
     public static AutoRowHeightConfiguration Default => new();
 }
 
@@ -360,6 +376,12 @@ public sealed record RowHeightCalculationOptions
     public bool IncludeHeaders { get; init; } = true;
     public bool UseCache { get; init; } = true;
     public TimeSpan CacheTimeout { get; init; } = TimeSpan.FromMinutes(5);
+
+    // Additional properties needed by services
+    public IProgress<double>? Progress { get; init; }
+    public double MinimumRowHeight { get; init; } = 20;
+    public double MaximumRowHeight { get; init; } = 200;
+    public string[]? SpecificColumns { get; init; }
 
     public static RowHeightCalculationOptions Default => new();
 }

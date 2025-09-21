@@ -29,11 +29,15 @@ internal sealed class PerformanceService : IPerformanceService
         {
             var virtualizationStats = GetVirtualizationStatisticsInternal();
 
-            return PerformanceMetrics.Create(
+            var metrics = PerformanceMetrics.Create(
                 _totalOperations,
                 _totalTimeStopwatch.Elapsed,
-                _currentMemoryUsage,
-                virtualizationStats);
+                (long)_currentMemoryUsage);
+
+            // Add virtualization stats to additional metrics
+            metrics.AdditionalMetrics["VirtualizationStats"] = virtualizationStats;
+
+            return metrics;
         }, cancellationToken);
     }
 
