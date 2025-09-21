@@ -399,3 +399,470 @@ public sealed record AutoRowHeightResult
     public static AutoRowHeightResult Failure(string errorMessage) =>
         new() { Success = false, ErrorMessage = errorMessage };
 }
+
+// Comprehensive Validation Types for Public API
+public enum ValidationTrigger
+{
+    Manual = 0,
+    OnCellChanged = 1,
+    OnTextChanged = 2,
+    OnCellExit = 3,
+    OnRowComplete = 4,
+    Bulk = 5
+}
+
+public enum ValidationDeletionMode
+{
+    DeleteInvalidRows = 0,
+    DeleteValidRows = 1,
+    DeleteByCustomRule = 2,
+    DeleteBySeverity = 3,
+    DeleteByRuleName = 4
+}
+
+// Group Validation Enums
+public enum ValidationLogicalOperator
+{
+    And = 0,
+    Or = 1
+}
+
+public enum ColumnValidationPolicy
+{
+    StopOnFirstError = 0,
+    ValidateAll = 1,
+    StopOnFirstSuccess = 2
+}
+
+public enum ValidationEvaluationStrategy
+{
+    Sequential = 0,
+    Parallel = 1,
+    ShortCircuit = 2
+}
+
+// 1️⃣ Single Cell Validation Rule
+public sealed record ValidationRule
+{
+    public string ColumnName { get; init; } = string.Empty;
+    public Func<object?, Task<bool>>? AsyncValidator { get; init; }
+    public Func<object?, bool>? Validator { get; init; }
+    public string ErrorMessage { get; init; } = string.Empty;
+    public ValidationSeverity Severity { get; init; } = ValidationSeverity.Error;
+    public int? Priority { get; init; }
+    public string? RuleName { get; init; }
+    public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(2);
+    public IReadOnlyList<string>? DependentColumns { get; init; }
+
+    public static ValidationRule Create(string columnName, Func<object?, bool> validator, string errorMessage,
+        ValidationSeverity severity = ValidationSeverity.Error, int? priority = null, string? ruleName = null,
+        TimeSpan? timeout = null, IReadOnlyList<string>? dependentColumns = null) =>
+        new()
+        {
+            ColumnName = columnName,
+            Validator = validator,
+            ErrorMessage = errorMessage,
+            Severity = severity,
+            Priority = priority,
+            RuleName = ruleName,
+            Timeout = timeout ?? TimeSpan.FromSeconds(2),
+            DependentColumns = dependentColumns
+        };
+
+    public static ValidationRule CreateAsync(string columnName, Func<object?, Task<bool>> asyncValidator, string errorMessage,
+        ValidationSeverity severity = ValidationSeverity.Error, int? priority = null, string? ruleName = null,
+        TimeSpan? timeout = null, IReadOnlyList<string>? dependentColumns = null) =>
+        new()
+        {
+            ColumnName = columnName,
+            AsyncValidator = asyncValidator,
+            ErrorMessage = errorMessage,
+            Severity = severity,
+            Priority = priority,
+            RuleName = ruleName,
+            Timeout = timeout ?? TimeSpan.FromSeconds(2),
+            DependentColumns = dependentColumns
+        };
+}
+
+// 2️⃣ Cross-Column Validation Rule
+public sealed record CrossColumnValidationRule
+{
+    public IReadOnlyList<string> DependentColumns { get; init; } = Array.Empty<string>();
+    public Func<IReadOnlyDictionary<string, object?>, Task<ValidationResult>>? AsyncValidator { get; init; }
+    public Func<IReadOnlyDictionary<string, object?>, (bool isValid, string? errorMessage)>? Validator { get; init; }
+    public string ErrorMessage { get; init; } = string.Empty;
+    public ValidationSeverity Severity { get; init; } = ValidationSeverity.Error;
+    public int? Priority { get; init; }
+    public string? RuleName { get; init; }
+    public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(2);
+    public string? PrimaryColumn { get; init; }
+
+    public static CrossColumnValidationRule Create(
+        IReadOnlyList<string> dependentColumns,
+        Func<IReadOnlyDictionary<string, object?>, (bool isValid, string? errorMessage)> validator,
+        string errorMessage,
+        ValidationSeverity severity = ValidationSeverity.Error,
+        int? priority = null,
+        string? ruleName = null,
+        TimeSpan? timeout = null,
+        string? primaryColumn = null) =>
+        new()
+        {
+            DependentColumns = dependentColumns,
+            Validator = validator,
+            ErrorMessage = errorMessage,
+            Severity = severity,
+            Priority = priority,
+            RuleName = ruleName,
+            Timeout = timeout ?? TimeSpan.FromSeconds(2),
+            PrimaryColumn = primaryColumn
+        };
+}
+
+// 3️⃣ Cross-Row Validation Rule
+public sealed record CrossRowValidationRule
+{
+    public Func<IReadOnlyList<IReadOnlyDictionary<string, object?>>, Task<IReadOnlyList<ValidationResult>>>? AsyncValidator { get; init; }
+    public string ErrorMessage { get; init; } = string.Empty;
+    public ValidationSeverity Severity { get; init; } = ValidationSeverity.Error;
+    public int? Priority { get; init; }
+    public string? RuleName { get; init; }
+    public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(2);
+    public IReadOnlyList<string>? AffectedColumns { get; init; }
+
+    public static CrossRowValidationRule Create(
+        Func<IReadOnlyList<IReadOnlyDictionary<string, object?>>, Task<IReadOnlyList<ValidationResult>>> asyncValidator,
+        string errorMessage,
+        ValidationSeverity severity = ValidationSeverity.Error,
+        int? priority = null,
+        string? ruleName = null,
+        TimeSpan? timeout = null,
+        IReadOnlyList<string>? affectedColumns = null) =>
+        new()
+        {
+            AsyncValidator = asyncValidator,
+            ErrorMessage = errorMessage,
+            Severity = severity,
+            Priority = priority,
+            RuleName = ruleName,
+            Timeout = timeout ?? TimeSpan.FromSeconds(2),
+            AffectedColumns = affectedColumns
+        };
+}
+
+// 4️⃣ Conditional Validation Rule
+public sealed record ConditionalValidationRule
+{
+    public string ColumnName { get; init; } = string.Empty;
+    public Func<IReadOnlyDictionary<string, object?>, bool>? Condition { get; init; }
+    public ValidationRule? ValidationRule { get; init; }
+    public string ErrorMessage { get; init; } = string.Empty;
+    public ValidationSeverity Severity { get; init; } = ValidationSeverity.Error;
+    public int? Priority { get; init; }
+    public string? RuleName { get; init; }
+    public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(2);
+    public IReadOnlyList<string>? DependentColumns { get; init; }
+
+    public static ConditionalValidationRule Create(
+        string columnName,
+        Func<IReadOnlyDictionary<string, object?>, bool> condition,
+        ValidationRule validationRule,
+        string errorMessage,
+        ValidationSeverity severity = ValidationSeverity.Error,
+        int? priority = null,
+        string? ruleName = null,
+        TimeSpan? timeout = null,
+        IReadOnlyList<string>? dependentColumns = null) =>
+        new()
+        {
+            ColumnName = columnName,
+            Condition = condition,
+            ValidationRule = validationRule,
+            ErrorMessage = errorMessage,
+            Severity = severity,
+            Priority = priority,
+            RuleName = ruleName,
+            Timeout = timeout ?? TimeSpan.FromSeconds(2),
+            DependentColumns = dependentColumns
+        };
+}
+
+// 5️⃣ Complex Validation Rule
+public sealed record ComplexValidationRule
+{
+    public Func<IReadOnlyList<IReadOnlyDictionary<string, object?>>, Task<ValidationResult>>? AsyncValidator { get; init; }
+    public string ErrorMessage { get; init; } = string.Empty;
+    public ValidationSeverity Severity { get; init; } = ValidationSeverity.Error;
+    public int? Priority { get; init; }
+    public string? RuleName { get; init; }
+    public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(2);
+    public IReadOnlyList<string>? InvolvedColumns { get; init; }
+
+    public static ComplexValidationRule Create(
+        Func<IReadOnlyList<IReadOnlyDictionary<string, object?>>, Task<ValidationResult>> asyncValidator,
+        string errorMessage,
+        ValidationSeverity severity = ValidationSeverity.Error,
+        int? priority = null,
+        string? ruleName = null,
+        TimeSpan? timeout = null,
+        IReadOnlyList<string>? involvedColumns = null) =>
+        new()
+        {
+            AsyncValidator = asyncValidator,
+            ErrorMessage = errorMessage,
+            Severity = severity,
+            Priority = priority,
+            RuleName = ruleName,
+            Timeout = timeout ?? TimeSpan.FromSeconds(2),
+            InvolvedColumns = involvedColumns
+        };
+}
+
+// 6️⃣ Business Rule Validation
+public sealed record BusinessRuleValidationRule
+{
+    public string BusinessRuleName { get; init; } = string.Empty;
+    public string RuleScope { get; init; } = string.Empty;
+    public Func<object, Task<ValidationResult>>? AsyncValidator { get; init; }
+    public string ErrorMessage { get; init; } = string.Empty;
+    public ValidationSeverity Severity { get; init; } = ValidationSeverity.Error;
+    public int? Priority { get; init; }
+    public string? RuleName { get; init; }
+    public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(2);
+    public IReadOnlyList<string>? AffectedColumns { get; init; }
+
+    public static BusinessRuleValidationRule Create(
+        string businessRuleName,
+        string ruleScope,
+        Func<object, Task<ValidationResult>> asyncValidator,
+        string errorMessage,
+        ValidationSeverity severity = ValidationSeverity.Error,
+        int? priority = null,
+        string? ruleName = null,
+        TimeSpan? timeout = null,
+        IReadOnlyList<string>? affectedColumns = null) =>
+        new()
+        {
+            BusinessRuleName = businessRuleName,
+            RuleScope = ruleScope,
+            AsyncValidator = asyncValidator,
+            ErrorMessage = errorMessage,
+            Severity = severity,
+            Priority = priority,
+            RuleName = ruleName,
+            Timeout = timeout ?? TimeSpan.FromSeconds(2),
+            AffectedColumns = affectedColumns
+        };
+}
+
+// 7️⃣ Validation Rule Group - Advanced logical combinations
+public sealed record ValidationRuleGroup
+{
+    public string ColumnName { get; init; } = string.Empty;
+    public IReadOnlyList<ValidationRule> Rules { get; init; } = Array.Empty<ValidationRule>();
+    public ValidationLogicalOperator LogicalOperator { get; init; } = ValidationLogicalOperator.And;
+    public ColumnValidationPolicy ValidationPolicy { get; init; } = ColumnValidationPolicy.ValidateAll;
+    public ValidationEvaluationStrategy EvaluationStrategy { get; init; } = ValidationEvaluationStrategy.Sequential;
+    public string? RuleName { get; init; }
+    public string? ErrorMessage { get; init; }
+    public ValidationSeverity Severity { get; init; } = ValidationSeverity.Error;
+    public int? Priority { get; init; }
+    public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(2);
+    public IReadOnlyList<ValidationRuleGroup>? ChildGroups { get; init; }
+
+    public static ValidationRuleGroup CreateAndGroup(string columnName, params ValidationRule[] rules) =>
+        new()
+        {
+            ColumnName = columnName,
+            Rules = rules,
+            LogicalOperator = ValidationLogicalOperator.And,
+            ValidationPolicy = ColumnValidationPolicy.ValidateAll,
+            EvaluationStrategy = ValidationEvaluationStrategy.Sequential
+        };
+
+    public static ValidationRuleGroup CreateOrGroup(string columnName, params ValidationRule[] rules) =>
+        new()
+        {
+            ColumnName = columnName,
+            Rules = rules,
+            LogicalOperator = ValidationLogicalOperator.Or,
+            ValidationPolicy = ColumnValidationPolicy.StopOnFirstSuccess,
+            EvaluationStrategy = ValidationEvaluationStrategy.ShortCircuit
+        };
+
+    public static ValidationRuleGroup CreateFailFastGroup(string columnName, params ValidationRule[] rules) =>
+        new()
+        {
+            ColumnName = columnName,
+            Rules = rules,
+            LogicalOperator = ValidationLogicalOperator.And,
+            ValidationPolicy = ColumnValidationPolicy.StopOnFirstError,
+            EvaluationStrategy = ValidationEvaluationStrategy.ShortCircuit
+        };
+
+    public static ValidationRuleGroup CreateHierarchicalGroup(
+        string columnName,
+        ValidationLogicalOperator logicalOperator,
+        string? groupName = null,
+        params ValidationRuleGroup[] childGroups) =>
+        new()
+        {
+            ColumnName = columnName,
+            Rules = Array.Empty<ValidationRule>(),
+            LogicalOperator = logicalOperator,
+            ValidationPolicy = ColumnValidationPolicy.ValidateAll,
+            EvaluationStrategy = ValidationEvaluationStrategy.Sequential,
+            RuleName = groupName,
+            ChildGroups = childGroups
+        };
+}
+
+// Column Validation Configuration
+public sealed record ColumnValidationConfiguration
+{
+    public string ColumnName { get; init; } = string.Empty;
+    public ColumnValidationPolicy ValidationPolicy { get; init; } = ColumnValidationPolicy.ValidateAll;
+    public ValidationEvaluationStrategy EvaluationStrategy { get; init; } = ValidationEvaluationStrategy.Sequential;
+    public ValidationLogicalOperator DefaultLogicalOperator { get; init; } = ValidationLogicalOperator.And;
+    public TimeSpan? ColumnTimeout { get; init; }
+    public bool AllowRuleGroups { get; init; } = true;
+
+    public static ColumnValidationConfiguration FailFast(string columnName) =>
+        new()
+        {
+            ColumnName = columnName,
+            ValidationPolicy = ColumnValidationPolicy.StopOnFirstError,
+            EvaluationStrategy = ValidationEvaluationStrategy.ShortCircuit
+        };
+
+    public static ColumnValidationConfiguration SuccessFast(string columnName) =>
+        new()
+        {
+            ColumnName = columnName,
+            ValidationPolicy = ColumnValidationPolicy.StopOnFirstSuccess,
+            EvaluationStrategy = ValidationEvaluationStrategy.ShortCircuit,
+            DefaultLogicalOperator = ValidationLogicalOperator.Or
+        };
+
+    public static ColumnValidationConfiguration Parallel(string columnName) =>
+        new()
+        {
+            ColumnName = columnName,
+            ValidationPolicy = ColumnValidationPolicy.ValidateAll,
+            EvaluationStrategy = ValidationEvaluationStrategy.Parallel
+        };
+}
+
+// Enhanced Validation Configuration
+public sealed record ValidationConfiguration
+{
+    public bool EnableValidation { get; init; } = true;
+    public ValidationTrigger DefaultTrigger { get; init; } = ValidationTrigger.OnCellChanged;
+    public TimeSpan DefaultTimeout { get; init; } = TimeSpan.FromSeconds(2);
+    public bool EnableRealTimeValidation { get; init; } = true;
+    public bool EnableBulkValidation { get; init; } = true;
+    public int MaxConcurrentValidations { get; init; } = 10;
+    public bool MakeValidateAllStopOnFirstError { get; init; } = false;
+    public bool ValidateOnlyVisibleRows { get; init; } = false;
+
+    // New group validation properties
+    public ColumnValidationPolicy DefaultColumnPolicy { get; init; } = ColumnValidationPolicy.ValidateAll;
+    public ValidationEvaluationStrategy DefaultEvaluationStrategy { get; init; } = ValidationEvaluationStrategy.Sequential;
+    public bool EnableGroupValidation { get; init; } = true;
+    public IReadOnlyDictionary<string, ColumnValidationConfiguration>? ColumnSpecificConfigurations { get; init; }
+
+    public static ValidationConfiguration Default => new();
+    public static ValidationConfiguration RealTime => new()
+    {
+        EnableRealTimeValidation = true,
+        DefaultTrigger = ValidationTrigger.OnTextChanged,
+        EnableBulkValidation = false,
+        DefaultEvaluationStrategy = ValidationEvaluationStrategy.ShortCircuit
+    };
+    public static ValidationConfiguration Bulk => new()
+    {
+        EnableRealTimeValidation = false,
+        DefaultTrigger = ValidationTrigger.Bulk,
+        EnableBulkValidation = true,
+        DefaultEvaluationStrategy = ValidationEvaluationStrategy.Parallel
+    };
+    public static ValidationConfiguration HighPerformance => new()
+    {
+        EnableRealTimeValidation = false,
+        DefaultTrigger = ValidationTrigger.OnCellExit,
+        MaxConcurrentValidations = 20,
+        ValidateOnlyVisibleRows = true,
+        DefaultColumnPolicy = ColumnValidationPolicy.StopOnFirstError,
+        DefaultEvaluationStrategy = ValidationEvaluationStrategy.ShortCircuit
+    };
+}
+
+// Validation Deletion Types
+public sealed record ValidationDeletionCriteria
+{
+    public ValidationDeletionMode Mode { get; init; }
+    public IReadOnlyList<ValidationSeverity>? Severities { get; init; }
+    public IReadOnlyList<string>? SpecificRuleNames { get; init; }
+    public Func<IReadOnlyDictionary<string, object?>, bool>? CustomPredicate { get; init; }
+    public ValidationSeverity? MinimumSeverity { get; init; }
+
+    public static ValidationDeletionCriteria DeleteInvalidRows(ValidationSeverity? minimumSeverity = null) =>
+        new() { Mode = ValidationDeletionMode.DeleteInvalidRows, MinimumSeverity = minimumSeverity };
+
+    public static ValidationDeletionCriteria DeleteValidRows() =>
+        new() { Mode = ValidationDeletionMode.DeleteValidRows };
+
+    public static ValidationDeletionCriteria DeleteBySeverity(params ValidationSeverity[] severities) =>
+        new() { Mode = ValidationDeletionMode.DeleteBySeverity, Severities = severities };
+
+    public static ValidationDeletionCriteria DeleteByRuleName(params string[] ruleNames) =>
+        new() { Mode = ValidationDeletionMode.DeleteByRuleName, SpecificRuleNames = ruleNames };
+
+    public static ValidationDeletionCriteria DeleteByCustomRule(Func<IReadOnlyDictionary<string, object?>, bool> predicate) =>
+        new() { Mode = ValidationDeletionMode.DeleteByCustomRule, CustomPredicate = predicate };
+}
+
+public sealed record ValidationDeletionOptions
+{
+    public bool RequireConfirmation { get; init; } = true;
+    public IProgress<double>? Progress { get; init; }
+    public bool PreviewMode { get; init; } = false;
+    public int BatchSize { get; init; } = 1000;
+    public TimeSpan MaxOperationTime { get; init; } = TimeSpan.FromMinutes(5);
+
+    public static ValidationDeletionOptions Default => new();
+    public static ValidationDeletionOptions NoConfirmation => new() { RequireConfirmation = false };
+    public static ValidationDeletionOptions PreviewOnly => new() { PreviewMode = true };
+}
+
+public sealed record ValidationBasedDeleteResult
+{
+    public int TotalRowsEvaluated { get; init; }
+    public int RowsDeleted { get; init; }
+    public int RemainingRows { get; init; }
+    public IReadOnlyList<string> ValidationErrors { get; init; } = Array.Empty<string>();
+    public TimeSpan OperationDuration { get; init; }
+    public bool Success { get; init; } = true;
+    public string? ErrorMessage { get; init; }
+    public IReadOnlyList<int> DeletedRowIndices { get; init; } = Array.Empty<int>();
+
+    public static ValidationBasedDeleteResult CreateSuccess(int totalEvaluated, int deleted, int remaining, TimeSpan duration, IReadOnlyList<int>? deletedIndices = null) =>
+        new()
+        {
+            TotalRowsEvaluated = totalEvaluated,
+            RowsDeleted = deleted,
+            RemainingRows = remaining,
+            OperationDuration = duration,
+            Success = true,
+            DeletedRowIndices = deletedIndices ?? Array.Empty<int>()
+        };
+
+    public static ValidationBasedDeleteResult CreateFailure(string errorMessage, TimeSpan duration) =>
+        new()
+        {
+            Success = false,
+            ErrorMessage = errorMessage,
+            OperationDuration = duration
+        };
+}

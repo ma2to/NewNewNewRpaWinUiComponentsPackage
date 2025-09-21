@@ -97,14 +97,22 @@ AdvancedWinUiDataGrid/
 ```csharp
 // SINGLE USING STATEMENT for entire component
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
+using Microsoft.Extensions.Logging;
 
-// All functionality available through one class
-var dataGrid = new AdvancedDataGrid(logger, DataGridOperationMode.UI);
+// OPTION 1: Standalone usage (no external logging required)
+var dataGrid = new AdvancedDataGridFacade();
+
+// OPTION 2: With external logging integration (Serilog, NLog, Microsoft.Extensions.Logging)
+var dataGrid = new AdvancedDataGridFacade(logger);
+
+// OPTION 3: Null safety - no exceptions if logger is null
+var dataGrid = new AdvancedDataGridFacade(null); // Uses NullLogger internally
 ```
 
 ### 📊 Public API Surface
 
-**AdvancedDataGrid.cs** - Single point of entry with:
+**AdvancedDataGridFacade.cs** - Single point of entry with:
+- ✅ **External Logging Support** - ILogger<T> integration with null safety
 - ✅ **Validation API** - 8-type validation system
 - ✅ **Data Management API** - Dictionary & DataTable import/export
 - ✅ **Copy/Paste API** - Excel-compatible tab-delimited format
@@ -112,6 +120,41 @@ var dataGrid = new AdvancedDataGrid(logger, DataGridOperationMode.UI);
 - ✅ **Sort API** - Multi-column sorting
 - ✅ **Configuration Properties** - All settings in one place
 - ✅ **Data Access** - Read-only data access methods
+
+### 🔍 External Logging Integration
+
+**ENTERPRISE LOGGING SUPPORT**: Production-ready logging integration with major providers.
+
+```csharp
+// Microsoft.Extensions.Logging
+services.AddLogging(builder => builder.AddConsole().AddFile("logs/datagrid.log"));
+var logger = serviceProvider.GetService<ILogger<AdvancedDataGridFacade>>();
+var dataGrid = new AdvancedDataGridFacade(logger);
+
+// Serilog
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Information()
+    .WriteTo.Console()
+    .WriteTo.File("logs/datagrid-.log", rollingInterval: RollingInterval.Day)
+    .CreateLogger();
+var logger = Log.ForContext<AdvancedDataGridFacade>();
+var dataGrid = new AdvancedDataGridFacade(logger);
+
+// NLog
+var logger = LogManager.GetLogger<AdvancedDataGridFacade>();
+var dataGrid = new AdvancedDataGridFacade(logger);
+
+// NULL SAFETY: No external logging configuration required
+var dataGrid = new AdvancedDataGridFacade(); // Uses NullLogger internally
+```
+
+**LOGGING LEVELS USED**:
+- ✅ **LogInformation**: Operation starts, successful completions, performance metrics
+- ✅ **LogWarning**: Operations with errors but partial success, configuration issues
+- ✅ **LogError**: Operation failures, exceptions, critical errors
+- ❌ **LogDebug**: Not used (release/debug builds are unified)
+
+**STRUCTURED LOGGING**: All log entries include relevant structured data for filtering and analysis.
 
 ## 🔧 API Structure Design
 
@@ -215,29 +258,437 @@ ValidationService, SearchFilterService, ValidationRuleImplementations
 - ✅ **Formatted error messages** with concatenation and proper handling
 - ✅ **Read-only column** with appropriate styling and configuration
 
-### ✅ Validation System (8 Types)
+### ✅ Comprehensive 6-Type Validation System with Timeout Support
+
+**🔐 ENTERPRISE VALIDATION FRAMEWORK**: Professional multi-level validation with automatic timeout handling (default 2 seconds per rule).
+
 ```csharp
-// Single cell validation
-await dataGrid.AddSingleCellValidationAsync("Age", value => value is int age && age >= 0, "Age must be positive");
+// Initialize with validation service
+var dataGrid = new AdvancedDataGridFacade(logger);
 
-// Cross-column validation
-await dataGrid.AddCrossColumnValidationAsync(new[] { "FirstName", "LastName" },
-    row => (row.ContainsKey("FirstName") && row.ContainsKey("LastName"), null), "Both names required");
+// 1️⃣ Single Cell Validation - Individual cell values with timeout
+var emailRule = ValidationRule.Create(
+    columnName: "Email",
+    validator: value => !string.IsNullOrEmpty(value?.ToString()) && IsValidEmail(value.ToString()),
+    errorMessage: "Invalid email format",
+    severity: ValidationSeverity.Error,
+    priority: 1,
+    ruleName: "EmailRequired",
+    timeout: TimeSpan.FromSeconds(2));
 
-// Conditional validation
-await dataGrid.AddConditionalValidationAsync("Salary",
-    row => row["Department"]?.ToString() == "Sales",
-    value => value is decimal salary && salary > 30000, "Sales salary must be > 30k");
+await dataGrid.AddValidationRuleAsync(emailRule);
+
+// 2️⃣ Cross-Column Validation - Multiple columns in same row
+var dateRangeRule = CrossColumnValidationRule.Create(
+    dependentColumns: new[] { "StartDate", "EndDate" },
+    validator: row => {
+        var start = (DateTime?)row["StartDate"];
+        var end = (DateTime?)row["EndDate"];
+        return start <= end ? (true, null) : (false, "End date must be after start date");
+    },
+    errorMessage: "Invalid date range",
+    severity: ValidationSeverity.Error,
+    priority: 5,
+    ruleName: "DateRangeRule",
+    timeout: TimeSpan.FromSeconds(3));
+
+await dataGrid.AddCrossColumnValidationRuleAsync(dateRangeRule);
+
+// 3️⃣ Cross-Row Validation - Validation across multiple rows (uniqueness, totals)
+var uniqueEmailRule = CrossRowValidationRule.Create(
+    asyncValidator: async rows => {
+        var results = new List<ValidationResult>();
+        var emails = new HashSet<string>();
+
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var email = rows[i]["Email"]?.ToString();
+            if (!string.IsNullOrEmpty(email))
+            {
+                if (emails.Contains(email))
+                    results.Add(ValidationResult.Error($"Email must be unique", ValidationSeverity.Error, "UniqueEmail"));
+                else
+                {
+                    emails.Add(email);
+                    results.Add(ValidationResult.Success());
+                }
+            }
+            else
+                results.Add(ValidationResult.Success());
+        }
+        return results;
+    },
+    errorMessage: "Duplicate email addresses found",
+    ruleName: "UniqueEmailRule",
+    timeout: TimeSpan.FromSeconds(5));
+
+await dataGrid.AddCrossRowValidationRuleAsync(uniqueEmailRule);
+
+// 4️⃣ Conditional Validation - Validates only if condition is met
+var conditionalPhoneRule = ConditionalValidationRule.Create(
+    columnName: "Phone",
+    condition: row => row["ContactMethod"]?.ToString() == "Phone",
+    validationRule: ValidationRule.Create("Phone",
+        value => !string.IsNullOrEmpty(value?.ToString()) && IsValidPhone(value.ToString()),
+        "Phone required when contact method is Phone"),
+    errorMessage: "Conditional phone validation failed",
+    priority: 3,
+    ruleName: "ConditionalPhone",
+    timeout: TimeSpan.FromSeconds(2));
+
+await dataGrid.AddConditionalValidationRuleAsync(conditionalPhoneRule);
+
+// 5️⃣ Complex Validation - Cross-row and cross-column business rules
+var departmentBudgetRule = ComplexValidationRule.Create(
+    asyncValidator: async dataset => {
+        var departmentTotals = dataset
+            .GroupBy(r => r["Department"]?.ToString())
+            .ToDictionary(g => g.Key, g => g.Sum(r => Convert.ToDecimal(r["Budget"] ?? 0)));
+
+        foreach (var dept in departmentTotals)
+        {
+            if (dept.Value > 1_000_000) // 1M limit
+                return ValidationResult.Error($"Department {dept.Key} exceeds budget limit");
+        }
+        return ValidationResult.Success();
+    },
+    errorMessage: "Department budget limits exceeded",
+    ruleName: "DepartmentBudgetRule",
+    timeout: TimeSpan.FromSeconds(10));
+
+await dataGrid.AddComplexValidationRuleAsync(departmentBudgetRule);
+
+// 6️⃣ Business Rule Validation - Complex domain logic
+var managerApprovalRule = BusinessRuleValidationRule.Create(
+    businessRuleName: "ManagerApproval",
+    ruleScope: "row",
+    asyncValidator: async context => {
+        var row = (IReadOnlyDictionary<string, object?>)context;
+        var amount = Convert.ToDecimal(row["Amount"] ?? 0);
+        var approved = row["ManagerApproval"] as bool? ?? false;
+
+        if (amount > 10000 && !approved)
+            return ValidationResult.Error("Manager approval required for amounts over $10,000");
+
+        return ValidationResult.Success();
+    },
+    errorMessage: "High amount requires manager approval",
+    ruleName: "ManagerApprovalRule",
+    timeout: TimeSpan.FromSeconds(1));
+
+await dataGrid.AddBusinessRuleValidationAsync(managerApprovalRule);
+```
+
+### ✅ Smart Validation Decision Making
+
+**⚡ INTELLIGENT VALIDATION**: Automatic decision between real-time and bulk validation based on context.
+
+```csharp
+// Real-time validation (single cell changes)
+var cellResult = await dataGrid.ValidateCellAsync(
+    rowIndex: 0,
+    columnName: "Email",
+    value: "john@example.com",
+    rowData: currentRowData,
+    trigger: ValidationTrigger.OnTextChanged);
+
+// Bulk validation (import, paste operations)
+var bulkResults = await dataGrid.ValidateRowsAsync(
+    rows: importedData,
+    trigger: ValidationTrigger.Bulk,
+    progress: new Progress<double>(p => Console.WriteLine($"Validation: {p:P}")));
+
+// Comprehensive dataset validation
+var datasetResults = await dataGrid.ValidateDatasetAsync(
+    dataset: allData,
+    trigger: ValidationTrigger.Bulk,
+    progress: validationProgress);
+
+// Check if all non-empty rows are valid
+var allValidResult = await dataGrid.AreAllNonEmptyRowsValidAsync(
+    dataset: currentData,
+    onlyFilteredRows: false); // false = validate entire dataset, true = only filtered rows
+
+Console.WriteLine($"All rows valid: {allValidResult.Value}");
+```
+
+### ✅ Validation-Based Row Deletion
+
+**🗑️ PROFESSIONAL ROW MANAGEMENT**: Delete rows based on validation criteria with safety features.
+
+```csharp
+// Delete all rows with validation errors
+var errorCriteria = ValidationDeletionCriteria.DeleteInvalidRows(ValidationSeverity.Error);
+var deleteResult = await dataGrid.DeleteRowsWithValidationAsync(
+    dataset: currentData,
+    criteria: errorCriteria,
+    options: ValidationDeletionOptions.Default);
+
+// Delete rows failing specific rules
+var specificRuleCriteria = ValidationDeletionCriteria.DeleteByRuleName("EmailRequired", "UniqueEmail");
+var ruleBasedResult = await dataGrid.DeleteRowsWithValidationAsync(currentData, specificRuleCriteria);
+
+// Delete rows with custom logic
+var customCriteria = ValidationDeletionCriteria.DeleteByCustomRule(
+    row => (int)(row["Age"] ?? 0) > 65);
+var customResult = await dataGrid.DeleteRowsWithValidationAsync(currentData, customCriteria);
+
+// Preview deletion without actually deleting
+var previewResult = await dataGrid.PreviewRowDeletionAsync(currentData, errorCriteria);
+Console.WriteLine($"Would delete {previewResult.Value.Count} rows");
+
+// Delete with progress tracking
+var progressOptions = new ValidationDeletionOptions
+{
+    RequireConfirmation = false, // For headless mode
+    Progress = new Progress<double>(p => Console.WriteLine($"Deletion: {p:P}")),
+    PreviewMode = false
+};
+
+var progressResult = await dataGrid.DeleteRowsWithValidationAsync(
+    currentData, errorCriteria, progressOptions);
+```
+
+### ✅ Timeout Handling and Performance
+
+**⏱️ PROFESSIONAL TIMEOUT MANAGEMENT**: Every validation rule has configurable timeout with automatic "Timeout" message.
+
+```csharp
+// Configure validation timeouts
+var config = new ValidationConfiguration
+{
+    EnableValidation = true,
+    DefaultTrigger = ValidationTrigger.OnCellChanged,
+    DefaultTimeout = TimeSpan.FromSeconds(2), // Default timeout for all rules
+    EnableRealTimeValidation = true,
+    EnableBulkValidation = true,
+    MaxConcurrentValidations = 10,
+    MakeValidateAllStopOnFirstError = false
+};
+
+await dataGrid.UpdateValidationConfigurationAsync(config);
+
+// Rules that exceed timeout automatically return "Timeout" message
+// Example: Complex async validation that might take too long
+var complexRule = ValidationRule.CreateAsync(
+    columnName: "ComplexData",
+    asyncValidator: async value => {
+        // This might take longer than timeout
+        await SomeExpensiveApiCall(value);
+        return true;
+    },
+    errorMessage: "Complex validation failed",
+    timeout: TimeSpan.FromSeconds(1)); // Short timeout
+
+// If validation takes > 1 second, result will be:
+// ValidationResult { IsValid = false, Message = "Timeout", IsTimeout = true }
+```
+
+### ✅ Advanced Group Validation with Logical Operations
+
+**🧠 ENTERPRISE GROUP LOGIC**: Complex validation scenarios with AND/OR logic combinations and advanced execution strategies.
+
+```csharp
+// 7️⃣ Simple AND Group - All rules must pass
+var emailAndPhoneGroup = ValidationRuleGroup.CreateAndGroup(
+    "Contact",
+    ValidationRule.Create("Email", value => IsValidEmail(value?.ToString()), "Invalid email"),
+    ValidationRule.Create("Phone", value => IsValidPhone(value?.ToString()), "Invalid phone")
+);
+
+await dataGrid.AddValidationRuleGroupAsync(emailAndPhoneGroup);
+
+// 8️⃣ OR Group with Stop-on-First-Success - At least one rule must pass
+var contactMethodGroup = ValidationRuleGroup.CreateOrGroup(
+    "ContactMethod",
+    ValidationRule.Create("Email", value => !string.IsNullOrEmpty(value?.ToString()), "Email required"),
+    ValidationRule.Create("Phone", value => !string.IsNullOrEmpty(value?.ToString()), "Phone required"),
+    ValidationRule.Create("Address", value => !string.IsNullOrEmpty(value?.ToString()), "Address required")
+);
+
+await dataGrid.AddValidationRuleGroupAsync(contactMethodGroup);
+
+// 9️⃣ Fail-Fast Group - Stop on first error for performance
+var performanceGroup = ValidationRuleGroup.CreateFailFastGroup(
+    "PersonalInfo",
+    ValidationRule.Create("FirstName", value => !string.IsNullOrEmpty(value?.ToString()), "First name required"),
+    ValidationRule.Create("LastName", value => !string.IsNullOrEmpty(value?.ToString()), "Last name required"),
+    ValidationRule.Create("BirthDate", value => IsValidDate(value), "Valid birth date required")
+);
+
+await dataGrid.AddValidationRuleGroupAsync(performanceGroup);
+
+// 🔟 Hierarchical Groups - Complex nested logic: (A AND B) OR (C AND D)
+var basicInfoGroup = ValidationRuleGroup.CreateAndGroup(
+    "PersonalData",
+    ValidationRule.Create("Name", value => !string.IsNullOrEmpty(value?.ToString()), "Name required"),
+    ValidationRule.Create("ID", value => IsValidID(value?.ToString()), "Valid ID required")
+);
+
+var businessInfoGroup = ValidationRuleGroup.CreateAndGroup(
+    "BusinessData",
+    ValidationRule.Create("CompanyName", value => !string.IsNullOrEmpty(value?.ToString()), "Company required"),
+    ValidationRule.Create("TaxID", value => IsValidTaxID(value?.ToString()), "Valid Tax ID required")
+);
+
+var hierarchicalGroup = ValidationRuleGroup.CreateHierarchicalGroup(
+    "CustomerData",
+    ValidationLogicalOperator.Or, // Either personal OR business data
+    "CustomerValidation",
+    basicInfoGroup,
+    businessInfoGroup
+);
+
+await dataGrid.AddValidationRuleGroupAsync(hierarchicalGroup);
+```
+
+### ✅ Column-Specific Validation Configuration
+
+**🎯 GRANULAR CONTROL**: Fine-grained validation behavior per column with different policies and strategies.
+
+```csharp
+// Configure specific columns with different validation policies
+await dataGrid.SetColumnValidationConfigurationAsync(
+    "Email",
+    ColumnValidationConfiguration.FailFast("Email"));
+
+await dataGrid.SetColumnValidationConfigurationAsync(
+    "ContactMethod",
+    ColumnValidationConfiguration.SuccessFast("ContactMethod"));
+
+await dataGrid.SetColumnValidationConfigurationAsync(
+    "BatchData",
+    ColumnValidationConfiguration.Parallel("BatchData"));
+
+// Custom column configuration
+var customConfig = new ColumnValidationConfiguration
+{
+    ColumnName = "ComplexData",
+    ValidationPolicy = ColumnValidationPolicy.ValidateAll, // Run all rules
+    EvaluationStrategy = ValidationEvaluationStrategy.Sequential, // One by one
+    DefaultLogicalOperator = ValidationLogicalOperator.And, // All must pass
+    ColumnTimeout = TimeSpan.FromSeconds(5), // Custom timeout
+    AllowRuleGroups = true // Enable groups for this column
+};
+
+await dataGrid.SetColumnValidationConfigurationAsync("ComplexData", customConfig);
+
+// Get current column configuration
+var currentConfig = await dataGrid.GetColumnValidationConfigurationAsync("Email");
+if (currentConfig.IsSuccess && currentConfig.Value != null)
+{
+    Console.WriteLine($"Email column policy: {currentConfig.Value.ValidationPolicy}");
+}
+```
+
+### ✅ Enhanced Validation Configuration with Group Support
+
+**⚙️ ADVANCED CONFIGURATION**: Extended validation configuration with group validation features.
+
+```csharp
+// Enhanced validation configuration with group support
+var advancedConfig = new ValidationConfiguration
+{
+    EnableValidation = true,
+    DefaultTrigger = ValidationTrigger.OnCellChanged,
+    DefaultTimeout = TimeSpan.FromSeconds(2),
+    EnableRealTimeValidation = true,
+    EnableBulkValidation = true,
+    MaxConcurrentValidations = 15,
+    MakeValidateAllStopOnFirstError = false, // 🎯 Forces ValidateAll columns to stop on first error
+    ValidateOnlyVisibleRows = false,
+
+    // New group validation settings
+    DefaultColumnPolicy = ColumnValidationPolicy.ValidateAll,
+    DefaultEvaluationStrategy = ValidationEvaluationStrategy.Sequential,
+    EnableGroupValidation = true,
+    ColumnSpecificConfigurations = new Dictionary<string, ColumnValidationConfiguration>
+    {
+        ["Email"] = ColumnValidationConfiguration.FailFast("Email"),
+        ["ContactMethod"] = ColumnValidationConfiguration.SuccessFast("ContactMethod"),
+        ["BatchData"] = ColumnValidationConfiguration.Parallel("BatchData")
+    }
+};
+
+await dataGrid.UpdateValidationConfigurationAsync(advancedConfig);
+
+**🎯 Important:** `MakeValidateAllStopOnFirstError` affects ONLY columns with `ColumnValidationPolicy.ValidateAll`. Columns with `StopOnFirstError` or `StopOnFirstSuccess` policies ignore this global setting and use their own behavior.
+
+// Predefined high-performance configuration
+var highPerfConfig = ValidationConfiguration.HighPerformance;
+await dataGrid.UpdateValidationConfigurationAsync(highPerfConfig);
+```
+
+### ✅ Practical Group Validation Examples
+
+**💼 REAL-WORLD SCENARIOS**: Complex business validation patterns using group logic.
+
+```csharp
+// Scenario 1: Customer Registration - Either individual OR company
+var individualGroup = ValidationRuleGroup.CreateAndGroup(
+    "CustomerData",
+    ValidationRule.Create("FirstName", value => !string.IsNullOrEmpty(value?.ToString()), "First name required"),
+    ValidationRule.Create("LastName", value => !string.IsNullOrEmpty(value?.ToString()), "Last name required"),
+    ValidationRule.Create("PersonalID", value => IsValidPersonalID(value?.ToString()), "Valid personal ID required")
+);
+
+var companyGroup = ValidationRuleGroup.CreateAndGroup(
+    "CustomerData",
+    ValidationRule.Create("CompanyName", value => !string.IsNullOrEmpty(value?.ToString()), "Company name required"),
+    ValidationRule.Create("TaxNumber", value => IsValidTaxNumber(value?.ToString()), "Valid tax number required"),
+    ValidationRule.Create("RegistrationNumber", value => IsValidRegNumber(value?.ToString()), "Valid registration required")
+);
+
+var customerTypeGroup = ValidationRuleGroup.CreateHierarchicalGroup(
+    "CustomerData",
+    ValidationLogicalOperator.Or,
+    "CustomerTypeValidation",
+    individualGroup,
+    companyGroup
+);
+
+// Scenario 2: Payment Method - Multiple valid options with complex rules
+var cardPaymentGroup = ValidationRuleGroup.CreateAndGroup(
+    "PaymentData",
+    ValidationRule.Create("CardNumber", value => IsValidCardNumber(value?.ToString()), "Valid card number required"),
+    ValidationRule.Create("CVV", value => IsValidCVV(value?.ToString()), "Valid CVV required"),
+    ValidationRule.Create("ExpiryDate", value => IsValidExpiryDate(value?.ToString()), "Valid expiry date required")
+);
+
+var bankTransferGroup = ValidationRuleGroup.CreateAndGroup(
+    "PaymentData",
+    ValidationRule.Create("IBAN", value => IsValidIBAN(value?.ToString()), "Valid IBAN required"),
+    ValidationRule.Create("BankCode", value => IsValidBankCode(value?.ToString()), "Valid bank code required")
+);
+
+var paymentMethodGroup = ValidationRuleGroup.CreateHierarchicalGroup(
+    "PaymentData",
+    ValidationLogicalOperator.Or,
+    "PaymentMethodValidation",
+    cardPaymentGroup,
+    bankTransferGroup
+);
+
+await dataGrid.AddValidationRuleGroupAsync(customerTypeGroup);
+await dataGrid.AddValidationRuleGroupAsync(paymentMethodGroup);
 ```
 
 ### ✅ Enhanced Data Import/Export (Dictionary & DataTable)
 ```csharp
-// Dictionary import with enhanced options
+// Initialize with external logging for comprehensive operation tracking
+var logger = serviceProvider.GetService<ILogger<AdvancedDataGridFacade>>();
+var dataGrid = new AdvancedDataGridFacade(logger);
+
+// Dictionary import with enhanced options - all operations logged
 var data = new[] { new Dictionary<string, object?> { ["Name"] = "John", ["Age"] = 30 } };
 await dataGrid.ImportFromDictionaryAsync(data);
+// Logs: "Starting Dictionary import: 1 rows, Mode: Replace"
+// Logs: "Dictionary import completed successfully: 1/1 rows imported in 45ms"
 
-// DataTable import
+// DataTable import with comprehensive logging
 await dataGrid.ImportFromDataTableAsync(dataTable);
+// Logs: "Starting DataTable import: 100 rows, 5 columns, Mode: Replace"
+// Logs: "DataTable import completed successfully: 100/100 rows imported in 234ms"
 
 // Advanced Dictionary export with ValidAlerts support
 var (result, exportedData) = await dataGrid.ExportToDictionaryAsync(
@@ -482,7 +933,44 @@ dataGrid.ApplyColorConfiguration(ColorConfiguration.DarkTheme);
 - ✅ **Size Monitoring**: Real-time container and content size tracking
 - ✅ **Focus Management**: Proper focus handling during scroll operations
 
+## 🔧 Recent Updates & Improvements (2025-09-21)
+
+### ✅ External Logging Integration
+- ✅ **ILogger<T> Support**: Native integration with Microsoft.Extensions.Logging, Serilog, NLog
+- ✅ **Null Safety**: NullLogger fallback prevents exceptions when no logging provider configured
+- ✅ **Enterprise Logging**: Strategic logging at Information/Warning/Error levels (no Debug)
+- ✅ **Structured Logging**: All log entries include relevant structured data for analysis
+- ✅ **Performance Tracking**: Operation timing and metrics logged for monitoring
+- ✅ **Error Context**: Comprehensive error logging with operation context and parameters
+
+### ✅ Logging Architecture Implementation
+```csharp
+// ENTERPRISE PATTERN: Consumer configures logging provider externally
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Information()
+    .WriteTo.File("logs/application-.log", rollingInterval: RollingInterval.Day)
+    .Filter.ByIncludingOnly(Matching.FromSource("RpaWinUiComponentsPackage.AdvancedWinUiDataGrid"))
+    .CreateLogger();
+
+// Component uses external logger with full null safety
+var logger = Log.ForContext<AdvancedDataGridFacade>();
+var dataGrid = new AdvancedDataGridFacade(logger);
+
+// All operations automatically logged with structured data:
+// - Import/Export: Row counts, timing, success/failure status
+// - Performance: Operation counts, memory usage, average timing
+// - Auto Row Height: Calculation timing, processed row counts
+// - Errors: Full exception context with operation parameters
+```
+
+### ✅ Consumer Control Benefits
+- ✅ **Full Logging Control**: Consumer chooses provider, configuration, output format
+- ✅ **Centralized Configuration**: One logging setup for entire application
+- ✅ **No Component Lock-in**: Component remains provider-agnostic
+- ✅ **Production Ready**: Enterprise-grade logging without component complexity
+- ✅ **Zero Dependencies**: Component doesn't force specific logging framework
+
 ---
 
-*AdvancedDataGrid v2.2.2 - Clean Architecture Implementation*
-*Single Using Statement • Standard .NET Types • SOLID Principles • Auto-Scrolling*
+*AdvancedDataGrid v2.3.0 - External Logging Integration*
+*ILogger<T> Support • Null Safety • Enterprise Logging • Provider Agnostic*

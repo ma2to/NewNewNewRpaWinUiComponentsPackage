@@ -2,7 +2,6 @@ using System;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using RpaWinUiComponentsPackage.AdvancedWinUiLogger.Application.Interfaces;
-using RpaWinUiComponentsPackage.AdvancedWinUiLogger.Core.Functional;
 using RpaWinUiComponentsPackage.AdvancedWinUiLogger.Core.ValueObjects;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiLogger.Application.Services;

@@ -1,0 +1,328 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using RpaWinUiComponentsPackage.AdvancedWinUiLogger.Core.Entities;
+using RpaWinUiComponentsPackage.AdvancedWinUiLogger.Core.ValueObjects;
+using RpaWinUiComponentsPackage.AdvancedWinUiLogger.Core.Interfaces;
+using RpaWinUiComponentsPackage.AdvancedWinUiLogger.Application.Interfaces;
+
+namespace RpaWinUiComponentsPackage.AdvancedWinUiLogger.Application.Services;
+
+/// <summary>
+/// APPLICATION SERVICE: Core logging operations with session management
+/// CLEAN ARCHITECTURE: Application layer service for logging business logic
+/// ENTERPRISE: Professional logging service with dual persistence
+/// </summary>
+internal sealed class LoggingService : ILoggingService
+{
+    private readonly ILoggerRepository _repository;
+    private readonly Dictionary<string, LoggerSession> _activeSessions = new();
+    private readonly object _sessionLock = new();
+
+    public LoggingService(ILoggerRepository repository)
+    {
+        _repository = repository ?? throw new ArgumentNullException(nameof(repository));
+    }
+
+    /// <summary>
+    /// ENTERPRISE: Write single log entry with dual persistence
+    /// PERFORMANCE: Intelligent routing based on log level and configuration
+    /// </summary>
+    public async Task WriteLogEntryAsync(ILogger logger, LogLevel level, string message, Exception? exception = null, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // Create log entry
+            var entry = LogEntry.Create(
+                level: level,
+                message: message,
+                exception: exception,
+                timestamp: DateTime.UtcNow
+            );
+
+            // Write to external logger (Serilog, NLog, etc.)
+            logger.Log(level, exception, message);
+
+            // Also persist to our internal repository for file operations
+            await _repository.WriteLogEntryAsync(entry, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // Fallback to basic logging if repository fails
+            logger.LogError(ex, "Failed to write log entry to repository: {Message}", message);
+        }
+    }
+
+    /// <summary>
+    /// ENTERPRISE: Write structured log with template support
+    /// STRUCTURED LOGGING: Modern logging approach with parameter interpolation
+    /// </summary>
+    public async Task WriteStructuredLogAsync(ILogger logger, LogLevel level, string messageTemplate, object?[] args, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // Format message with template
+            var formattedMessage = string.Format(messageTemplate, args);
+
+            // Create structured log entry
+            var entry = LogEntry.Create(
+                level: level,
+                message: formattedMessage,
+                exception: null,
+                timestamp: DateTime.UtcNow
+            );
+
+            // Write to external logger with structured data
+            logger.Log(level, messageTemplate, args);
+
+            // Persist to repository
+            await _repository.WriteLogEntryAsync(entry, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to write structured log entry");
+        }
+    }
+
+    /// <summary>
+    /// ENTERPRISE: Write multiple log entries in optimized batch
+    /// PERFORMANCE: High-throughput batch processing for enterprise scenarios
+    /// </summary>
+    public async Task WriteBatchLogEntriesAsync(ILogger logger, IEnumerable<LogEntry> logEntries, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var entries = logEntries.ToList();
+            if (!entries.Any()) return;
+
+            // Write to external logger
+            foreach (var entry in entries)
+            {
+                logger.Log(entry.Level, entry.Exception, entry.Message);
+            }
+
+            // Batch write to repository for better performance
+            await _repository.WriteBatchAsync(entries, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to write batch log entries");
+        }
+    }
+
+    /// <summary>
+    /// ENTERPRISE: Start new logging session with configuration
+    /// SESSION MANAGEMENT: Organized logging with session boundaries
+    /// </summary>
+    public async Task<Result<LoggerSession>> StartLoggingSessionAsync(LoggerConfiguration configuration, string sessionName = "", CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await Task.CompletedTask;
+
+            var sessionId = Guid.NewGuid().ToString();
+            var session = new LoggerSession(configuration) { SessionName = sessionName };
+
+            lock (_sessionLock)
+            {
+                _activeSessions[sessionId] = session;
+            }
+
+            // Initialize log file for session
+            var logFilePath = configuration.GetCurrentLogFilePath();
+            var initResult = await _repository.InitializeLogFileAsync(logFilePath, cancellationToken);
+            if (initResult.IsFailure)
+                return Result<LoggerSession>.Failure($"Failed to initialize log file: {initResult.Error}");
+
+            return Result<LoggerSession>.Success(session);
+        }
+        catch (Exception ex)
+        {
+            return Result<LoggerSession>.Failure($"Failed to start logging session: {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>
+    /// ENTERPRISE: End active logging session
+    /// SESSION MANAGEMENT: Clean session termination with resource cleanup
+    /// </summary>
+    public async Task<Result<bool>> EndLoggingSessionAsync(LoggerSession session, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await Task.CompletedTask;
+
+            if (session == null)
+                return Result<bool>.Failure("Session cannot be null");
+
+            // Flush any pending writes
+            await _repository.FlushAsync(cancellationToken);
+
+            // Stop the session
+            var stopResult = session.Stop();
+            if (stopResult.IsFailure)
+                return stopResult;
+
+            // Remove from active sessions
+            lock (_sessionLock)
+            {
+                var sessionToRemove = _activeSessions.FirstOrDefault(kvp => kvp.Value == session);
+                if (!sessionToRemove.Equals(default(KeyValuePair<string, LoggerSession>)))
+                {
+                    _activeSessions.Remove(sessionToRemove.Key);
+                }
+            }
+
+            return Result<bool>.Success(true);
+        }
+        catch (Exception ex)
+        {
+            return Result<bool>.Failure($"Failed to end logging session: {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>
+    /// ENTERPRISE: Get all active logging sessions
+    /// MONITORING: Session tracking and health monitoring
+    /// </summary>
+    public async Task<IReadOnlyList<LoggerSession>> GetActiveSessionsAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await Task.CompletedTask;
+
+            lock (_sessionLock)
+            {
+                return _activeSessions.Values.Where(s => s.IsActive).ToList().AsReadOnly();
+            }
+        }
+        catch (Exception)
+        {
+            return new List<LoggerSession>().AsReadOnly();
+        }
+    }
+
+    /// <summary>
+    /// ENTERPRISE: Search log entries by criteria
+    /// ANALYSIS: Advanced log searching with filtering capabilities
+    /// </summary>
+    public async Task<IReadOnlyList<LogEntry>> SearchLogEntriesAsync(string logDirectory, LogSearchCriteria searchCriteria, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // Get all log files in directory
+            var filesResult = await _repository.GetLogFilesInDirectoryAsync(logDirectory, cancellationToken);
+            if (filesResult.IsFailure)
+                return new List<LogEntry>().AsReadOnly();
+
+            var results = new List<LogEntry>();
+
+            // Simple implementation - in real scenario would use more sophisticated search
+            foreach (var file in filesResult.Value)
+            {
+                try
+                {
+                    var lines = await File.ReadAllLinesAsync(file.FilePath, cancellationToken);
+                    foreach (var line in lines)
+                    {
+                        if (string.IsNullOrWhiteSpace(searchCriteria.SearchText) ||
+                            line.Contains(searchCriteria.SearchText, StringComparison.OrdinalIgnoreCase))
+                        {
+                            var entry = LogEntry.Create(
+                                level: LogLevel.Information, // Would parse from log line
+                                message: line,
+                                exception: null,
+                                timestamp: DateTime.UtcNow
+                            );
+                            results.Add(entry);
+
+                            if (searchCriteria.MaxResults.HasValue && results.Count >= searchCriteria.MaxResults.Value)
+                                break;
+                        }
+                    }
+                }
+                catch
+                {
+                    continue; // Skip files that can't be read
+                }
+            }
+
+            return results.AsReadOnly();
+        }
+        catch (Exception)
+        {
+            return new List<LogEntry>().AsReadOnly();
+        }
+    }
+
+    /// <summary>
+    /// ENTERPRISE: Get statistical analysis of log data
+    /// ANALYTICS: Comprehensive log analytics for monitoring and reporting
+    /// </summary>
+    public async Task<LogStatistics> GetLogStatisticsAsync(string logDirectory, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var filesResult = await _repository.GetLogFilesInDirectoryAsync(logDirectory, cancellationToken);
+            if (filesResult.IsFailure)
+                return LogStatistics.Create(0, new Dictionary<LogLevel, int>(), null, null);
+
+            var files = filesResult.Value;
+            var entriesByLevel = new Dictionary<LogLevel, int>
+            {
+                { LogLevel.Trace, 0 },
+                { LogLevel.Debug, 0 },
+                { LogLevel.Information, 0 },
+                { LogLevel.Warning, 0 },
+                { LogLevel.Error, 0 },
+                { LogLevel.Critical, 0 }
+            };
+
+            int totalEntries = 0;
+            DateTime? firstEntry = null;
+            DateTime? lastEntry = null;
+
+            foreach (var file in files)
+            {
+                try
+                {
+                    var lines = await File.ReadAllLinesAsync(file.FilePath, cancellationToken);
+                    foreach (var line in lines)
+                    {
+                        if (!string.IsNullOrWhiteSpace(line))
+                        {
+                            totalEntries++;
+
+                            // Simple level detection - would be more sophisticated in real implementation
+                            if (line.Contains("[ERR]", StringComparison.OrdinalIgnoreCase))
+                                entriesByLevel[LogLevel.Error]++;
+                            else if (line.Contains("[WRN]", StringComparison.OrdinalIgnoreCase))
+                                entriesByLevel[LogLevel.Warning]++;
+                            else
+                                entriesByLevel[LogLevel.Information]++;
+
+                            // Update date range
+                            var fileDate = file.CreatedUtc;
+                            if (firstEntry == null || fileDate < firstEntry) firstEntry = fileDate;
+                            if (lastEntry == null || fileDate > lastEntry) lastEntry = fileDate;
+                        }
+                    }
+                }
+                catch
+                {
+                    continue;
+                }
+            }
+
+            return LogStatistics.Create(totalEntries, entriesByLevel, firstEntry, lastEntry);
+        }
+        catch (Exception)
+        {
+            return LogStatistics.Create(0, new Dictionary<LogLevel, int>(), null, null);
+        }
+    }
+}

@@ -4,16 +4,15 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using RpaWinUiComponentsPackage.AdvancedWinUiLogger.Core.Entities;
-using RpaWinUiComponentsPackage.AdvancedWinUiLogger.Core.Functional;
 using RpaWinUiComponentsPackage.AdvancedWinUiLogger.Core.ValueObjects;
 
-namespace RpaWinUiComponentsPackage.AdvancedWinUiLogger.Application.UseCases.LoggingOperations;
+namespace RpaWinUiComponentsPackage.AdvancedWinUiLogger.Application.Interfaces;
 
 /// <summary>
-/// INTERNAL INTERFACE: Logging operations use case
-/// CLEAN ARCHITECTURE: Application layer use case for logging operations
+/// APPLICATION INTERFACE: Logging service contract
+/// CLEAN ARCHITECTURE: Application layer interface for logging operations
 /// </summary>
-internal interface ILoggingOperationsUseCase
+internal interface ILoggingService
 {
     Task WriteLogEntryAsync(ILogger logger, LogLevel level, string message, Exception? exception = null, CancellationToken cancellationToken = default);
     Task WriteStructuredLogAsync(ILogger logger, LogLevel level, string messageTemplate, object?[] args, CancellationToken cancellationToken = default);

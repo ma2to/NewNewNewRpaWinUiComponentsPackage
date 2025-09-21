@@ -1,0 +1,25 @@
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using RpaWinUiComponentsPackage.AdvancedWinUiLogger.Core.Entities;
+using RpaWinUiComponentsPackage.AdvancedWinUiLogger.Core.ValueObjects;
+
+namespace RpaWinUiComponentsPackage.AdvancedWinUiLogger.Application.UseCases.LoggingOperations;
+
+/// <summary>
+/// INTERNAL INTERFACE: Logging operations use case
+/// CLEAN ARCHITECTURE: Application layer use case for logging operations
+/// </summary>
+internal interface ILoggingOperationsUseCase
+{
+    Task WriteLogEntryAsync(ILogger logger, LogLevel level, string message, Exception? exception = null, CancellationToken cancellationToken = default);
+    Task WriteStructuredLogAsync(ILogger logger, LogLevel level, string messageTemplate, object?[] args, CancellationToken cancellationToken = default);
+    Task WriteBatchLogEntriesAsync(ILogger logger, IEnumerable<LogEntry> logEntries, CancellationToken cancellationToken = default);
+    Task<Result<LoggerSession>> StartLoggingSessionAsync(Core.ValueObjects.LoggerConfiguration configuration, string sessionName = "", CancellationToken cancellationToken = default);
+    Task<Result<bool>> EndLoggingSessionAsync(LoggerSession session, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<LoggerSession>> GetActiveSessionsAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<LogEntry>> SearchLogEntriesAsync(string logDirectory, Core.ValueObjects.LogSearchCriteria searchCriteria, CancellationToken cancellationToken = default);
+    Task<Core.ValueObjects.LogStatistics> GetLogStatisticsAsync(string logDirectory, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
+}

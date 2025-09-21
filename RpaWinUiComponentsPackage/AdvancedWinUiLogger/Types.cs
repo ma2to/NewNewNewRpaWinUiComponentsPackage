@@ -67,6 +67,14 @@ public sealed record RotationResult
         new() { IsSuccess = false, ErrorMessage = errorMessage };
 }
 
+// LoggingMode Strategy Enum
+public enum LoggingMode
+{
+    Single,
+    Bulk,
+    AsyncBatch
+}
+
 // LoggerConfiguration Type - Public DTO
 public sealed record LoggerConfiguration
 {
@@ -79,9 +87,31 @@ public sealed record LoggerConfiguration
     public bool EnableStructuredLogging { get; init; } = true;
     public string OutputTemplate { get; init; } = "{Timestamp:yyyy-MM-dd HH:mm:ss} [{Level:u3}] {Message}{NewLine}{Exception}";
     public bool EnablePerformanceCounters { get; init; } = false;
+    public LoggingMode LoggingMode { get; init; } = LoggingMode.Single;
 
     public static LoggerConfiguration CreateMinimal(string logDirectory, string baseFileName) =>
         new() { LogDirectory = logDirectory, BaseFileName = baseFileName };
+
+    public static LoggerConfiguration CreateHighPerformance(string logDirectory, string baseFileName) =>
+        new()
+        {
+            LogDirectory = logDirectory,
+            BaseFileName = baseFileName,
+            LoggingMode = LoggingMode.AsyncBatch,
+            EnableCompression = true,
+            MaxFileSize = 50 * 1024 * 1024,
+            EnablePerformanceCounters = true
+        };
+
+    public static LoggerConfiguration CreateDevelopment(string logDirectory, string baseFileName) =>
+        new()
+        {
+            LogDirectory = logDirectory,
+            BaseFileName = baseFileName,
+            MinimumLevel = Microsoft.Extensions.Logging.LogLevel.Debug,
+            LoggingMode = LoggingMode.Single,
+            EnableStructuredLogging = true
+        };
 }
 
 // Cleanup Types
@@ -210,4 +240,93 @@ public sealed record LogStatistics
         var days = (lastEntry.Value - firstEntry.Value).TotalDays;
         return days > 0 ? totalEntries / days : totalEntries;
     }
+}
+
+// Configuration Builder Pattern - Fluent interface for complex configuration
+public sealed class ConfigurationBuilder
+{
+    private string _logDirectory = "./logs";
+    private string _baseFileName = "application";
+    private LogLevel _minimumLevel = LogLevel.Information;
+    private long _maxFileSize = 10 * 1024 * 1024;
+    private int _maxFiles = 10;
+    private bool _enableCompression = false;
+    private bool _enableStructuredLogging = true;
+    private string _outputTemplate = "{Timestamp:yyyy-MM-dd HH:mm:ss} [{Level:u3}] {Message}{NewLine}{Exception}";
+    private bool _enablePerformanceCounters = false;
+    private LoggingMode _loggingMode = LoggingMode.Single;
+
+    public ConfigurationBuilder SetLogDirectory(string logDirectory)
+    {
+        _logDirectory = logDirectory;
+        return this;
+    }
+
+    public ConfigurationBuilder SetBaseFileName(string baseFileName)
+    {
+        _baseFileName = baseFileName;
+        return this;
+    }
+
+    public ConfigurationBuilder SetMinimumLevel(LogLevel minimumLevel)
+    {
+        _minimumLevel = minimumLevel;
+        return this;
+    }
+
+    public ConfigurationBuilder SetMaxFileSize(long maxFileSize)
+    {
+        _maxFileSize = maxFileSize;
+        return this;
+    }
+
+    public ConfigurationBuilder SetMaxFiles(int maxFiles)
+    {
+        _maxFiles = maxFiles;
+        return this;
+    }
+
+    public ConfigurationBuilder EnableCompression(bool enable = true)
+    {
+        _enableCompression = enable;
+        return this;
+    }
+
+    public ConfigurationBuilder EnableStructuredLogging(bool enable = true)
+    {
+        _enableStructuredLogging = enable;
+        return this;
+    }
+
+    public ConfigurationBuilder SetOutputTemplate(string outputTemplate)
+    {
+        _outputTemplate = outputTemplate;
+        return this;
+    }
+
+    public ConfigurationBuilder EnablePerformanceCounters(bool enable = true)
+    {
+        _enablePerformanceCounters = enable;
+        return this;
+    }
+
+    public ConfigurationBuilder SetLoggingMode(LoggingMode loggingMode)
+    {
+        _loggingMode = loggingMode;
+        return this;
+    }
+
+    public LoggerConfiguration Build() => new()
+    {
+        LogDirectory = _logDirectory,
+        BaseFileName = _baseFileName,
+        MinimumLevel = _minimumLevel,
+        MaxFileSize = _maxFileSize,
+        MaxFiles = _maxFiles,
+        EnableCompression = _enableCompression,
+        EnableStructuredLogging = _enableStructuredLogging,
+        OutputTemplate = _outputTemplate,
+        EnablePerformanceCounters = _enablePerformanceCounters,
+        LoggingMode = _loggingMode
+    };
 }

@@ -128,7 +128,7 @@ internal static class TypeExtensions
             ModifiedUtc = fileInfo.ModifiedUtc,
             IsArchived = fileInfo.IsCompressed
         };
-    };
+    }
 
     // LoggerConfiguration Extensions - Core has different property names
     public static LoggerConfiguration ToPublic(this CoreTypes.LoggerConfiguration config) => new()

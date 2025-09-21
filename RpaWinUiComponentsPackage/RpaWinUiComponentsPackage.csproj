@@ -123,7 +123,6 @@
   <ItemGroup>
     <Folder Include="AdvancedWinUiDataGrid\oldFiles\" />
     <Folder Include="AdvancedWinUiLogger\Documentation\" />
-    <Folder Include="AdvancedWinUiLogger\oldFiles\" />
   </ItemGroup>
   <ItemGroup>
     <PRIResource Remove="AdvancedWinUiLogger\Models\**" />
