@@ -83,6 +83,69 @@ Automatic Decision: Based on operation type, data size, and performance threshol
 
 **MAINTAINED PRINCIPLES**: Clean Architecture, SOLID principles, separation of UI from business logic, enterprise-grade logging, and null safety patterns.
 
+## 🆔 RowNumber as Core Property Implementation (2025-09-21)
+
+### Revolutionary RowNumber Architecture
+
+**PROBLEM RESOLVED**: Implemented RowNumber as a core DataRow property with automatic management and intelligent visibility control.
+
+**Key Architectural Changes**:
+
+1. **Core DataRow Enhancement**:
+   - ✅ **Core Property**: `public int RowNumber { get; set; }` added to DataRow entity
+   - ✅ **Automatic Management**: RowNumber assigned during row creation and maintained throughout lifecycle
+   - ✅ **Stable Identification**: RowNumber provides consistent row identification independent of sort order
+   - ✅ **Constructor Updated**: `DataRow(int rowIndex, int rowNumber = 0)` with validation
+
+2. **SpecialColumn RowNumber - Display Controller**:
+   - ✅ **Visibility Control**: `SpecialColumnType.RowNumber` controls only display visibility
+   - ✅ **Configuration**: ReadOnly=true, Sortable=true, Resizable=false, Width=60px
+   - ✅ **Show/Hide**: Can be shown/hidden without affecting core RowNumber data
+   - ✅ **Factory Method**: `ColumnDefinition.CreateRowNumber()` for easy creation
+
+3. **RowNumber Service Layer**:
+   - ✅ **Core Service**: `RowNumberService` for RowNumber lifecycle management
+   - ✅ **Application Service**: `IRowNumberService` with async operations and progress reporting
+   - ✅ **Operations**: AssignRowNumber, RegenerateRowNumbers, CompactRowNumbers, ValidateSequence
+   - ✅ **Batch Processing**: Efficient handling of large datasets with progress reporting
+
+4. **Export/Import - Automatic Exclusion**:
+   - ✅ **Export Exclusion**: RowNumber automatically excluded from all export operations
+   - ✅ **Import Exclusion**: RowNumber automatically assigned during import (never imported)
+   - ✅ **Data Cleaning**: `RemoveRowNumberFromData()` ensures clean export/import data
+   - ✅ **Factory Assignment**: New rows get sequential RowNumbers automatically
+
+5. **Facade Layer - Professional API**:
+   - ✅ **Statistics API**: `GetRowNumberStatisticsAsync()` for monitoring and diagnostics
+   - ✅ **Validation API**: `ValidateRowNumberSequenceAsync()` for integrity checking
+   - ✅ **Visibility Control**: `SetRowNumberColumnVisibility()` for dynamic show/hide
+   - ✅ **Type Conversion**: Seamless conversion between public and internal DataRow models
+
+**BUSINESS LOGIC FLOW**:
+```
+Row Creation → Automatic RowNumber Assignment → Core Property Storage
+Display Control → SpecialColumn Visibility → Show/Hide in UI
+Sort Operations → Data Reordering → RowNumber Values Remain Stable
+Export Operations → RowNumber Exclusion → Clean External Data
+Import Operations → RowNumber Auto-Assignment → Sequential Numbering
+```
+
+**ENTERPRISE BENEFITS**:
+- **Stable References**: "See row number 15" always refers to the same data
+- **Clean Exports**: External files never contain internal RowNumber values
+- **Import Flexibility**: Can import data from any source without RowNumber conflicts
+- **Performance**: No regeneration overhead during sort operations
+- **Professional UX**: Optional display with consistent numbering
+- **Data Integrity**: Automatic validation and repair capabilities
+
+**TYPE MAPPING ENHANCEMENTS**:
+- ✅ **Public API**: `ColumnSpecialType.RowNumber` enum value
+- ✅ **Internal Core**: `SpecialColumnType.RowNumber` enum value
+- ✅ **Type Extensions**: Bidirectional mapping between public and internal types
+- ✅ **Factory Methods**: `CreateRowNumber()`, `CreateCheckBox()`, `CreateValidAlerts()`
+
+**MAINTAINED PRINCIPLES**: Clean Architecture, SOLID principles, separation of UI from business logic, enterprise-grade patterns, and professional API design.
+
 ## 🔄 Method-Level Validation Scope Refactoring (2025-09-21)
 
 ### Granular Control Implementation
@@ -1024,6 +1087,91 @@ dataGrid.MinimumRows = 3;  // At least 3 rows must always be present
 var (result, data) = await dataGrid.ExportToDataTableAsync(
     exportOnlyChecked: true,
     removeAfter: true);  // Uses smart delete on exported rows
+```
+
+### ✅ RowNumber Column Support
+```csharp
+// RowNumber is a core property of DataRow with optional display column
+// - Automatically assigned during row creation and maintained throughout lifecycle
+// - NEVER exported/imported (internal property only)
+// - Can be shown/hidden via SpecialColumn configuration
+
+// Create RowNumber column for display
+var columns = new List<ColumnDefinition>
+{
+    ColumnDefinition.CreateRowNumber("Row #", isVisible: true),  // Display row numbers
+    ColumnDefinition.CreateText("Name", isRequired: true),
+    ColumnDefinition.CreateNumber("Age")
+};
+
+// Initialize grid with RowNumber column
+var (success, message) = await dataGrid.InitializeAsync(
+    columns: columns,
+    behavior: GridBehaviorConfiguration.CreateForUI(),
+    validation: ValidationConfiguration.Balanced
+);
+
+// Dynamic visibility control
+var (visibilitySuccess, error) = dataGrid.SetRowNumberColumnVisibility(
+    ref columns,
+    isVisible: false  // Hide RowNumber column
+);
+
+// Check if RowNumber column is visible
+bool isVisible = dataGrid.IsRowNumberColumnVisible(columns);
+
+// Get RowNumber statistics for monitoring
+var (statsSuccess, statistics, errorMsg) = await dataGrid.GetRowNumberStatisticsAsync(data);
+if (statsSuccess && statistics != null)
+{
+    Console.WriteLine($"Total Rows: {statistics.TotalRows}");
+    Console.WriteLine($"Valid Sequence: {statistics.HasValidSequence}");
+    Console.WriteLine($"Gaps: {statistics.GapCount}");
+    Console.WriteLine($"Duplicates: {statistics.DuplicateCount}");
+}
+
+// Validate RowNumber sequence integrity
+var (validationSuccess, isValid, issues, validationError) =
+    await dataGrid.ValidateRowNumberSequenceAsync(data);
+if (validationSuccess && !isValid && issues != null)
+{
+    foreach (var issue in issues)
+    {
+        Console.WriteLine($"RowNumber Issue: {issue}");
+    }
+}
+
+// RowNumber behavior during operations:
+// - Import: RowNumbers automatically assigned (1, 2, 3, ...), never imported from source
+// - Export: RowNumbers automatically excluded from exported data
+// - Sort: RowNumber values remain stable, display order changes
+// - Delete: RowNumbers compacted to remove gaps (1, 2, 3, ...)
+```
+
+### ✅ Special Columns Overview
+```csharp
+// All special column types available
+var columns = new List<ColumnDefinition>
+{
+    // RowNumber: Core property with optional display (NEVER exported/imported)
+    ColumnDefinition.CreateRowNumber("Row #", isVisible: true),
+
+    // CheckBox: For row selection and bulk operations
+    ColumnDefinition.CreateCheckBox("Select", isVisible: true),
+
+    // ValidAlerts: Validation error display (auto-populated)
+    ColumnDefinition.CreateValidAlerts("Errors", isVisible: true),
+
+    // Regular data columns
+    ColumnDefinition.CreateText("Name", isRequired: true),
+    ColumnDefinition.CreateNumber("Age"),
+    ColumnDefinition.CreateDate("BirthDate", format: "yyyy-MM-dd")
+};
+
+// Special column behavior:
+// - RowNumber: Stable identification, never in export/import
+// - CheckBox: Can be exported/imported, used for bulk operations
+// - ValidAlerts: Shows validation results, can be exported for error tracking
 ```
 
 ### ✅ ValidAlerts Column Support

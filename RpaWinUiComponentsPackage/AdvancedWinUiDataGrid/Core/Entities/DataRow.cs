@@ -15,6 +15,13 @@ internal sealed class DataRow
     private readonly Dictionary<string, Cell> _cells = new();
 
     public int RowIndex { get; }
+
+    /// <summary>
+    /// CORE PROPERTY: Row number for stable identification and ordering
+    /// This is automatically managed and should never be exported/imported
+    /// </summary>
+    public int RowNumber { get; set; }
+
     public bool IsEmpty => _cells.Values.All(c => c.IsEmpty);
     public bool HasUnsavedChanges => _cells.Values.Any(c => c.HasUnsavedChanges);
     public bool HasValidationErrors => _cells.Values.Any(c => c.HasValidationErrors);
@@ -23,10 +30,12 @@ internal sealed class DataRow
     public event EventHandler<RowStateChangedEventArgs>? StateChanged;
     public event EventHandler<CellValueChangedEventArgs>? CellValueChanged;
 
-    public DataRow(int rowIndex)
+    public DataRow(int rowIndex, int rowNumber = 0)
     {
         if (rowIndex < 0) throw new ArgumentOutOfRangeException(nameof(rowIndex), "Row index cannot be negative");
+        if (rowNumber < 0) throw new ArgumentOutOfRangeException(nameof(rowNumber), "Row number cannot be negative");
         RowIndex = rowIndex;
+        RowNumber = rowNumber;
     }
 
     /// <summary>
@@ -239,7 +248,7 @@ internal sealed class DataRow
         var status = HasValidationErrors ? " (Invalid)" :
                     HasUnsavedChanges ? " (Modified)" :
                     IsEmpty ? " (Empty)" : "";
-        return $"Row[{RowIndex}]: {_cells.Count} cells{status}";
+        return $"Row[{RowIndex}] RowNum[{RowNumber}]: {_cells.Count} cells{status}";
     }
 }
 

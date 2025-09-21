@@ -31,6 +31,7 @@ public sealed class AdvancedDataGridFacade
     private readonly IPerformanceService _performanceService;
     private readonly IAutoRowHeightService _autoRowHeightService;
     private readonly IValidationService _validationService;
+    private readonly IRowNumberService _rowNumberService;
     private readonly SmartOperationsService _smartOperationsService;
 
     private bool _isInitialized;
@@ -55,6 +56,7 @@ public sealed class AdvancedDataGridFacade
         _performanceService = new PerformanceService();
         _autoRowHeightService = new AutoRowHeightService();
         _validationService = new ValidationService();
+        _rowNumberService = new Application.Services.RowNumberService();
         _smartOperationsService = new SmartOperationsService(_logger);
     }
 
@@ -76,6 +78,7 @@ public sealed class AdvancedDataGridFacade
         _performanceService = new PerformanceService();
         _autoRowHeightService = new AutoRowHeightService();
         _validationService = new ValidationService();
+        _rowNumberService = new Application.Services.RowNumberService();
         _smartOperationsService = new SmartOperationsService(_logger);
     }
 
@@ -92,6 +95,7 @@ public sealed class AdvancedDataGridFacade
         IPerformanceService performanceService,
         IAutoRowHeightService autoRowHeightService,
         IValidationService validationService,
+        IRowNumberService? rowNumberService = null,
         SmartOperationsService? smartOperationsService = null)
     {
         _logger = logger ?? NullLogger<AdvancedDataGridFacade>.Instance;
@@ -102,6 +106,7 @@ public sealed class AdvancedDataGridFacade
         _performanceService = performanceService ?? throw new ArgumentNullException(nameof(performanceService));
         _autoRowHeightService = autoRowHeightService ?? throw new ArgumentNullException(nameof(autoRowHeightService));
         _validationService = validationService ?? throw new ArgumentNullException(nameof(validationService));
+        _rowNumberService = rowNumberService ?? new Application.Services.RowNumberService();
         _smartOperationsService = smartOperationsService ?? new SmartOperationsService(_logger);
     }
 
@@ -294,6 +299,7 @@ public sealed class AdvancedDataGridFacade
 
     /// <summary>
     /// PUBLIC API: Import data from Dictionary collection
+    /// ENTERPRISE: RowNumber is automatically assigned and managed (never imported from source)
     /// </summary>
     public async Task<ImportResult> ImportFromDictionaryAsync(
         IEnumerable<IReadOnlyDictionary<string, object?>> sourceData,
@@ -306,8 +312,11 @@ public sealed class AdvancedDataGridFacade
 
         try
         {
+            // Remove RowNumber from import data if present (it will be auto-assigned)
+            var cleanedData = RemoveRowNumberFromData(sourceData);
+
             var internalOptions = options?.ToInternal();
-            var result = await _importExportService.ImportFromDictionaryAsync(sourceData, internalOptions, cancellationToken);
+            var result = await _importExportService.ImportFromDictionaryAsync(cleanedData, internalOptions, cancellationToken);
             var publicResult = result.ToPublic();
 
             if (publicResult.Success)
@@ -337,26 +346,34 @@ public sealed class AdvancedDataGridFacade
 
     /// <summary>
     /// PUBLIC API: Export data to DataTable
+    /// ENTERPRISE: RowNumber is automatically excluded from export (internal property only)
     /// </summary>
     public async Task<DataTable> ExportToDataTableAsync(
         IEnumerable<IReadOnlyDictionary<string, object?>> data,
         ExportOptions? options = null,
         CancellationToken cancellationToken = default)
     {
+        // Remove RowNumber from data before export (it's internal property)
+        var cleanedData = RemoveRowNumberFromData(data);
+
         var internalOptions = options?.ToInternal();
-        return await _importExportService.ExportToDataTableAsync(data, internalOptions, cancellationToken);
+        return await _importExportService.ExportToDataTableAsync(cleanedData, internalOptions, cancellationToken);
     }
 
     /// <summary>
     /// PUBLIC API: Export data to Dictionary collection
+    /// ENTERPRISE: RowNumber is automatically excluded from export (internal property only)
     /// </summary>
     public async Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> ExportToDictionaryAsync(
         IEnumerable<IReadOnlyDictionary<string, object?>> data,
         ExportOptions? options = null,
         CancellationToken cancellationToken = default)
     {
+        // Remove RowNumber from data before export (it's internal property)
+        var cleanedData = RemoveRowNumberFromData(data);
+
         var internalOptions = options?.ToInternal();
-        return await _importExportService.ExportToDictionaryAsync(data, internalOptions, cancellationToken);
+        return await _importExportService.ExportToDictionaryAsync(cleanedData, internalOptions, cancellationToken);
     }
 
     #endregion
@@ -1650,6 +1667,220 @@ public sealed class AdvancedDataGridFacade
 
         await Task.CompletedTask;
         _logger.LogInformation("Performance optimizations applied successfully");
+    }
+
+    #endregion
+
+    #region RowNumber Management
+
+    /// <summary>
+    /// PUBLIC API: Get RowNumber statistics for monitoring and diagnostics
+    /// ENTERPRISE: Professional RowNumber management with comprehensive statistics
+    /// </summary>
+    public async Task<(bool Success, RowNumberStatistics? Statistics, string? ErrorMessage)> GetRowNumberStatisticsAsync(
+        IEnumerable<Dictionary<string, object?>> data,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogDebug("Getting RowNumber statistics for dataset");
+
+            // Convert public data to internal DataRow format for statistics
+            var dataRows = ConvertToInternalDataRows(data);
+            var result = await _rowNumberService.GetRowNumberStatisticsAsync(dataRows, cancellationToken);
+
+            if (result.IsSuccess)
+            {
+                _logger.LogInformation("RowNumber statistics retrieved successfully: {TotalRows} rows, {GapCount} gaps, {DuplicateCount} duplicates",
+                    result.Value.TotalRows, result.Value.GapCount, result.Value.DuplicateCount);
+                return (true, result.Value, null);
+            }
+
+            _logger.LogWarning("Failed to get RowNumber statistics: {ErrorMessage}", result.ErrorMessage);
+            return (false, null, result.ErrorMessage);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting RowNumber statistics");
+            return (false, null, $"Error getting RowNumber statistics: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// PUBLIC API: Validate RowNumber sequence integrity
+    /// ENTERPRISE: Data consistency validation for debugging and diagnostics
+    /// </summary>
+    public async Task<(bool Success, bool IsValid, IReadOnlyList<string>? Issues, string? ErrorMessage)> ValidateRowNumberSequenceAsync(
+        IEnumerable<Dictionary<string, object?>> data,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogDebug("Validating RowNumber sequence integrity");
+
+            var dataRows = ConvertToInternalDataRows(data);
+            var result = await _rowNumberService.ValidateRowNumberSequenceAsync(dataRows, cancellationToken);
+
+            if (result.IsSuccess)
+            {
+                _logger.LogInformation("RowNumber sequence validation completed: Valid={IsValid}, Issues={IssueCount}",
+                    result.Value.IsValid, result.Value.Issues.Count);
+                return (true, result.Value.IsValid, result.Value.Issues, null);
+            }
+
+            _logger.LogWarning("Failed to validate RowNumber sequence: {ErrorMessage}", result.ErrorMessage);
+            return (false, false, null, result.ErrorMessage);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error validating RowNumber sequence");
+            return (false, false, null, $"Error validating RowNumber sequence: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// INTERNAL: Convert public data to internal DataRow format for RowNumber operations
+    /// CLEAN ARCHITECTURE: Handles type conversion between public and internal models
+    /// </summary>
+    private List<Core.Entities.DataRow> ConvertToInternalDataRows(IEnumerable<Dictionary<string, object?>> data)
+    {
+        var dataRows = new List<Core.Entities.DataRow>();
+        int rowIndex = 0;
+
+        foreach (var rowData in data)
+        {
+            // Extract RowNumber if present in data
+            var rowNumber = 0;
+            if (rowData.TryGetValue("RowNumber", out var rowNumberValue) &&
+                rowNumberValue != null &&
+                int.TryParse(rowNumberValue.ToString(), out var parsedRowNumber))
+            {
+                rowNumber = parsedRowNumber;
+            }
+
+            var dataRow = new Core.Entities.DataRow(rowIndex++, rowNumber);
+
+            // Add non-RowNumber data to cells
+            foreach (var kvp in rowData.Where(kvp => kvp.Key != "RowNumber"))
+            {
+                var cellAddress = new Core.ValueObjects.CellAddress(dataRow.RowIndex, 0); // Column index would be resolved from column definitions
+                var cell = new Core.Entities.Cell(cellAddress, kvp.Key, kvp.Value);
+                dataRow.SetCell(kvp.Key, cell);
+            }
+
+            dataRows.Add(dataRow);
+        }
+
+        return dataRows;
+    }
+
+    /// <summary>
+    /// PUBLIC API: Check if RowNumber column is currently visible
+    /// FACADE: Controls RowNumber column visibility without affecting core data
+    /// </summary>
+    public bool IsRowNumberColumnVisible(IReadOnlyList<ColumnDefinition> columns)
+    {
+        return columns.Any(c => c.SpecialType == ColumnSpecialType.RowNumber && c.IsVisible);
+    }
+
+    /// <summary>
+    /// PUBLIC API: Configure RowNumber column visibility
+    /// FACADE: Show/hide RowNumber column without affecting core RowNumber data
+    /// </summary>
+    public (bool Success, string? ErrorMessage) SetRowNumberColumnVisibility(
+        ref List<ColumnDefinition> columns,
+        bool isVisible)
+    {
+        try
+        {
+            var rowNumberColumn = columns.FirstOrDefault(c => c.SpecialType == ColumnSpecialType.RowNumber);
+
+            if (rowNumberColumn != null)
+            {
+                // Update existing RowNumber column visibility
+                var index = columns.IndexOf(rowNumberColumn);
+                columns[index] = rowNumberColumn with { IsVisible = isVisible };
+
+                _logger.LogInformation("RowNumber column visibility updated: {IsVisible}", isVisible);
+                return (true, null);
+            }
+            else if (isVisible)
+            {
+                // Create new RowNumber column if it doesn't exist and user wants to show it
+                var newRowNumberColumn = new ColumnDefinition
+                {
+                    Name = "RowNumber",
+                    DisplayName = "Row #",
+                    DataType = typeof(int),
+                    SpecialType = ColumnSpecialType.RowNumber,
+                    IsVisible = true,
+                    IsReadOnly = true,
+                    IsSortable = true,
+                    IsResizable = false,
+                    Width = 60,
+                    Tooltip = "Sequential row number for identification and navigation"
+                };
+
+                // Add RowNumber column at the beginning
+                columns.Insert(0, newRowNumberColumn);
+
+                _logger.LogInformation("RowNumber column created and added to column definitions");
+                return (true, null);
+            }
+            else
+            {
+                // Column doesn't exist and user wants to hide it - nothing to do
+                _logger.LogDebug("RowNumber column does not exist, no action needed for visibility=false");
+                return (true, null);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error setting RowNumber column visibility");
+            return (false, $"Error setting RowNumber column visibility: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// INTERNAL: Remove RowNumber from data collections for export operations
+    /// ENTERPRISE: Ensures RowNumber is never exported (it's internal property only)
+    /// </summary>
+    private IEnumerable<IReadOnlyDictionary<string, object?>> RemoveRowNumberFromData(
+        IEnumerable<IReadOnlyDictionary<string, object?>> data)
+    {
+        return data.Select(row => row.Where(kvp => kvp.Key != "RowNumber")
+                                     .ToDictionary(kvp => kvp.Key, kvp => kvp.Value)
+                                     .AsReadOnly())
+                   .ToList();
+    }
+
+    /// <summary>
+    /// INTERNAL: Remove RowNumber column from DataTable for import operations
+    /// ENTERPRISE: Ensures RowNumber is never imported (it will be auto-assigned)
+    /// </summary>
+    private DataTable RemoveRowNumberColumnFromDataTable(DataTable sourceTable)
+    {
+        if (!sourceTable.Columns.Contains("RowNumber"))
+        {
+            return sourceTable; // No RowNumber column to remove
+        }
+
+        // Create a copy of the DataTable without the RowNumber column
+        var cleanedTable = sourceTable.Clone();
+        cleanedTable.Columns.Remove("RowNumber");
+
+        // Copy data without RowNumber column
+        foreach (DataRow sourceRow in sourceTable.Rows)
+        {
+            var newRow = cleanedTable.NewRow();
+            foreach (DataColumn column in cleanedTable.Columns)
+            {
+                newRow[column.ColumnName] = sourceRow[column.ColumnName];
+            }
+            cleanedTable.Rows.Add(newRow);
+        }
+
+        return cleanedTable;
     }
 
     #endregion

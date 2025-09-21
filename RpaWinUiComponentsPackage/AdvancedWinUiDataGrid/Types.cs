@@ -45,6 +45,19 @@ public enum SearchScope
     SelectedData
 }
 
+/// <summary>
+/// PUBLIC API: Special column types for grid functionality
+/// ENTERPRISE: Predefined column types with specialized behavior
+/// </summary>
+public enum ColumnSpecialType
+{
+    None = 0,           // Regular data column
+    CheckBox = 1,       // Boolean checkbox column
+    DeleteRow = 2,      // Row deletion action column
+    ValidAlerts = 3,    // Validation error display column
+    RowNumber = 4       // Row number display column (core property)
+}
+
 public sealed record FilterDefinition
 {
     public string? ColumnName { get; init; }
@@ -931,6 +944,7 @@ public sealed record ColumnDefinition
     public bool IsRequired { get; init; } = false;
     public string? Tooltip { get; init; }
     public string? PlaceholderText { get; init; }
+    public ColumnSpecialType SpecialType { get; init; } = ColumnSpecialType.None;
 
     public static ColumnDefinition CreateText(string name, string? displayName = null, bool isRequired = false) =>
         new() { Name = name, DataType = typeof(string), DisplayName = displayName, IsRequired = isRequired };
@@ -957,6 +971,61 @@ public sealed record ColumnDefinition
         ValidationLogicalOperator validationOperator = ValidationLogicalOperator.And,
         string? displayName = null) =>
         new() { Name = name, DataType = dataType, DisplayName = displayName, ValidationRules = validationRules, ValidationOperator = validationOperator };
+
+    /// <summary>
+    /// ENTERPRISE: Create RowNumber special column for row identification
+    /// CORE PROPERTY: RowNumber is automatically managed and never exported/imported
+    /// </summary>
+    public static ColumnDefinition CreateRowNumber(string? displayName = null, bool isVisible = true) =>
+        new()
+        {
+            Name = "RowNumber",
+            DisplayName = displayName ?? "Row #",
+            DataType = typeof(int),
+            SpecialType = ColumnSpecialType.RowNumber,
+            IsVisible = isVisible,
+            IsReadOnly = true,
+            IsSortable = true,
+            IsResizable = false,
+            Width = 60,
+            Tooltip = "Sequential row number for identification and navigation"
+        };
+
+    /// <summary>
+    /// ENTERPRISE: Create CheckBox special column for row selection
+    /// </summary>
+    public static ColumnDefinition CreateCheckBox(string? displayName = null, bool isVisible = true) =>
+        new()
+        {
+            Name = "IsChecked",
+            DisplayName = displayName ?? "☑",
+            DataType = typeof(bool),
+            SpecialType = ColumnSpecialType.CheckBox,
+            IsVisible = isVisible,
+            IsReadOnly = false,
+            IsSortable = false,
+            IsResizable = false,
+            Width = 50,
+            Tooltip = "Select row for bulk operations"
+        };
+
+    /// <summary>
+    /// ENTERPRISE: Create ValidAlerts special column for validation feedback
+    /// </summary>
+    public static ColumnDefinition CreateValidAlerts(string? displayName = null, bool isVisible = true) =>
+        new()
+        {
+            Name = "ValidAlerts",
+            DisplayName = displayName ?? "⚠",
+            DataType = typeof(string),
+            SpecialType = ColumnSpecialType.ValidAlerts,
+            IsVisible = isVisible,
+            IsReadOnly = true,
+            IsSortable = false,
+            IsResizable = true,
+            Width = 200,
+            Tooltip = "Validation errors and warnings for this row"
+        };
 }
 
 /// <summary>

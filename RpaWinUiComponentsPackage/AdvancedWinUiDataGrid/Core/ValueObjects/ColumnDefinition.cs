@@ -33,6 +33,7 @@ internal sealed record ColumnDefinition
     public bool IsRequired { get; }
     public string? Tooltip { get; }
     public string? PlaceholderText { get; }
+    public SpecialColumnType SpecialType { get; }
 
     public ColumnDefinition(
         string name,
@@ -55,7 +56,8 @@ internal sealed record ColumnDefinition
         Dictionary<string, object>? customProperties = null,
         bool isRequired = false,
         string? tooltip = null,
-        string? placeholderText = null)
+        string? placeholderText = null,
+        SpecialColumnType specialType = SpecialColumnType.None)
     {
         Name = name ?? throw new ArgumentNullException(nameof(name));
         DataType = dataType ?? throw new ArgumentNullException(nameof(dataType));
@@ -78,6 +80,7 @@ internal sealed record ColumnDefinition
         IsRequired = isRequired;
         Tooltip = tooltip;
         PlaceholderText = placeholderText;
+        SpecialType = specialType;
 
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Column name cannot be null or empty", nameof(name));

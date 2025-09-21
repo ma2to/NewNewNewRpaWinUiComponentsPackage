@@ -514,7 +514,8 @@ internal static class ValidationTypeExtensions
             publicColumn.CustomProperties,
             publicColumn.IsRequired,
             publicColumn.Tooltip,
-            publicColumn.PlaceholderText);
+            publicColumn.PlaceholderText,
+            publicColumn.SpecialType.ToInternal());
     }
 
     /// <summary>Convert internal ColumnDefinition to public ColumnDefinition</summary>
@@ -542,7 +543,8 @@ internal static class ValidationTypeExtensions
             CustomProperties = internalColumn.CustomProperties,
             IsRequired = internalColumn.IsRequired,
             Tooltip = internalColumn.Tooltip,
-            PlaceholderText = internalColumn.PlaceholderText
+            PlaceholderText = internalColumn.PlaceholderText,
+            SpecialType = internalColumn.SpecialType.ToPublic()
         };
     }
 
@@ -704,6 +706,34 @@ internal static class ValidationTypeExtensions
             Validator = _ => Task.FromResult(true), // Placeholder
             ErrorMessage = internalRule.ErrorMessage,
             Severity = internalRule.Severity.ToPublic()
+        };
+    }
+
+    /// <summary>Convert public ColumnSpecialType to internal SpecialColumnType</summary>
+    public static CoreEnums.SpecialColumnType ToInternal(this ColumnSpecialType publicSpecialType)
+    {
+        return publicSpecialType switch
+        {
+            ColumnSpecialType.None => CoreEnums.SpecialColumnType.None,
+            ColumnSpecialType.CheckBox => CoreEnums.SpecialColumnType.CheckBox,
+            ColumnSpecialType.DeleteRow => CoreEnums.SpecialColumnType.DeleteRow,
+            ColumnSpecialType.ValidAlerts => CoreEnums.SpecialColumnType.ValidAlerts,
+            ColumnSpecialType.RowNumber => CoreEnums.SpecialColumnType.RowNumber,
+            _ => CoreEnums.SpecialColumnType.None
+        };
+    }
+
+    /// <summary>Convert internal SpecialColumnType to public ColumnSpecialType</summary>
+    public static ColumnSpecialType ToPublic(this CoreEnums.SpecialColumnType internalSpecialType)
+    {
+        return internalSpecialType switch
+        {
+            CoreEnums.SpecialColumnType.None => ColumnSpecialType.None,
+            CoreEnums.SpecialColumnType.CheckBox => ColumnSpecialType.CheckBox,
+            CoreEnums.SpecialColumnType.DeleteRow => ColumnSpecialType.DeleteRow,
+            CoreEnums.SpecialColumnType.ValidAlerts => ColumnSpecialType.ValidAlerts,
+            CoreEnums.SpecialColumnType.RowNumber => ColumnSpecialType.RowNumber,
+            _ => ColumnSpecialType.None
         };
     }
 
