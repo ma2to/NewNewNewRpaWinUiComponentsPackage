@@ -1,0 +1,181 @@
+# KOMPLETNÉ ZADANIE: REFAKTORING LOGOVANIA PRE UPRAVENÝ KOMPONENT
+
+## **Cieľ Refaktoringu:**
+Upraviť súčasný enterprise-grade logging systém tak, aby korešpondoval s novou architektúrou komponentu podľa existujúcich dokumentácií (Import/Export, Validation, Filter). Zachovať vysoko kvalitnú logging infraštruktúru a rozšíriť ju pre nové moduly. Logovanie bude jednotné pre debug aj release (bez debug log levelov - iba Information, Warning, Error, Critical).
+
+## **Architectural Principles & Logging Strategy:**
+- **Clean Architecture + Command Pattern**: Logovanie konzistentné s command pattern architektúrou
+- **Hybrid Internal DI + Functional/OOP**: Logging services v internal DI kontajneri
+- **SOLID Principles**: Dedicated logging interfaces pre každý modul
+- **Enterprise Observability**: Comprehensive coverage across všetkých operačných kontextov
+- **Performance Optimized**: Minimal overhead s optional comprehensive monitoring
+- **Thread Safe**: Concurrent logging bez performance degradácie
+
+## **Internal DI Integration & Service Distribution:**
+Všetky logging services sú registrované v **`Infrastructure/Services/InternalServiceRegistration.cs`** a distribuované cez hybrid internal DI systém do všetkých modulov (Import/Export, Validation, Filter, Sort, Search, UI, Performance, atď.). Každý application service dostáva svoje špecializované logging dependencies cez constructor injection z internal DI kontajnera. Toto sa bude rozšíriť aj na budúce moduly (Search, UI, Sort, Performance, Security, atď.) ktoré postupne pribudnú do dokumentácií.
+
+## **Backup Strategy & Implementation Approach:**
+### **1. Backup Strategy**
+- Vytvoriť .oldbackup_timestamp súbory pre všetky modifikované súbory
+- Úplne nahradiť staré implementácie - **ŽIADNA backward compatibility**
+- Zachovať DI registrácie a interface contracts
+
+### **2. Implementation Replacement**
+- Kompletný refaktoring s rozšíreným logging systémom
+- Bez backward compatibility ale s preservation DI architektúry
+- Optimalizované, bezpečné a stabilné riešenie
+
+## **Logging Levels Strategy (Unified for Debug & Release):**
+- **Information**: Successful operations, state changes, performance metrics
+- **Warning**: Performance degradation, fallback scenarios, validation warnings
+- **Error**: Operation failures, recoverable errors, invalid inputs
+- **Critical**: System failures, unrecoverable errors, security issues
+- **NO Debug Level**: Všetky debug informácie na Information level
+
+## **Enhanced Logging Structure:**
+
+### **1. Core Logging Interfaces (Enhanced)**
+```csharp
+// Infrastructure/Logging/IOperationLogger.cs - EXTENDED
+internal interface IOperationLogger<T>
+{
+    // Existujúce metódy + nové pre command pattern
+    IOperationScope LogCommandOperationStart<TCommand>(TCommand command, object? parameters = null);
+    void LogCommandSuccess<TCommand>(string commandType, TCommand command, TimeSpan duration);
+    void LogCommandFailure<TCommand>(string commandType, TCommand command, Exception exception, TimeSpan duration);
+
+    // Filter operations - EXTENDED
+    void LogFilterOperation(string filterType, string filterName, int totalRows, int matchingRows, TimeSpan duration);
+    void LogAdvancedFilterOperation(string businessRule, int totalFilters, int totalRows, int matchingRows, TimeSpan duration);
+
+    // Import/Export operations - CONSISTENT
+    void LogImportOperation(string importType, int totalRows, int importedRows, TimeSpan duration);
+    void LogExportOperation(string exportType, int totalRows, int exportedRows, TimeSpan duration);
+
+    // Validation operations - CONSISTENT
+    void LogValidationOperation(string validationType, int totalRows, int validRows, int ruleCount, TimeSpan duration);
+
+    // Performance monitoring - EXTENDED
+    void LogPerformanceMetrics(string operationType, object metrics);
+    void LogLINQOptimization(string operationType, bool usedParallel, bool usedShortCircuit, TimeSpan duration);
+}
+
+// Infrastructure/Logging/ICommandLogger.cs - NEW
+internal interface ICommandLogger<T>
+{
+    void LogCommandExecution<TCommand>(TCommand command, string operationType);
+    void LogCommandValidation<TCommand>(TCommand command, bool isValid, IReadOnlyList<string>? errors = null);
+    void LogCommandProgress<TCommand>(TCommand command, double progressPercentage, string currentOperation);
+}
+```
+
+### **2. Module-Specific Logging Interfaces**
+```csharp
+// Infrastructure/Logging/IFilterLogger.cs - NEW
+internal interface IFilterLogger<T> : IOperationLogger<T>
+{
+    void LogFilterCombination(FilterLogicOperator logicOperator, int filterCount, bool useShortCircuit);
+    void LogBusinessRuleExecution(string ruleName, string ruleType, bool success, TimeSpan duration);
+    void LogCustomLogicExecution(string filterName, bool success, TimeSpan duration, string? errorMessage = null);
+    void LogFilterValidation(string filterName, bool isValid, string? errorMessage = null);
+}
+
+// Infrastructure/Logging/IValidationLogger.cs - NEW
+internal interface IValidationLogger<T> : IOperationLogger<T>
+{
+    void LogRuleExecution(string ruleName, string ruleType, bool success, TimeSpan duration);
+    void LogAutomaticRevalidation(string columnName, int affectedRules, TimeSpan duration);
+    void LogValidationStrategy(string strategy, int rowCount, int ruleCount, string reason);
+    void LogAsyncValidation(string ruleName, bool success, TimeSpan duration, bool wasTimedOut = false);
+}
+
+// Infrastructure/Logging/IImportExportLogger.cs - NEW
+internal interface IImportExportLogger<T> : IOperationLogger<T>
+{
+    void LogDataConversion(string fromFormat, string toFormat, int rowCount, TimeSpan duration);
+    void LogClipboardOperation(string operationType, bool success, int dataSize, TimeSpan duration);
+    void LogProgressReporting(string operationType, double progressPercentage, int processedItems, int totalItems);
+}
+```
+
+### **3. Enhanced Service Logging Patterns**
+```csharp
+// Application/Services/FilterService.cs - ENHANCED LOGGING
+internal sealed class FilterService : IFilterService
+{
+    private readonly ILogger<FilterService> _logger;
+    private readonly IFilterLogger<FilterService> _filterLogger;
+    private readonly ICommandLogger<FilterService> _commandLogger;
+
+    public async Task<FilterResult> ApplyFilterAsync(ApplyFilterCommand command)
+    {
+        using var scope = _filterLogger.LogCommandOperationStart(command,
+            new { filterName = command.Filter.FilterName, scope = command.Scope });
+
+        _logger.LogInformation("Applying filter '{FilterName}' to {RowCount} rows with operator {Operator}",
+            command.Filter.FilterName ?? "Unnamed",
+            command.Data.Count(),
+            command.Filter.Operator);
+
+        try
+        {
+            var result = await ExecuteFilterCommandAsync(command);
+
+            _filterLogger.LogFilterOperation("SingleFilter",
+                command.Filter.FilterName ?? "Unnamed",
+                result.OriginalRowCount,
+                result.FilteredRowCount,
+                result.FilterTime);
+
+            _logger.LogInformation("Filter applied successfully: {FilteredRows}/{OriginalRows} rows matched in {Duration}ms",
+                result.FilteredRowCount, result.OriginalRowCount, result.FilterTime.TotalMilliseconds);
+
+            scope.MarkSuccess(new { filteredCount = result.FilteredRowCount });
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Filter application failed for filter '{FilterName}'",
+                command.Filter.FilterName ?? "Unnamed");
+            scope.MarkError(ex.Message);
+            throw;
+        }
+    }
+}
+```
+
+## **Internal DI Registration Pattern:**
+```csharp
+// Infrastructure/Services/InternalServiceRegistration.cs
+public static IServiceCollection AddAdvancedWinUiDataGridInternal(this IServiceCollection services)
+{
+    // Core logging infrastructure
+    services.AddSingleton(typeof(IOperationLogger<>), typeof(OperationLogger<>));
+    services.AddSingleton(typeof(IUIInteractionLogger<>), typeof(UIInteractionLogger<>));
+    services.AddSingleton(typeof(ICommandLogger<>), typeof(CommandLogger<>));
+
+    // Module-specific loggers
+    services.AddSingleton(typeof(IFilterLogger<>), typeof(FilterLogger<>));
+    services.AddSingleton(typeof(IValidationLogger<>), typeof(ValidationLogger<>));
+    services.AddSingleton(typeof(IImportExportLogger<>), typeof(ImportExportLogger<>));
+
+    // Future module loggers (will be added as modules are implemented)
+    // services.AddSingleton(typeof(ISortLogger<>), typeof(SortLogger<>));
+    // services.AddSingleton(typeof(ISearchLogger<>), typeof(SearchLogger<>));
+    // services.AddSingleton(typeof(IUILogger<>), typeof(UILogger<>));
+    // services.AddSingleton(typeof(IPerformanceLogger<>), typeof(PerformanceLogger<>));
+
+    return services;
+}
+```
+
+## **Future Module Extensions:**
+Ako sa budú pridávať nové moduly do dokumentácií (Search, Sort, UI, Performance, Security, atď.), logging systém sa rozšíri o:
+
+- **ISearchLogger<T>**: Pre search operations, query optimization, result ranking
+- **ISortLogger<T>**: Pre sort operations, column sorting, multi-column sorting
+- **IUILogger<T>**: Pre UI interactions, user events, performance metrics
+- **IPerformanceLogger<T>**: Pre performance monitoring, bottleneck detection
+- **ISecurityLogger<T>**: Pre security events, access control, audit trails
+
+Každý nový modul bude mať svoj špecializovaný logger interface registrovaný v `InternalServiceRegistration.cs` a injektovaný cez constructor dependency injection do príslušného service.

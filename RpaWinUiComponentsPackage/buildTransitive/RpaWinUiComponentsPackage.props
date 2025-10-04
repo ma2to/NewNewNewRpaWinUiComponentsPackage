@@ -27,7 +27,7 @@
 
   <!-- Automatic Windows App SDK package reference for self-contained deployment -->
   <ItemGroup Condition="'$(RpaWinUiComponentsPackageSkipWindowsAppSDK)' != 'true'">
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.250907003" 
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.250916003" 
                       Condition="'$(UseWinUI)' == 'true'" 
                       IncludeAssets="all"
                       GeneratePathProperty="true" />

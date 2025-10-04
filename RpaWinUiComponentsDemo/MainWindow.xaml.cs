@@ -5,7 +5,6 @@ using System.Data;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System;
-// 🎯 CLEAN PUBLIC API - Only two using statements needed!
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
 using RpaWinUiComponentsPackage.AdvancedWinUiLogger;
 // ✅ NO MORE INTERNAL TYPE ALIASES - Clean API achieved!

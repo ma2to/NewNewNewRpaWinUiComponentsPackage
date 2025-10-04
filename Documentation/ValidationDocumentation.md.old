@@ -1,0 +1,661 @@
+# KOMPLETNÁ AKTUALIZOVANÁ ŠPECIFIKÁCIA VALIDAČNÉHO SYSTÉMU
+
+## 🏗️ ARCHITEKTONICKÉ PRINCÍPY
+
+### Clean Architecture + Command Pattern
+- **Facade Layer**: `IAdvancedDataGridFacade` (public API)
+- **Application Layer**: Command handlers, services (internal)
+- **Core Layer**: Domain entities, validation rules (internal)
+- **Infrastructure Layer**: Data access, external services (internal)
+- **Hybrid Internal DI + Functional/OOP**: Kombinuje dependency injection s funkcionálnym programovaním
+
+### SOLID Principles
+- **Single Responsibility**: Každé validačné pravidlo má jednu zodpovednosť
+- **Open/Closed**: Rozšíriteľné pre nové typy validácií bez zmeny existujúceho kódu
+- **Liskov Substitution**: Všetky validation rules implementujú `IValidationRule`
+- **Interface Segregation**: Špecializované interfaces pre rôzne typy validácií
+- **Dependency Inversion**: Facade závislí od abstrakcií, nie konkrétnych implementácií
+
+### Architectural Principles Maintained
+- **Clean Architecture**: Commands v Core layer, processing v Application layer
+- **Hybrid DI**: Command factory methods s dependency injection support
+- **Functional/OOP**: Immutable commands + encapsulated behavior
+- **SOLID**: Single responsibility pre každý command type
+- **LINQ Optimization**: Lazy evaluation, parallel processing, streaming where beneficial
+- **Performance**: Object pooling, atomic operations, minimal allocations
+- **Thread Safety**: Immutable commands, atomic RowNumber updates
+- **Internal DI Registration**: Všetky validation časti budú registrované v InternalServiceRegistration.cs
+
+## 🔄 BACKUP STRATEGY & IMPLEMENTATION APPROACH
+
+### 1. Backup Strategy
+- Vytvoriť .oldbackup_timestamp súbory pre všetky modifikované súbory
+- Úplne nahradiť staré implementácie - **ŽIADNA backward compatibility**
+- Zachovať DI registrácie a interface contracts
+
+### 2. Implementation Replacement
+- Kompletný refaktoring s command pattern a LINQ optimizations
+- Bez backward compatibility ale s preservation DI architektúry
+- Optimalizované a bezpečné a stabilné riešenie
+
+## 🎯 8 TYPOV VALIDAČNÝCH PRAVIDIEL
+
+### 1. **RequiredFieldValidationRule**
+```csharp
+// FLEXIBLE RULE CREATION - nie hardcoded factory methods
+var rule = new RequiredFieldValidationRule
+{
+    ColumnName = "Name",
+    ErrorMessage = "Name is required",
+    ValidationTimeout = TimeSpan.FromSeconds(2), // default timeout
+    IsEnabled = true
+};
+
+// 🔄 AUTOMATICKÉ REVALIDOVANIE:
+// Pri zmene hodnoty v stĺpci "Name" sa automaticky spustí revalidácia tohto pravidla
+// Toto platí pre VŠETKY validačné pravidlá, nie len ako príklad
+```
+
+### 2. **RangeValidationRule**
+```csharp
+var rule = new RangeValidationRule
+{
+    ColumnName = "Age",
+    MinValue = 18,
+    MaxValue = 65,
+    ErrorMessage = "Age must be between 18 and 65",
+    ValidationTimeout = TimeSpan.FromSeconds(2),
+
+    // 🔄 AUTOMATICKÉ REVALIDOVANIE:
+    // Pri zmene hodnoty v stĺpci "Age" sa automaticky revaliduje
+    DependentColumns = new[] { "Age" }
+};
+```
+
+### 3. **RegexValidationRule**
+```csharp
+var rule = new RegexValidationRule
+{
+    ColumnName = "Email",
+    Pattern = @"^[^@\s]+@[^@\s]+\.[^@\s]+$",
+    ErrorMessage = "Invalid email format",
+    ValidationTimeout = TimeSpan.FromSeconds(2),
+
+    // 🔄 AUTOMATICKÉ REVALIDOVANIE pre VŠETKY pravidlá
+    DependentColumns = new[] { "Email" }
+};
+```
+
+### 4. **CustomFunctionValidationRule**
+```csharp
+var rule = new CustomFunctionValidationRule
+{
+    ColumnName = "Password",
+    ValidationFunction = (value, row, context) =>
+    {
+        var password = value?.ToString();
+        return !string.IsNullOrEmpty(password) &&
+               password.Length >= 8 &&
+               password.Any(char.IsUpper) &&
+               password.Any(char.IsDigit);
+    },
+    ErrorMessage = "Password must be at least 8 characters with uppercase and digit",
+    ValidationTimeout = TimeSpan.FromSeconds(2),
+
+    // 🔄 AUTOMATICKÉ REVALIDOVANIE pre VŠETKY pravidlá
+    DependentColumns = new[] { "Password" }
+};
+```
+
+### 5. **CrossColumnValidationRule**
+```csharp
+var rule = new CrossColumnValidationRule
+{
+    PrimaryColumn = "StartDate",
+    ErrorMessage = "Start date must be before end date",
+    ValidationTimeout = TimeSpan.FromSeconds(2),
+
+    // 🔄 AUTOMATICKÉ REVALIDOVANIE pre VŠETKY pravidlá
+    // Pri zmene AKÉHOKOĽVEK dependent column sa revaliduje
+    DependentColumns = new[] { "StartDate", "EndDate" },
+
+    ValidationFunction = (primaryValue, row, context) =>
+    {
+        if (DateTime.TryParse(primaryValue?.ToString(), out var startDate) &&
+            DateTime.TryParse(row.GetValueOrDefault("EndDate")?.ToString(), out var endDate))
+        {
+            return startDate <= endDate;
+        }
+        return true; // Ak nie sú valid dates, nech to rieši iné pravidlo
+    }
+};
+```
+
+### 6. **ConditionalValidationRule**
+```csharp
+var rule = new ConditionalValidationRule
+{
+    ColumnName = "DriversLicense",
+    ErrorMessage = "Driver's license required for drivers",
+    ValidationTimeout = TimeSpan.FromSeconds(2),
+
+    // 🔄 AUTOMATICKÉ REVALIDOVANIE pre VŠETKY pravidlá
+    DependentColumns = new[] { "DriversLicense", "JobPosition" },
+
+    Condition = (row, context) =>
+        row.GetValueOrDefault("JobPosition")?.ToString() == "Driver",
+
+    ValidationFunction = (value, row, context) =>
+        !string.IsNullOrWhiteSpace(value?.ToString())
+};
+```
+
+### 7. **AsyncValidationRule**
+```csharp
+var rule = new AsyncValidationRule
+{
+    ColumnName = "Username",
+    ErrorMessage = "Username already exists",
+    ValidationTimeout = TimeSpan.FromSeconds(2),
+
+    // 🔄 AUTOMATICKÉ REVALIDOVANIE pre VŠETKY pravidlá
+    DependentColumns = new[] { "Username" },
+
+    AsyncValidationFunction = async (value, row, context, cancellationToken) =>
+    {
+        var username = value?.ToString();
+        if (string.IsNullOrEmpty(username)) return true;
+
+        // External API call with timeout
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(ValidationTimeout);
+
+        return await context.UserService.IsUsernameAvailableAsync(username, cts.Token);
+    }
+};
+```
+
+### 8. **GroupValidationRule**
+```csharp
+var rule = new GroupValidationRule
+{
+    GroupName = "ContactInfo",
+    ErrorMessage = "At least one contact method required",
+    ValidationTimeout = TimeSpan.FromSeconds(2),
+
+    // 🔄 AUTOMATICKÉ REVALIDOVANIE pre VŠETKY pravidlá
+    DependentColumns = new[] { "Email", "Phone", "Address" },
+
+    ValidationFunction = (row, context) =>
+    {
+        var email = row.GetValueOrDefault("Email")?.ToString();
+        var phone = row.GetValueOrDefault("Phone")?.ToString();
+        var address = row.GetValueOrDefault("Address")?.ToString();
+
+        return !string.IsNullOrWhiteSpace(email) ||
+               !string.IsNullOrWhiteSpace(phone) ||
+               !string.IsNullOrWhiteSpace(address);
+    }
+};
+```
+
+## 🔗 VALIDATION RULE GROUPS S LOGICKÝMI OPERÁTORMI
+
+```csharp
+// FLEXIBLE GROUP CREATION - nie hardcoded
+var businessRulesGroup = new ValidationRuleGroup
+{
+    GroupName = "BusinessRules",
+    LogicalOperator = ValidationLogicalOperator.And, // AND/OR/AndAlso/OrElse
+    Rules = new List<IValidationRule>
+    {
+        emailRule,
+        ageRule,
+        salaryRule
+    }
+};
+
+var emergencyGroup = new ValidationRuleGroup
+{
+    GroupName = "EmergencyContact",
+    LogicalOperator = ValidationLogicalOperator.Or, // Aspoň jeden kontakt
+    Rules = new List<IValidationRule>
+    {
+        phoneRule,
+        emailRule,
+        addressRule
+    }
+};
+
+// Hierarchické groupy
+var masterGroup = new ValidationRuleGroup
+{
+    GroupName = "AllValidations",
+    LogicalOperator = ValidationLogicalOperator.AndAlso, // Short-circuit evaluation
+    Rules = new List<IValidationRule>(),
+    ChildGroups = new List<ValidationRuleGroup>
+    {
+        businessRulesGroup,
+        emergencyGroup
+    }
+};
+```
+
+## 📋 COMMAND PATTERN PRE VALIDÁCIE
+
+### AddValidationRuleCommand
+```csharp
+public sealed record AddValidationRuleCommand<T> where T : IValidationRule
+{
+    public required T Rule { get; init; }
+    public ValidationPriority Priority { get; init; } = ValidationPriority.Normal;
+    public bool EnableRealTimeValidation { get; init; } = true;
+    public TimeSpan? CustomTimeout { get; init; }
+
+    // Factory methods pre FLEXIBLE creation s DI support
+    public static AddValidationRuleCommand<T> Create(T rule) => new() { Rule = rule };
+
+    public static AddValidationRuleCommand<T> WithPriority(T rule, ValidationPriority priority) =>
+        new() { Rule = rule, Priority = priority };
+
+    // DI factory method
+    public static AddValidationRuleCommand<T> CreateWithDI(T rule, IServiceProvider services) =>
+        new() { Rule = rule };
+}
+```
+
+### RemoveValidationRuleCommand
+```csharp
+public sealed record RemoveValidationRuleCommand
+{
+    public string? RuleName { get; init; }
+    public string[]? ColumnNames { get; init; }
+    public ValidationRuleType? RuleType { get; init; }
+    public bool RemoveAll { get; init; }
+
+    // FLEXIBLE factory methods s DI support
+    public static RemoveValidationRuleCommand ByName(string ruleName) =>
+        new() { RuleName = ruleName };
+
+    public static RemoveValidationRuleCommand ByColumns(params string[] columnNames) =>
+        new() { ColumnNames = columnNames };
+
+    public static RemoveValidationRuleCommand ByType(ValidationRuleType ruleType) =>
+        new() { RuleType = ruleType };
+
+    public static RemoveValidationRuleCommand All() =>
+        new() { RemoveAll = true };
+}
+```
+
+### ValidateDataCommand
+```csharp
+public sealed record ValidateDataCommand
+{
+    public required IEnumerable<IReadOnlyDictionary<string, object?>> Data { get; init; }
+    public ValidationStrategy Strategy { get; init; } = ValidationStrategy.Automatic;
+    public bool OnlyNonEmptyRows { get; init; } = true;
+    public bool OnlyFilteredRows { get; init; } = false;
+    public IProgress<ValidationProgress>? ProgressReporter { get; init; }
+    public CancellationToken CancellationToken { get; init; } = default;
+
+    // FLEXIBLE factory methods s LINQ optimization
+    public static ValidateDataCommand Create(IEnumerable<IReadOnlyDictionary<string, object?>> data) =>
+        new() { Data = data };
+
+    public static ValidateDataCommand WithStrategy(
+        IEnumerable<IReadOnlyDictionary<string, object?>> data,
+        ValidationStrategy strategy) =>
+        new() { Data = data, Strategy = strategy };
+
+    // LINQ optimized factory
+    public static ValidateDataCommand WithLINQOptimization(
+        IEnumerable<IReadOnlyDictionary<string, object?>> data) =>
+        new() { Data = data.AsParallel().Where(row => row.Values.Any(v => v != null)) };
+}
+```
+
+## 🎯 FAÇADE API METÓDY
+
+### Universal Validation Rule API
+```csharp
+// FLEXIBLE generic approach - nie hardcoded factory methods
+Task<Result<bool>> AddValidationRuleAsync<T>(T rule) where T : IValidationRule;
+
+// Príklady použitia:
+await facade.AddValidationRuleAsync(new RequiredFieldValidationRule
+{
+    ColumnName = "Email",
+    ErrorMessage = "Email required"
+});
+
+await facade.AddValidationRuleAsync(new RangeValidationRule
+{
+    ColumnName = "Age",
+    MinValue = 18,
+    MaxValue = 65
+});
+```
+
+### Správa pravidiel
+```csharp
+Task<Result<bool>> RemoveValidationRulesAsync(params string[] columnNames);
+Task<Result<bool>> RemoveValidationRuleAsync(string ruleName);
+Task<Result<bool>> ClearAllValidationRulesAsync();
+```
+
+### Hlavná validačná metóda pre COMPLETE dataset
+```csharp
+/// <summary>
+/// PUBLIC API: Validates ALL non-empty rows in complete dataset
+/// ENTERPRISE: Full dataset validation including cached/disk storage data
+/// COMPLETE: Validates entire dataset, not just visible/filtered rows
+/// LINQ OPTIMIZED: Parallel processing s lazy evaluation
+/// THREAD SAFE: Atomic operations, immutable commands
+///
+/// BEHAVIOR LOGIC:
+/// 1. Ak sa pri import/paste VŽDY validujú všetky bunky všetkých riadkov
+///    → Táto metóda len zistí či sú všetky validné (quick check)
+/// 2. Ak sa pri import/paste NEVALIDUJÚ všetky bunky (čo by sa ale malo)
+///    → Táto metóda má spraviť validáciu na všetkých bunkách všetkých riadkov celého datasetu
+/// </summary>
+Task<Result<bool>> AreAllNonEmptyRowsValidAsync(bool onlyFiltered = false);
+
+// Implementation logic:
+// if (HasValidationStateForAllRows())
+// {
+//     return CheckExistingValidationState();
+// }
+// else
+// {
+//     return ValidateAllCellsInAllRowsOfCompleteDataset();
+// }
+
+// Táto metóda MUSÍ validovať/skontrolovať:
+// - Všetky riadky v pamäti
+// - Všetky cached riadky
+// - Všetky riadky uložené na disku
+// - Kompletný dataset, nie len viditeľnú časť
+// - S LINQ optimization a thread safety
+```
+
+### Smart Validation Strategy
+```csharp
+ValidationStrategy GetRecommendedValidationStrategy(
+    int rowCount,
+    int ruleCount,
+    TimeSpan? lastValidationTime = null);
+
+bool ShouldUseRealTimeValidation(
+    int rowCount,
+    int ruleCount,
+    TimeSpan? lastValidationTime = null);
+
+Task<Result<ValidationResult>> ValidateWithOptimalStrategyAsync(
+    IEnumerable<IReadOnlyDictionary<string, object?>> data,
+    CancellationToken cancellationToken = default);
+```
+
+## 📊 VALIDALERTS COLUMN (nie validÁlerts)
+
+```csharp
+// SPRÁVNE POMENOVANIE: validAlerts (nie validÁlerts)
+public sealed record ValidationAlert
+{
+    public required string ColumnName { get; init; }
+    public required string RuleName { get; init; }
+    public required string Message { get; init; }
+    public ValidationSeverity Severity { get; init; } = ValidationSeverity.Error;
+    public DateTime Timestamp { get; init; } = DateTime.UtcNow;
+}
+
+// validAlerts column je vždy viditeľný v grid
+// Obsahuje zoznam všetkých validation alerts pre daný riadok
+// THREAD SAFE: Immutable record s atomic updates
+public IReadOnlyList<ValidationAlert> ValidAlerts { get; set; } = Array.Empty<ValidationAlert>();
+```
+
+## ⚡ AUTOMATICKÉ REVALIDOVANIE PRE VŠETKY PRAVIDLÁ
+
+```csharp
+// 🔄 AUTOMATICKÉ REVALIDOVANIE platí pre VŠETKY validačné pravidlá:
+
+// 1. RequiredFieldValidationRule - pri zmene ColumnName
+// 2. RangeValidationRule - pri zmene ColumnName
+// 3. RegexValidationRule - pri zmene ColumnName
+// 4. CustomFunctionValidationRule - pri zmene DependentColumns
+// 5. CrossColumnValidationRule - pri zmene DependentColumns
+// 6. ConditionalValidationRule - pri zmene DependentColumns
+// 7. AsyncValidationRule - pri zmene DependentColumns
+// 8. GroupValidationRule - pri zmene DependentColumns
+
+// Implementácia automatického revalidovania s LINQ optimization:
+internal sealed class AutomaticRevalidationService
+{
+    private readonly ConcurrentDictionary<string, HashSet<IValidationRule>> _columnToRulesMap = new();
+    private readonly ObjectPool<ValidationContext> _contextPool;
+
+    public void RegisterRule(IValidationRule rule)
+    {
+        var dependentColumns = GetDependentColumns(rule);
+        foreach (var column in dependentColumns)
+        {
+            _columnToRulesMap.AddOrUpdate(
+                column,
+                new HashSet<IValidationRule> { rule },
+                (key, existing) => { existing.Add(rule); return existing; });
+        }
+    }
+
+    // LINQ optimized + thread safe revalidation
+    public async Task OnColumnValueChanged(string columnName, object? newValue,
+        IReadOnlyDictionary<string, object?> rowData)
+    {
+        if (_columnToRulesMap.TryGetValue(columnName, out var rules))
+        {
+            // Parallel LINQ processing s object pooling
+            var tasks = rules.AsParallel()
+                .Select(async rule => await ValidateRuleAsync(rule, rowData))
+                .ToArray();
+
+            await Task.WhenAll(tasks);
+        }
+    }
+}
+```
+
+## 🧠 SMART REAL-TIME VS BATCH VALIDATION
+
+```csharp
+public enum ValidationStrategy
+{
+    RealTime,        // Okamžite pri zmene
+    Batch,           // Periodicky alebo na požiadanie
+    Automatic        // Smart rozhodovanie
+}
+
+// Smart decision making algoritmus s LINQ optimization:
+public ValidationStrategy GetRecommendedValidationStrategy(
+    int rowCount,
+    int ruleCount,
+    TimeSpan? lastValidationTime = null)
+{
+    // Prahy pre rozhodovanie s performance optimization:
+    const int REAL_TIME_ROW_THRESHOLD = 1000;
+    const int REAL_TIME_RULE_THRESHOLD = 20;
+    const int PERFORMANCE_TIME_THRESHOLD_MS = 500;
+
+    // Real-time ak:
+    // - Málo riadkov a pravidiel
+    // - Posledná validácia bola rýchla
+    // - LINQ parallel processing je efektívny
+    if (rowCount <= REAL_TIME_ROW_THRESHOLD &&
+        ruleCount <= REAL_TIME_RULE_THRESHOLD &&
+        (lastValidationTime?.TotalMilliseconds ?? 0) <= PERFORMANCE_TIME_THRESHOLD_MS)
+    {
+        return ValidationStrategy.RealTime;
+    }
+
+    // Batch pre veľké datasets s streaming optimization
+    return ValidationStrategy.Batch;
+}
+```
+
+## 🔧 VÝSLEDNÉ OBJEKTY
+
+### ValidationResult
+```csharp
+public sealed record ValidationResult
+{
+    public required bool IsValid { get; init; }
+    public required IReadOnlyList<ValidationAlert> Alerts { get; init; }
+    public required ValidationStatistics Statistics { get; init; }
+    public TimeSpan ValidationDuration { get; init; }
+    public ValidationStrategy UsedStrategy { get; init; }
+    public DateTime ValidatedAt { get; init; } = DateTime.UtcNow;
+}
+
+public sealed record ValidationStatistics
+{
+    public int TotalRowsValidated { get; init; }
+    public int ValidRows { get; init; }
+    public int InvalidRows { get; init; }
+    public int RulesExecuted { get; init; }
+    public int AsyncRulesCount { get; init; }
+    public TimeSpan AverageRuleExecutionTime { get; init; }
+    public bool UsedParallelProcessing { get; init; }
+    public int ObjectPoolHits { get; init; }
+}
+```
+
+## 🎯 PERFORMANCE & OPTIMIZATION
+
+### LINQ Optimizations
+- **Lazy evaluation** pre veľké datasets
+- **Parallel processing** pre batch validations
+- **Streaming** pre real-time scenarios
+- **Object pooling** pre ValidationContext
+- **Minimal allocations** s immutable commands
+
+### Thread Safety
+- **Immutable commands** a value objects
+- **Atomic RowNumber updates**
+- **ConcurrentDictionary** pre rule mappings
+- **Thread-safe collections** pre alerts
+
+### DI Integration
+- **Command factory methods** s dependency injection support
+- **Service provider integration** pre external validations
+- **Interface contracts preservation** pri refactoringu
+
+## 🎯 KĽÚČOVÉ VYLEPŠENIA PODĽA KOREKCIÍ
+
+1. **🔄 Automatické revalidovanie** - platí pre **VŠETKY** validačné pravidlá, nie len príklady
+2. **📋 Správne pomenovanie** - `validAlerts` column (nie `validÁlerts`)
+3. **🔧 Flexibilné pravidlá** - nie hardcoded factory methods, ale flexible object creation
+4. **📊 Kompletná validácia** - `AreAllNonEmptyRowsValidAsync` má behavioral logic (výsledok je len hodnota, či všetky bunky všetkých riadkov datasetu vyhovujú validačným pravidlám alebo nie):
+   - **Ak sa pri import/paste VŽDY validujú všetky bunky** → quick check existing validation state
+   - **Ak sa pri import/paste NEVALIDUJÚ všetky bunky** → validuje všetky bunky všetkých riadkov celého datasetu
+5. **⚡ Performance optimization** - LINQ, parallel processing, object pooling, thread safety
+6. **🏗️ Clean Architecture** - Commands v Core, processing v Application, hybrid DI support
+7. **🔄 Complete replacement** - .oldbackup_timestamp files, žiadna backward compatibility, zachované DI contracts
+
+---
+
+## **🔍 LOGGING ŠPECIFIKÁCIA PRE VALIDATION OPERÁCIE**
+
+### **Internal DI Registration & Service Distribution**
+Všetky validation logging services sú registrované v **`Infrastructure/Services/InternalServiceRegistration.cs`** a distribuované cez internal DI do `ValidationService`:
+
+```csharp
+// V InternalServiceRegistration.cs
+services.AddSingleton<IValidationLogger<ValidationService>, ValidationLogger<ValidationService>>();
+services.AddSingleton<IOperationLogger<ValidationService>, OperationLogger<ValidationService>>();
+services.AddSingleton<ICommandLogger<ValidationService>, CommandLogger<ValidationService>>();
+
+// V ValidationService constructor
+public ValidationService(
+    ILogger<ValidationService> logger,
+    IValidationLogger<ValidationService> validationLogger,
+    IOperationLogger<ValidationService> operationLogger,
+    ICommandLogger<ValidationService> commandLogger)
+```
+
+### **Validation Rule Logging Integration**
+Validačný systém implementuje comprehensive logging pre všetky 8 typov validačných pravidiel s automatickým revalidovaním a smart strategy detection.
+
+### **Rule Execution Logging**
+```csharp
+// Universal validation rule logging
+await _validationLogger.LogRuleExecution(rule.RuleName, rule.GetType().Name,
+    isValid: result.IsValid, duration: executionTime);
+
+_logger.LogInformation("Validation rule '{RuleName}' executed: valid={IsValid}, column='{ColumnName}', duration={Duration}ms",
+    rule.RuleName, result.IsValid, rule.ColumnName, executionTime.TotalMilliseconds);
+
+// Async validation specific logging
+if (rule is AsyncValidationRule asyncRule)
+{
+    _validationLogger.LogAsyncValidation(asyncRule.RuleName, result.IsValid,
+        executionTime, wasTimedOut: executionTime > asyncRule.ValidationTimeout);
+}
+
+// Custom function validation logging
+if (rule is CustomFunctionValidationRule customRule)
+{
+    _logger.LogInformation("Custom validation function executed for '{ColumnName}': success={Success}",
+        customRule.ColumnName, result.IsValid);
+}
+```
+
+### **Automatic Revalidation Logging**
+```csharp
+// Automatic revalidation trigger logging
+_validationLogger.LogAutomaticRevalidation(changedColumnName,
+    affectedRulesCount, revalidationDuration);
+
+_logger.LogInformation("Automatic revalidation triggered: column='{ColumnName}' affected {RuleCount} rules in {Duration}ms",
+    changedColumnName, affectedRulesCount, revalidationDuration.TotalMilliseconds);
+
+// Bulk revalidation logging
+_logger.LogInformation("Bulk revalidation completed: {ValidRows}/{TotalRows} rows valid, {RuleCount} rules, strategy={Strategy}",
+    validationResult.Statistics.ValidRows, validationResult.Statistics.TotalRowsValidated,
+    validationResult.Statistics.TotalFiltersExecuted, usedStrategy);
+```
+
+### **Smart Strategy Logging**
+```csharp
+// Validation strategy decision logging
+_validationLogger.LogValidationStrategy(recommendedStrategy.ToString(),
+    rowCount, ruleCount, $"Performance threshold: {lastValidationTime?.TotalMilliseconds}ms");
+
+_logger.LogInformation("Validation strategy selected: {Strategy} for {RowCount} rows, {RuleCount} rules (last validation: {LastDuration}ms)",
+    recommendedStrategy, rowCount, ruleCount, lastValidationTime?.TotalMilliseconds ?? 0);
+
+// Real-time vs Batch decision reasoning
+if (recommendedStrategy == ValidationStrategy.RealTime)
+{
+    _logger.LogInformation("Real-time validation enabled: dataset size and complexity within thresholds");
+}
+else
+{
+    _logger.LogWarning("Batch validation recommended: large dataset or complex rules detected");
+}
+```
+
+### **ValidationAlerts Column Logging**
+```csharp
+// ValidationAlerts updates logging
+_logger.LogInformation("ValidationAlerts updated for row {RowIndex}: {AlertCount} alerts, severities=[{Severities}]",
+    rowIndex, validationAlerts.Count, string.Join(",", validationAlerts.Select(a => a.Severity)));
+
+// Alert aggregation logging
+_logger.LogInformation("Validation summary: {TotalAlerts} alerts across {AffectedRows} rows, {ErrorCount} errors, {WarningCount} warnings",
+    totalAlerts, affectedRows, errorCount, warningCount);
+```
+
+### **Logging Levels Usage:**
+- **Information**: Rule executions, strategy decisions, successful validations, revalidation triggers
+- **Warning**: Validation timeouts, performance degradation, rule conflicts
+- **Error**: Rule execution failures, validation service errors, configuration errors
+- **Critical**: Validation system failures, data integrity violations

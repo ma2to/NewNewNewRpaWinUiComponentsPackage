@@ -1,0 +1,455 @@
+using System.Collections.Concurrent;
+using System.Text.Json;
+using Microsoft.Extensions.Logging;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Persistence.Interfaces;
+
+namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Persistence;
+
+/// <summary>
+/// Disk-backed implementation of IRowStore for large datasets that don't fit in memory
+/// Uses streaming and caching for optimal performance
+/// </summary>
+internal sealed class DiskBackedRowStore : IRowStore, IDisposable
+{
+    private readonly ILogger<DiskBackedRowStore> _logger;
+    private readonly string _storageDirectory;
+    private readonly ConcurrentDictionary<int, IReadOnlyDictionary<string, object?>> _cache = new();
+    private readonly object _fileLock = new();
+    private readonly SemaphoreSlim _ioSemaphore;
+    private volatile int _nextRowId = 0;
+    private bool _disposed;
+
+    public DiskBackedRowStore(ILogger<DiskBackedRowStore> logger)
+    {
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _storageDirectory = Path.Combine(Path.GetTempPath(), "AdvancedDataGrid", Guid.NewGuid().ToString());
+        _ioSemaphore = new SemaphoreSlim(Environment.ProcessorCount, Environment.ProcessorCount);
+
+        Directory.CreateDirectory(_storageDirectory);
+        _logger.LogDebug("Initialized disk-backed row store at: {StorageDirectory}", _storageDirectory);
+    }
+
+    /// <summary>
+    /// Gets all rows asynchronously with caching
+    /// </summary>
+    public async Task<IEnumerable<IReadOnlyDictionary<string, object?>>> GetAllRowsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Loading all rows from disk storage");
+
+        var rows = new List<IReadOnlyDictionary<string, object?>>();
+
+        await _ioSemaphore.WaitAsync(cancellationToken);
+        try
+        {
+            var dataFiles = Directory.GetFiles(_storageDirectory, "*.json");
+
+            foreach (var file in dataFiles)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var rowData = await LoadRowFromFileAsync(file, cancellationToken);
+                if (rowData != null)
+                {
+                    rows.Add(rowData);
+                }
+            }
+        }
+        finally
+        {
+            _ioSemaphore.Release();
+        }
+
+        _logger.LogDebug("Loaded {RowCount} rows from disk storage", rows.Count);
+        return rows;
+    }
+
+    /// <summary>
+    /// Streams rows asynchronously in batches with disk streaming per documentation
+    /// </summary>
+    public async IAsyncEnumerable<IEnumerable<IReadOnlyDictionary<string, object?>>> StreamRowsAsync(
+        bool onlyFiltered,
+        int batchSize,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Starting disk-based row streaming: onlyFiltered={OnlyFiltered}, batchSize={BatchSize}",
+            onlyFiltered, batchSize);
+
+        await _ioSemaphore.WaitAsync(cancellationToken);
+        try
+        {
+            var dataFiles = Directory.GetFiles(_storageDirectory, "*.json");
+            var batch = new List<IReadOnlyDictionary<string, object?>>();
+            var batchCount = 0;
+
+            foreach (var file in dataFiles)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var rowData = await LoadRowFromFileAsync(file, cancellationToken);
+                if (rowData != null)
+                {
+                    // Apply filtering if requested
+                    if (!onlyFiltered || IsRowVisible(rowData))
+                    {
+                        batch.Add(rowData);
+
+                        if (batch.Count >= batchSize)
+                        {
+                            batchCount++;
+                            _logger.LogDebug("Streaming disk batch {BatchNumber}: {BatchSize} rows", batchCount, batch.Count);
+                            yield return batch.ToList();
+                            batch.Clear();
+
+                            // Allow other operations to proceed
+                            await Task.Yield();
+                        }
+                    }
+                }
+            }
+
+            // Yield remaining items
+            if (batch.Any())
+            {
+                batchCount++;
+                _logger.LogDebug("Streaming final disk batch {BatchNumber}: {BatchSize} rows", batchCount, batch.Count);
+                yield return batch;
+            }
+
+            _logger.LogDebug("Completed disk row streaming: {BatchCount} batches", batchCount);
+        }
+        finally
+        {
+            _ioSemaphore.Release();
+        }
+    }
+
+    /// <summary>
+    /// Adds or updates rows with disk persistence and caching
+    /// </summary>
+    public async Task<int> UpsertRowsAsync(
+        IEnumerable<IReadOnlyDictionary<string, object?>> rows,
+        CancellationToken cancellationToken = default)
+    {
+        var affectedRows = 0;
+
+        await _ioSemaphore.WaitAsync(cancellationToken);
+        try
+        {
+            foreach (var row in rows)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var rowId = GetOrAssignRowId(row);
+                await SaveRowToFileAsync(rowId, row, cancellationToken);
+
+                // Update cache
+                _cache.AddOrUpdate(rowId, row, (_, _) => row);
+                affectedRows++;
+            }
+        }
+        finally
+        {
+            _ioSemaphore.Release();
+        }
+
+        _logger.LogDebug("Upserted {AffectedRows} rows to disk storage", affectedRows);
+        return affectedRows;
+    }
+
+    /// <summary>
+    /// Removes rows by condition with disk cleanup
+    /// </summary>
+    public async Task<int> RemoveRowsAsync(
+        Func<IReadOnlyDictionary<string, object?>, bool> predicate,
+        CancellationToken cancellationToken = default)
+    {
+        var removedCount = 0;
+
+        await _ioSemaphore.WaitAsync(cancellationToken);
+        try
+        {
+            var dataFiles = Directory.GetFiles(_storageDirectory, "*.json");
+
+            foreach (var file in dataFiles)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var rowData = await LoadRowFromFileAsync(file, cancellationToken);
+                if (rowData != null && predicate(rowData))
+                {
+                    // Remove from disk
+                    File.Delete(file);
+
+                    // Remove from cache
+                    var rowId = GetRowId(rowData);
+                    if (rowId.HasValue)
+                    {
+                        _cache.TryRemove(rowId.Value, out _);
+                    }
+
+                    removedCount++;
+                }
+            }
+        }
+        finally
+        {
+            _ioSemaphore.Release();
+        }
+
+        _logger.LogDebug("Removed {RemovedCount} rows from disk storage", removedCount);
+        return removedCount;
+    }
+
+    /// <summary>
+    /// Clears all rows from disk and cache
+    /// </summary>
+    public async Task ClearAsync(CancellationToken cancellationToken = default)
+    {
+        await _ioSemaphore.WaitAsync(cancellationToken);
+        try
+        {
+            var fileCount = Directory.GetFiles(_storageDirectory, "*.json").Length;
+
+            // Clear disk storage
+            if (Directory.Exists(_storageDirectory))
+            {
+                Directory.Delete(_storageDirectory, true);
+                Directory.CreateDirectory(_storageDirectory);
+            }
+
+            // Clear cache
+            _cache.Clear();
+            _nextRowId = 0;
+
+            _logger.LogDebug("Cleared all disk storage: {ClearedCount} files removed", fileCount);
+        }
+        finally
+        {
+            _ioSemaphore.Release();
+        }
+    }
+
+    /// <summary>
+    /// Adds multiple rows in batch with disk persistence
+    /// </summary>
+    public async Task<int> AddRangeAsync(
+        IEnumerable<IReadOnlyDictionary<string, object?>> rows,
+        CancellationToken cancellationToken = default)
+    {
+        var addedCount = 0;
+
+        await _ioSemaphore.WaitAsync(cancellationToken);
+        try
+        {
+            foreach (var row in rows)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var rowId = Interlocked.Increment(ref _nextRowId);
+                var rowWithId = new Dictionary<string, object?>(row)
+                {
+                    ["__rowId"] = rowId
+                };
+
+                await SaveRowToFileAsync(rowId, rowWithId, cancellationToken);
+                _cache.TryAdd(rowId, rowWithId);
+                addedCount++;
+            }
+        }
+        finally
+        {
+            _ioSemaphore.Release();
+        }
+
+        _logger.LogDebug("Added {AddedCount} rows in batch to disk storage", addedCount);
+        return addedCount;
+    }
+
+    /// <summary>
+    /// Updates a specific row by index
+    /// </summary>
+    public async Task<bool> UpdateRowAsync(
+        int rowIndex,
+        IReadOnlyDictionary<string, object?> rowData,
+        CancellationToken cancellationToken = default)
+    {
+        await _ioSemaphore.WaitAsync(cancellationToken);
+        try
+        {
+            var dataFiles = Directory.GetFiles(_storageDirectory, "*.json")
+                .OrderBy(f => f)
+                .ToArray();
+
+            if (rowIndex < 0 || rowIndex >= dataFiles.Length)
+            {
+                _logger.LogWarning("Invalid row index for update: {RowIndex}, total rows: {TotalRows}",
+                    rowIndex, dataFiles.Length);
+                return false;
+            }
+
+            var filePath = dataFiles[rowIndex];
+            var rowData_withId = await LoadRowFromFileAsync(filePath, cancellationToken);
+            if (rowData_withId == null)
+            {
+                return false;
+            }
+
+            var rowId = GetRowId(rowData_withId) ?? rowIndex;
+            var updatedRow = new Dictionary<string, object?>(rowData)
+            {
+                ["__rowId"] = rowId
+            };
+
+            await SaveRowToFileAsync(rowId, updatedRow, cancellationToken);
+            _cache.AddOrUpdate(rowId, updatedRow, (_, _) => updatedRow);
+
+            _logger.LogDebug("Updated row at index {RowIndex} (id: {RowId})", rowIndex, rowId);
+            return true;
+        }
+        finally
+        {
+            _ioSemaphore.Release();
+        }
+    }
+
+    /// <summary>
+    /// Gets row count from disk storage
+    /// </summary>
+    public async Task<int> GetRowCountAsync(CancellationToken cancellationToken = default)
+    {
+        return await Task.Run(() =>
+        {
+            return Directory.GetFiles(_storageDirectory, "*.json").Length;
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Gets a specific row by index from disk
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, object?>?> GetRowAsync(
+        int rowIndex,
+        CancellationToken cancellationToken = default)
+    {
+        await _ioSemaphore.WaitAsync(cancellationToken);
+        try
+        {
+            var dataFiles = Directory.GetFiles(_storageDirectory, "*.json")
+                .OrderBy(f => f)
+                .ToArray();
+
+            if (rowIndex < 0 || rowIndex >= dataFiles.Length)
+            {
+                _logger.LogWarning("Invalid row index for retrieval: {RowIndex}, total rows: {TotalRows}",
+                    rowIndex, dataFiles.Length);
+                return null;
+            }
+
+            var filePath = dataFiles[rowIndex];
+            return await LoadRowFromFileAsync(filePath, cancellationToken);
+        }
+        finally
+        {
+            _ioSemaphore.Release();
+        }
+    }
+
+    public void Dispose()
+    {
+        if (!_disposed)
+        {
+            try
+            {
+                // Cleanup temporary storage
+                if (Directory.Exists(_storageDirectory))
+                {
+                    Directory.Delete(_storageDirectory, true);
+                }
+
+                _ioSemaphore?.Dispose();
+                _disposed = true;
+
+                _logger.LogDebug("Disposed disk-backed row store and cleaned up storage");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error during disk-backed row store disposal");
+            }
+        }
+    }
+
+    #region Private Methods
+
+    private async Task<IReadOnlyDictionary<string, object?>?> LoadRowFromFileAsync(
+        string filePath,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var jsonContent = await File.ReadAllTextAsync(filePath, cancellationToken);
+            var dictionary = JsonSerializer.Deserialize<Dictionary<string, object?>>(jsonContent);
+            return dictionary;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load row from file: {FilePath}", filePath);
+            return null;
+        }
+    }
+
+    private async Task SaveRowToFileAsync(
+        int rowId,
+        IReadOnlyDictionary<string, object?> row,
+        CancellationToken cancellationToken)
+    {
+        var filePath = Path.Combine(_storageDirectory, $"row_{rowId}.json");
+
+        try
+        {
+            var jsonContent = JsonSerializer.Serialize(row, new JsonSerializerOptions
+            {
+                WriteIndented = false
+            });
+
+            await File.WriteAllTextAsync(filePath, jsonContent, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save row to file: {FilePath}", filePath);
+            throw;
+        }
+    }
+
+    private bool IsRowVisible(IReadOnlyDictionary<string, object?> row)
+    {
+        if (row.TryGetValue("__isFiltered", out var isFiltered) && isFiltered is bool filtered)
+        {
+            return !filtered;
+        }
+
+        return true;
+    }
+
+    private int GetOrAssignRowId(IReadOnlyDictionary<string, object?> row)
+    {
+        var existingId = GetRowId(row);
+        if (existingId.HasValue)
+        {
+            return existingId.Value;
+        }
+
+        return Interlocked.Increment(ref _nextRowId);
+    }
+
+    private int? GetRowId(IReadOnlyDictionary<string, object?> row)
+    {
+        if (row.TryGetValue("__rowId", out var rowIdValue) && rowIdValue is int existingId)
+        {
+            return existingId;
+        }
+
+        return null;
+    }
+
+    #endregion
+}

@@ -1,0 +1,1917 @@
+--- original/AutoRowHeightDocumentation.md
++++ fixed/AutoRowHeightDocumentation.md
+@@ -65,7 +65,7 @@
+     /// </summary>
+     Task<AutoRowHeightResult> EnableAutoRowHeightAsync(
+         AutoRowHeightConfiguration configuration,
+-        CancellationToken cancellationToken = default);
++        cancellationToken cancellationToken = default);
+ 
+     /// <summary>
+     /// UTILITY: Apply new configuration to existing setup
+@@ -73,13 +73,13 @@
+     /// </summary>
+     Task<AutoRowHeightResult> ApplyConfigurationAsync(
+         AutoRowHeightConfiguration configuration,
+-        CancellationToken cancellationToken = default);
++        cancellationToken cancellationToken = default);
+ 
+     /// <summary>
+     /// MAINTENANCE: Invalidate measurement cache
+     /// PERFORMANCE: Force recalculation for updated content
+     /// </summary>
+-    Task<bool> InvalidateHeightCacheAsync(CancellationToken cancellationToken = default);
++    Task<bool> InvalidateHeightCacheAsync(cancellationToken cancellationToken = default);
+ 
+     #endregion
+ 
+@@ -91,7 +91,7 @@
+     /// </summary>
+     Task<IReadOnlyList<RowHeightCalculationResult>> CalculateOptimalRowHeightsAsync(
+         IProgress<BatchCalculationProgress>? progress = null,
+-        CancellationToken cancellationToken = default);
++        cancellationToken cancellationToken = default);
+ 
+     /// <summary>
+     /// SINGLE: Calculate height for specific row
+@@ -101,7 +101,7 @@
+         int rowIndex,
+         IReadOnlyDictionary<string, object?> rowData,
+         RowHeightCalculationOptions? options = null,
+-        CancellationToken cancellationToken = default);
++        cancellationToken cancellationToken = default);
+ 
+     /// <summary>
+     /// CORE: Measure text dimensions for height calculation
+@@ -113,7 +113,7 @@
+         double fontSize,
+         double maxWidth,
+         bool textWrapping = true,
+-        CancellationToken cancellationToken = default);
++        cancellationToken cancellationToken = default);
+ 
+     #endregion
+ 
+@@ -183,7 +183,7 @@
+ 
+     public async Task<AutoRowHeightResult> EnableAutoRowHeightAsync(
+         AutoRowHeightConfiguration configuration,
+-        CancellationToken cancellationToken = default)
++        cancellationToken cancellationToken = default)
+     {
+         using var scope = _operationLogger.LogOperationStart("EnableAutoRowHeight",
+             new { configuration.IsEnabled, configuration.MinimumRowHeight, configuration.MaximumRowHeight });
+@@ -237,7 +237,7 @@
+ 
+     public async Task<IReadOnlyList<RowHeightCalculationResult>> CalculateOptimalRowHeightsAsync(
+         IProgress<BatchCalculationProgress>? progress = null,
+-        CancellationToken cancellationToken = default)
++        cancellationToken cancellationToken = default)
+     {
+         using var scope = _operationLogger.LogOperationStart("CalculateOptimalRowHeights", new { });
+ 
+@@ -304,7 +304,7 @@
+         int rowIndex,
+         IReadOnlyDictionary<string, object?> rowData,
+         RowHeightCalculationOptions? options = null,
+-        CancellationToken cancellationToken = default)
++        cancellationToken cancellationToken = default)
+     {
+         var calculationStopwatch = System.Diagnostics.Stopwatch.StartNew();
+ 
+@@ -397,7 +397,7 @@
+         double fontSize,
+         double maxWidth,
+         bool textWrapping = true,
+-        CancellationToken cancellationToken = default)
++        cancellationToken cancellationToken = default)
+     {
+         await Task.CompletedTask;
+ 
+@@ -417,7 +417,7 @@
+     #region Private Helper Methods
+ 
+     private async Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> GetRowsForMeasurementAsync(
+-        CancellationToken cancellationToken)
++        cancellationToken cancellationToken)
+     {
+         // Implementation would get actual row data from data source
+         await Task.CompletedTask;
+@@ -911,7 +911,7 @@
+ /// </summary>
+ Task<Result<AutoRowHeightResult>> EnableAutoRowHeightAsync(
+     AutoRowHeightConfiguration configuration,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Calculate optimal heights for all rows
+@@ -919,7 +919,7 @@
+ /// </summary>
+ Task<Result<IReadOnlyList<RowHeightCalculationResult>>> CalculateOptimalRowHeightsAsync(
+     IProgress<BatchCalculationProgress>? progress = null,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Calculate height for specific row
+@@ -929,7 +929,7 @@
+     int rowIndex,
+     IReadOnlyDictionary<string, object?> rowData,
+     RowHeightCalculationOptions? options = null,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Measure text dimensions
+@@ -941,7 +941,7 @@
+     double fontSize,
+     double maxWidth,
+     bool textWrapping = true,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Apply new configuration
+@@ -949,13 +949,13 @@
+ /// </summary>
+ Task<Result<AutoRowHeightResult>> ApplyAutoRowHeightConfigurationAsync(
+     AutoRowHeightConfiguration configuration,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Invalidate measurement cache
+ /// MAINTENANCE: Force recalculation for updated content
+ /// </summary>
+-Task<Result<bool>> InvalidateHeightCacheAsync(CancellationToken cancellationToken = default);
++Task<Result<bool>> InvalidateHeightCacheAsync(cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Get auto height statistics
+@@ -1056,7 +1056,7 @@
+         int lastVisibleRow,
+         IEnumerable<IReadOnlyDictionary<string, object?>> rowData,
+         AutoRowHeightConfiguration config,
+-        CancellationToken cancellationToken = default)
++        cancellationToken cancellationToken = default)
+     {
+         var visibleRows = rowData
+             .Skip(firstVisibleRow)
+--- original/ConfigurationDocumentation.md
++++ fixed/ConfigurationDocumentation.md
+@@ -82,7 +82,7 @@
+     /// </summary>
+     public async Task<ConfigurationUpdateResult> UpdateConfigurationAsync(
+         UpdateConfigurationCommand command,
+-        CancellationToken cancellationToken = default)
++        cancellationToken cancellationToken = default)
+     {
+         _configurationLock.EnterWriteLock();
+ 
+@@ -156,7 +156,7 @@
+     /// </summary>
+     private async Task<ConfigurationValidationResult> ValidateConfigurationAsync(
+         object configuration,
+-        CancellationToken cancellationToken)
++        cancellationToken cancellationToken)
+     {
+         var validationErrors = new List<string>();
+ 
+@@ -206,7 +206,7 @@
+     internal TimeSpan? UpdateTimeout { get; init; }
+     internal string? UpdateSource { get; init; }
+     internal IProgress<ConfigurationUpdateProgress>? ProgressReporter { get; init; }
+-    internal CancellationToken CancellationToken { get; init; } = default;
++    internal cancellationToken cancellationToken { get; init; } = default;
+ 
+     // Factory methods
+     internal static UpdateConfigurationCommand ForValidation(ValidationConfiguration config, string? source = null) =>
+@@ -593,7 +593,7 @@
+ /// </summary>
+ Task<ConfigurationUpdateResult> UpdateConfigurationAsync(
+     UpdateConfigurationCommand command,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Validate configuration before application
+@@ -601,7 +601,7 @@
+ /// </summary>
+ Task<ConfigurationValidationResult> ValidateConfigurationAsync(
+     object configuration,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Get current configuration for specific type
+@@ -614,7 +614,7 @@
+ /// RESET: Restore default configuration with backup
+ /// </summary>
+ Task<ConfigurationUpdateResult> ResetConfigurationToDefaultAsync<TConfiguration>(
+-    CancellationToken cancellationToken = default) where TConfiguration : class;
++    cancellationToken cancellationToken = default) where TConfiguration : class;
+ 
+ /// <summary>
+ /// PUBLIC API: Load configuration from external file
+@@ -623,7 +623,7 @@
+ Task<ConfigurationUpdateResult> LoadConfigurationFromFileAsync(
+     string filePath,
+     bool enableHotReload = false,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ #endregion
+ ```
+--- original/CopyPasteDocumentation.md
++++ fixed/CopyPasteDocumentation.md
+@@ -333,21 +333,21 @@
+     /// Copies selected data to clipboard using command pattern
+     /// </summary>
+     /// <param name="command">Copy command with data and configuration</param>
+-    /// <param name="cancellationToken">Cancellation token for operation</param>
++    /// <param name="cancellationToken">cancellationToken for operation</param>
+     /// <returns>Copy result with clipboard data and metrics</returns>
+     Task<CopyPasteResult> CopyToClipboardAsync(
+         CopyDataCommand command,
+-        CancellationToken cancellationToken = default);
++        cancellationToken cancellationToken = default);
+ 
+     /// <summary>
+     /// Pastes data from clipboard using command pattern
+     /// </summary>
+     /// <param name="command">Paste command with target position and configuration</param>
+-    /// <param name="cancellationToken">Cancellation token for operation</param>
++    /// <param name="cancellationToken">cancellationToken for operation</param>
+     /// <returns>Paste result with processed data metrics</returns>
+     Task<CopyPasteResult> PasteFromClipboardAsync(
+         PasteDataCommand command,
+-        CancellationToken cancellationToken = default);
++        cancellationToken cancellationToken = default);
+ 
+     /// <summary>
+     /// Validates clipboard data before paste operation
+@@ -355,23 +355,23 @@
+     /// <param name="targetRowIndex">Target row for paste validation</param>
+     /// <param name="targetColumnIndex">Target column for paste validation</param>
+     /// <param name="expectedFormat">Expected clipboard data format</param>
+-    /// <param name="cancellationToken">Cancellation token for operation</param>
++    /// <param name="cancellationToken">cancellationToken for operation</param>
+     /// <returns>Validation result with errors and warnings</returns>
+     Task<ClipboardValidationResult> ValidateClipboardDataAsync(
+         int targetRowIndex = 0,
+         int targetColumnIndex = 0,
+         ClipboardFormat? expectedFormat = null,
+-        CancellationToken cancellationToken = default);
++        cancellationToken cancellationToken = default);
+ 
+     /// <summary>
+     /// Gets current clipboard data for preview
+     /// </summary>
+     /// <param name="maxPreviewLength">Maximum length for clipboard preview</param>
+-    /// <param name="cancellationToken">Cancellation token for operation</param>
++    /// <param name="cancellationToken">cancellationToken for operation</param>
+     /// <returns>Clipboard preview data</returns>
+     Task<string?> GetClipboardPreviewAsync(
+         int maxPreviewLength = 1000,
+-        CancellationToken cancellationToken = default);
++        cancellationToken cancellationToken = default);
+ 
+     /// <summary>
+     /// Detects clipboard data format automatically
+@@ -406,7 +406,7 @@
+ /// <param name="format">Clipboard data format</param>
+ /// <param name="delimiter">Custom delimiter for data formatting</param>
+ /// <param name="progress">Progress reporting callback</param>
+-/// <param name="cancellationToken">Cancellation token for operation</param>
++/// <param name="cancellationToken">cancellationToken for operation</param>
+ /// <returns>Copy result with clipboard data and metrics</returns>
+ public async Task<CopyPasteResult> CopyToClipboardAsync(
+     bool includeHeaders = true,
+@@ -414,7 +414,7 @@
+     ClipboardFormat format = ClipboardFormat.TabSeparated,
+     string? delimiter = null,
+     IProgress<CopyPasteProgress>? progress = null,
+-    CancellationToken cancellationToken = default)
++    cancellationToken cancellationToken = default)
+ {
+     var correlationId = Guid.NewGuid().ToString();
+     _logger.LogInformation("Starting clipboard copy: format={Format}, includeHeaders={IncludeHeaders} [CorrelationId: {CorrelationId}]",
+@@ -441,12 +441,12 @@
+ /// </summary>
+ /// <param name="includeHeaders">Include headers in clipboard</param>
+ /// <param name="progress">Progress reporting callback</param>
+-/// <param name="cancellationToken">Cancellation token for operation</param>
++/// <param name="cancellationToken">cancellationToken for operation</param>
+ /// <returns>Copy result with metrics</returns>
+ public async Task<CopyPasteResult> CopySelectedRowsAsync(
+     bool includeHeaders = true,
+     IProgress<CopyPasteProgress>? progress = null,
+-    CancellationToken cancellationToken = default)
++    cancellationToken cancellationToken = default)
+ {
+     var correlationId = Guid.NewGuid().ToString();
+     var selectedData = GetSelectedRows();
+@@ -470,7 +470,7 @@
+ /// <param name="validateAfterPaste">Whether to validate data after paste</param>
+ /// <param name="delimiter">Expected delimiter in clipboard data</param>
+ /// <param name="progress">Progress reporting callback</param>
+-/// <param name="cancellationToken">Cancellation token for operation</param>
++/// <param name="cancellationToken">cancellationToken for operation</param>
+ /// <returns>Paste result with processed data metrics</returns>
+ public async Task<CopyPasteResult> PasteFromClipboardAsync(
+     int targetRowIndex = 0,
+@@ -479,7 +479,7 @@
+     bool validateAfterPaste = true,
+     string? delimiter = "\t",
+     IProgress<CopyPasteProgress>? progress = null,
+-    CancellationToken cancellationToken = default)
++    cancellationToken cancellationToken = default)
+ {
+     var correlationId = Guid.NewGuid().ToString();
+     _logger.LogInformation("Starting clipboard paste: target=({Row},{Column}), mode={Mode} [CorrelationId: {CorrelationId}]",
+@@ -504,13 +504,13 @@
+ /// <param name="targetRowIndex">Target row index</param>
+ /// <param name="targetColumnIndex">Target column index</param>
+ /// <param name="mode">Paste mode</param>
+-/// <param name="cancellationToken">Cancellation token for operation</param>
++/// <param name="cancellationToken">cancellationToken for operation</param>
+ /// <returns>Fast paste result</returns>
+ public async Task<CopyPasteResult> FastPasteAsync(
+     int targetRowIndex = 0,
+     int targetColumnIndex = 0,
+     ImportMode mode = ImportMode.Replace,
+-    CancellationToken cancellationToken = default)
++    cancellationToken cancellationToken = default)
+ {
+     var correlationId = Guid.NewGuid().ToString();
+     var command = PasteDataCommand.CreateFastPaste(
+@@ -529,13 +529,13 @@
+ /// <param name="targetRowIndex">Target row for validation</param>
+ /// <param name="targetColumnIndex">Target column for validation</param>
+ /// <param name="expectedFormat">Expected clipboard format</param>
+-/// <param name="cancellationToken">Cancellation token for operation</param>
++/// <param name="cancellationToken">cancellationToken for operation</param>
+ /// <returns>Validation result with errors and warnings</returns>
+ public async Task<ClipboardValidationResult> ValidateClipboardDataAsync(
+     int targetRowIndex = 0,
+     int targetColumnIndex = 0,
+     ClipboardFormat? expectedFormat = null,
+-    CancellationToken cancellationToken = default)
++    cancellationToken cancellationToken = default)
+ {
+     return await _copyPasteService.ValidateClipboardDataAsync(
+         targetRowIndex, targetColumnIndex, expectedFormat, cancellationToken);
+@@ -545,11 +545,11 @@
+ /// Gets preview of current clipboard data
+ /// </summary>
+ /// <param name="maxLength">Maximum preview length</param>
+-/// <param name="cancellationToken">Cancellation token for operation</param>
++/// <param name="cancellationToken">cancellationToken for operation</param>
+ /// <returns>Clipboard preview data</returns>
+ public async Task<string?> GetClipboardPreviewAsync(
+     int maxLength = 500,
+-    CancellationToken cancellationToken = default)
++    cancellationToken cancellationToken = default)
+ {
+     return await _copyPasteService.GetClipboardPreviewAsync(maxLength, cancellationToken);
+ }
+@@ -569,7 +569,7 @@
+ 
+     public async Task<CopyPasteResult> CopyToClipboardAsync(
+         CopyDataCommand command,
+-        CancellationToken cancellationToken = default)
++        cancellationToken cancellationToken = default)
+     {
+         using var scope = _copyPasteLogger.LogCommandOperationStart(command,
+             new { format = command.Format, hasData = command.HasValidData, rowCount = command.SelectedRowCount });
+@@ -624,7 +624,7 @@
+ 
+     public async Task<CopyPasteResult> PasteFromClipboardAsync(
+         PasteDataCommand command,
+-        CancellationToken cancellationToken = default)
++        cancellationToken cancellationToken = default)
+     {
+         using var scope = _copyPasteLogger.LogCommandOperationStart(command,
+             new { targetPosition = command.TargetPosition, mode = command.Mode, validate = command.RequiresValidation });
+@@ -683,7 +683,7 @@
+         }
+     }
+ 
+-    private async Task<string> FormatDataParallelAsync(CopyDataCommand command, CancellationToken cancellationToken)
++    private async Task<string> FormatDataParallelAsync(CopyDataCommand command, cancellationToken cancellationToken)
+     {
+         // LINQ Optimization: Parallel processing s StringBuilder pooling
+         return await Task.Run(() =>
+*** Added file: DI_DECISIONS.md
+
+--- original/ExportDocumentation.md
++++ fixed/ExportDocumentation.md
+@@ -309,48 +309,48 @@
+     /// </summary>
+     /// <param name="data">Source data to export</param>
+     /// <param name="command">Export command with configuration</param>
+-    /// <param name="cancellationToken">Cancellation token for operation</param>
++    /// <param name="cancellationToken">cancellationToken for operation</param>
+     /// <returns>DataTable with exported data</returns>
+     Task<DataTable> ExportToDataTableAsync(
+         IEnumerable<IReadOnlyDictionary<string, object?>> data,
+         ExportDataCommand command,
+-        CancellationToken cancellationToken = default);
++        cancellationToken cancellationToken = default);
+ 
+     /// <summary>
+     /// Exports data to Dictionary collection using command pattern with LINQ filtering
+     /// </summary>
+     /// <param name="data">Source data to export</param>
+     /// <param name="command">Export command with configuration</param>
+-    /// <param name="cancellationToken">Cancellation token for operation</param>
++    /// <param name="cancellationToken">cancellationToken for operation</param>
+     /// <returns>Dictionary collection with exported data</returns>
+     Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> ExportToDictionaryAsync(
+         IEnumerable<IReadOnlyDictionary<string, object?>> data,
+         ExportDataCommand command,
+-        CancellationToken cancellationToken = default);
++        cancellationToken cancellationToken = default);
+ 
+     /// <summary>
+     /// Exports data using specialized DataTable command
+     /// </summary>
+     /// <param name="data">Source data to export</param>
+     /// <param name="command">DataTable export command</param>
+-    /// <param name="cancellationToken">Cancellation token for operation</param>
++    /// <param name="cancellationToken">cancellationToken for operation</param>
+     /// <returns>DataTable with exported data</returns>
+     Task<DataTable> ExportWithDataTableCommandAsync(
+         IEnumerable<IReadOnlyDictionary<string, object?>> data,
+         ExportToDataTableCommand command,
+-        CancellationToken cancellationToken = default);
++        cancellationToken cancellationToken = default);
+ 
+     /// <summary>
+     /// Validates export configuration before execution
+     /// </summary>
+     /// <param name="data">Data to validate for export</param>
+     /// <param name="command">Export command to validate</param>
+-    /// <param name="cancellationToken">Cancellation token for operation</param>
++    /// <param name="cancellationToken">cancellationToken for operation</param>
+     /// <returns>Validation result with errors and warnings</returns>
+     Task<ExportValidationResult> ValidateExportConfigurationAsync(
+         IEnumerable<IReadOnlyDictionary<string, object?>> data,
+         ExportDataCommand command,
+-        CancellationToken cancellationToken = default);
++        cancellationToken cancellationToken = default);
+ 
+     /// <summary>
+     /// Gets supported export formats for current data configuration
+@@ -384,7 +384,7 @@
+ /// <param name="includeHeaders">Include column headers in export</param>
+ /// <param name="removeAfter">Remove exported rows from grid after export</param>
+ /// <param name="progress">Progress reporting callback</param>
+-/// <param name="cancellationToken">Cancellation token for operation</param>
++/// <param name="cancellationToken">cancellationToken for operation</param>
+ /// <returns>DataTable containing exported data</returns>
+ public async Task<DataTable> ExportToDataTableAsync(
+     bool includeValidationAlerts = false,
+@@ -393,7 +393,7 @@
+     bool includeHeaders = true,
+     bool removeAfter = false,
+     IProgress<ExportProgress>? progress = null,
+-    CancellationToken cancellationToken = default)
++    cancellationToken cancellationToken = default)
+ {
+     var correlationId = Guid.NewGuid().ToString();
+     _logger.LogInformation("Starting DataTable export: includeAlerts={IncludeAlerts}, onlyChecked={OnlyChecked}, onlyFiltered={OnlyFiltered} [CorrelationId: {CorrelationId}]",
+@@ -422,7 +422,7 @@
+ /// <param name="includeHeaders">Include headers in export</param>
+ /// <param name="removeAfter">Remove rows after export</param>
+ /// <param name="progress">Progress reporting callback</param>
+-/// <param name="cancellationToken">Cancellation token for operation</param>
++/// <param name="cancellationToken">cancellationToken for operation</param>
+ /// <returns>Dictionary collection with exported data</returns>
+ public async Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> ExportToDictionaryAsync(
+     bool includeValidationAlerts = false,
+@@ -431,7 +431,7 @@
+     bool includeHeaders = true,
+     bool removeAfter = false,
+     IProgress<ExportProgress>? progress = null,
+-    CancellationToken cancellationToken = default)
++    cancellationToken cancellationToken = default)
+ {
+     var correlationId = Guid.NewGuid().ToString();
+     _logger.LogInformation("Starting Dictionary export [CorrelationId: {CorrelationId}]", correlationId);
+@@ -454,11 +454,11 @@
+ /// Exports data using specialized DataTable command for advanced scenarios
+ /// </summary>
+ /// <param name="command">DataTable export command with full configuration</param>
+-/// <param name="cancellationToken">Cancellation token for operation</param>
++/// <param name="cancellationToken">cancellationToken for operation</param>
+ /// <returns>DataTable with exported data and comprehensive export result</returns>
+ public async Task<DataTable> ExportWithDataTableCommandAsync(
+     ExportToDataTableCommand command,
+-    CancellationToken cancellationToken = default)
++    cancellationToken cancellationToken = default)
+ {
+     _logger.LogInformation("Starting specialized DataTable export [CorrelationId: {CorrelationId}]", command.CorrelationId);
+ 
+@@ -472,13 +472,13 @@
+ /// <param name="format">Target export format</param>
+ /// <param name="exportOnlyChecked">Whether to export only checked rows</param>
+ /// <param name="exportOnlyFiltered">Whether to export only filtered rows</param>
+-/// <param name="cancellationToken">Cancellation token for operation</param>
++/// <param name="cancellationToken">cancellationToken for operation</param>
+ /// <returns>Validation result with errors, warnings, and estimates</returns>
+ public async Task<ExportValidationResult> ValidateExportConfigurationAsync(
+     ExportFormat format,
+     bool exportOnlyChecked = false,
+     bool exportOnlyFiltered = false,
+-    CancellationToken cancellationToken = default)
++    cancellationToken cancellationToken = default)
+ {
+     var command = new ExportDataCommand(
+         ExportOnlyChecked: exportOnlyChecked,
+@@ -506,7 +506,7 @@
+     public async Task<DataTable> ExportToDataTableAsync(
+         IEnumerable<IReadOnlyDictionary<string, object?>> data,
+         ExportDataCommand command,
+-        CancellationToken cancellationToken = default)
++        cancellationToken cancellationToken = default)
+     {
+         using var scope = _exportLogger.LogCommandOperationStart(command,
+             new { format = command.Format, hasFiltering = command.HasFiltering });
+@@ -559,7 +559,7 @@
+     private async Task<IEnumerable<IReadOnlyDictionary<string, object?>>> ApplyExportFiltersAsync(
+         IEnumerable<IReadOnlyDictionary<string, object?>> data,
+         ExportDataCommand command,
+-        CancellationToken cancellationToken)
++        cancellationToken cancellationToken)
+     {
+         return await Task.Run(() =>
+         {
+@@ -585,7 +585,7 @@
+     private async Task<IEnumerable<IReadOnlyDictionary<string, object?>>> ProcessDataParallelAsync(
+         IEnumerable<IReadOnlyDictionary<string, object?>> data,
+         ExportDataCommand command,
+-        CancellationToken cancellationToken)
++        cancellationToken cancellationToken)
+     {
+         // LINQ Optimization: Parallel processing s partition-based approach
+         return await Task.Run(() =>
+@@ -667,7 +667,7 @@
+     // ... existing registrations ...
+ 
+     // Export module services
+-    services.AddSingleton<IExportService, ExportService>();
++    services.AddScoped<IExportService, ExportService>();
+     services.AddSingleton(typeof(IExportLogger<>), typeof(ExportLogger<>));
+ 
+     // Export data processors
+--- original/FilterDocumentation.md
++++ fixed/FilterDocumentation.md
+@@ -154,7 +154,7 @@
+ {
+     internal IServiceProvider? ServiceProvider { get; init; }
+     internal IReadOnlyDictionary<string, object?> GlobalParameters { get; init; } = new Dictionary<string, object?>();
+-    internal CancellationToken CancellationToken { get; init; } = default;
++    internal cancellationToken cancellationToken { get; init; } = default;
+     internal DateTime ExecutionTime { get; init; } = DateTime.UtcNow;
+ }
+ 
+@@ -466,7 +466,7 @@
+     internal bool EnableParallelProcessing { get; init; } = true;
+     internal TimeSpan? Timeout { get; init; }
+     internal IProgress<FilterProgress>? ProgressReporter { get; init; }
+-    internal CancellationToken CancellationToken { get; init; } = default;
++    internal cancellationToken cancellationToken { get; init; } = default;
+ 
+     // FLEXIBLE factory methods s LINQ optimization
+     internal static ApplyFilterCommand Create(
+@@ -506,7 +506,7 @@
+     internal bool UseShortCircuitEvaluation { get; init; } = true; // Pre AndAlso/OrElse
+     internal TimeSpan? Timeout { get; init; }
+     internal IProgress<FilterProgress>? ProgressReporter { get; init; }
+-    internal CancellationToken CancellationToken { get; init; } = default;
++    internal cancellationToken cancellationToken { get; init; } = default;
+ 
+     // FLEXIBLE factory methods
+     internal static ApplyFiltersCommand Create(
+@@ -553,7 +553,7 @@
+     internal bool UseShortCircuitEvaluation { get; init; } = true;
+     internal TimeSpan? Timeout { get; init; }
+     internal IProgress<FilterProgress>? ProgressReporter { get; init; }
+-    internal CancellationToken CancellationToken { get; init; } = default;
++    internal cancellationToken cancellationToken { get; init; } = default;
+     internal FilterContext? Context { get; init; }
+ 
+     // FLEXIBLE factory methods
+@@ -694,7 +694,7 @@
+ /// </summary>
+ Task<FilterResult> ApplyFilterAsync(
+     ApplyFilterCommand command,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Apply multiple filters with logic operators
+@@ -703,7 +703,7 @@
+ /// </summary>
+ Task<FilterResult> ApplyFiltersAsync(
+     ApplyFiltersCommand command,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Apply advanced filter with business rules
+@@ -712,7 +712,7 @@
+ /// </summary>
+ Task<AdvancedFilterResult> ApplyAdvancedFilterAsync(
+     ApplyAdvancedFilterCommand command,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Quick filter for immediate results
+@@ -863,7 +863,7 @@
+         {
+             FilterLogicOperator.And => dataList
+                 .AsParallel()
+-                .WithCancellation(command.CancellationToken)
++                .WithCancellation(command.cancellationToken)
+                 .Select((row, index) => new { row, index })
+                 .Where(x => command.Filters.All(filter => EvaluateFilter(x.row, filter)))
+                 .Select(x => x.index)
+@@ -871,7 +871,7 @@
+ 
+             FilterLogicOperator.Or => dataList
+                 .AsParallel()
+-                .WithCancellation(command.CancellationToken)
++                .WithCancellation(command.cancellationToken)
+                 .Select((row, index) => new { row, index })
+                 .Where(x => command.Filters.Any(filter => EvaluateFilter(x.row, filter)))
+                 .Select(x => x.index)
+@@ -880,7 +880,7 @@
+             // EXTENDED: AndAlso s short-circuit evaluation
+             FilterLogicOperator.AndAlso => dataList
+                 .AsParallel()
+-                .WithCancellation(command.CancellationToken)
++                .WithCancellation(command.cancellationToken)
+                 .Select((row, index) => new { row, index })
+                 .Where(x => EvaluateFiltersWithShortCircuit(x.row, command.Filters, true))
+                 .Select(x => x.index)
+@@ -889,7 +889,7 @@
+             // EXTENDED: OrElse s short-circuit evaluation
+             FilterLogicOperator.OrElse => dataList
+                 .AsParallel()
+-                .WithCancellation(command.CancellationToken)
++                .WithCancellation(command.cancellationToken)
+                 .Select((row, index) => new { row, index })
+                 .Where(x => EvaluateFiltersWithShortCircuit(x.row, command.Filters, false))
+                 .Select(x => x.index)
+@@ -1202,10 +1202,10 @@
+         {
+             try
+             {
+-                using var timeoutCts = new CancellationTokenSource(advancedFilter.ExecutionTimeout ?? TimeSpan.FromSeconds(30));
+-                var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(context.CancellationToken, timeoutCts.Token);
+-
+-                var customContext = context with { CancellationToken = combinedCts.Token };
++                using var timeoutCts = new cancellationTokenSource(advancedFilter.ExecutionTimeout ?? TimeSpan.FromSeconds(30));
++                var combinedCts = cancellationTokenSource.CreateLinkedTokenSource(context.cancellationToken, timeoutCts.Token);
++
++                var customContext = context with { cancellationToken = combinedCts.Token };
+                 customLogicResult = advancedFilter.CustomLogic(row, customContext);
+             }
+             catch (OperationCanceledException)
+--- original/ImportDocumentation.md
++++ fixed/ImportDocumentation.md
+@@ -309,31 +309,31 @@
+     /// Imports data using command pattern with validation pipeline
+     /// </summary>
+     /// <param name="command">Import command with data and configuration</param>
+-    /// <param name="cancellationToken">Cancellation token for operation</param>
++    /// <param name="cancellationToken">cancellationToken for operation</param>
+     /// <returns>Import result with metrics and status</returns>
+     Task<ImportResult> ImportAsync(
+         ImportDataCommand command,
+-        CancellationToken cancellationToken = default);
++        cancellationToken cancellationToken = default);
+ 
+     /// <summary>
+     /// Imports data from DataTable using specialized command
+     /// </summary>
+     /// <param name="command">DataTable import command</param>
+-    /// <param name="cancellationToken">Cancellation token for operation</param>
++    /// <param name="cancellationToken">cancellationToken for operation</param>
+     /// <returns>Import result with metrics and status</returns>
+     Task<ImportResult> ImportFromDataTableAsync(
+         ImportFromDataTableCommand command,
+-        CancellationToken cancellationToken = default);
++        cancellationToken cancellationToken = default);
+ 
+     /// <summary>
+     /// Validates import data before actual import operation
+     /// </summary>
+     /// <param name="command">Import command to validate</param>
+-    /// <param name="cancellationToken">Cancellation token for operation</param>
++    /// <param name="cancellationToken">cancellationToken for operation</param>
+     /// <returns>Validation result with errors and warnings</returns>
+     Task<ImportValidationResult> ValidateImportDataAsync(
+         ImportDataCommand command,
+-        CancellationToken cancellationToken = default);
++        cancellationToken cancellationToken = default);
+ 
+     /// <summary>
+     /// Gets supported import modes for current data configuration
+@@ -365,7 +365,7 @@
+ /// <param name="validateBeforeImport">Whether to validate data before import</param>
+ /// <param name="progress">Progress reporting callback for validation</param>
+ /// <param name="startRow">Starting row for import (1-based index)</param>
+-/// <param name="cancellationToken">Cancellation token for operation</param>
++/// <param name="cancellationToken">cancellationToken for operation</param>
+ /// <returns>Import result with comprehensive metrics</returns>
+ public async Task<ImportResult> ImportAsync(
+     List<Dictionary<string, object?>> data,
+@@ -373,7 +373,7 @@
+     bool validateBeforeImport = true,
+     IProgress<ImportProgress>? progress = null,
+     int startRow = 1,
+-    CancellationToken cancellationToken = default)
++    cancellationToken cancellationToken = default)
+ {
+     var correlationId = Guid.NewGuid().ToString();
+     _logger.LogInformation("Starting data import: {RowCount} rows in {Mode} mode [CorrelationId: {CorrelationId}]",
+@@ -399,7 +399,7 @@
+ /// <param name="validateBeforeImport">Whether to validate before import</param>
+ /// <param name="progress">Progress reporting callback</param>
+ /// <param name="startRow">Starting row for import</param>
+-/// <param name="cancellationToken">Cancellation token for operation</param>
++/// <param name="cancellationToken">cancellationToken for operation</param>
+ /// <returns>Import result with metrics and status</returns>
+ public async Task<ImportResult> ImportFromDataTableAsync(
+     DataTable dataTable,
+@@ -407,7 +407,7 @@
+     bool validateBeforeImport = true,
+     IProgress<ImportProgress>? progress = null,
+     int startRow = 1,
+-    CancellationToken cancellationToken = default)
++    cancellationToken cancellationToken = default)
+ {
+     var correlationId = Guid.NewGuid().ToString();
+     _logger.LogInformation("Starting DataTable import: {RowCount} rows in {Mode} mode [CorrelationId: {CorrelationId}]",
+@@ -430,12 +430,12 @@
+ /// </summary>
+ /// <param name="data">Data to validate for import</param>
+ /// <param name="mode">Intended import mode</param>
+-/// <param name="cancellationToken">Cancellation token for operation</param>
++/// <param name="cancellationToken">cancellationToken for operation</param>
+ /// <returns>Validation result with errors, warnings, and recommendations</returns>
+ public async Task<ImportValidationResult> ValidateImportDataAsync(
+     List<Dictionary<string, object?>> data,
+     ImportMode mode = ImportMode.Replace,
+-    CancellationToken cancellationToken = default)
++    cancellationToken cancellationToken = default)
+ {
+     var command = ImportDataCommand.FromDictionary(data, mode: mode);
+     return await _importService.ValidateImportDataAsync(command, cancellationToken);
+@@ -455,7 +455,7 @@
+     private readonly ICommandLogger<ImportService> _commandLogger;
+ 
+     public async Task<ImportResult> ImportAsync(ImportDataCommand command,
+-        CancellationToken cancellationToken = default)
++        cancellationToken cancellationToken = default)
+     {
+         using var scope = _importLogger.LogCommandOperationStart(command,
+             new { mode = command.Mode, hasData = command.HasData, validateFirst = command.ValidateBeforeImport });
+@@ -522,7 +522,7 @@
+     private async Task<IEnumerable<Dictionary<string, object?>>> ProcessDataParallelAsync(
+         IEnumerable<Dictionary<string, object?>> sourceData,
+         ImportDataCommand command,
+-        CancellationToken cancellationToken)
++        cancellationToken cancellationToken)
+     {
+         // LINQ Optimization: Parallel processing s partition-based approach
+         return await Task.Run(() =>
+@@ -603,7 +603,7 @@
+     // ... existing registrations ...
+ 
+     // Import module services
+-    services.AddSingleton<IImportService, ImportService>();
++    services.AddScoped<IImportService, ImportService>();
+     services.AddSingleton(typeof(IImportLogger<>), typeof(ImportLogger<>));
+ 
+     // Import data processors
+--- original/InitializationDocumentation.md
++++ fixed/InitializationDocumentation.md
+@@ -1,3 +1,18 @@
++
++# DI lifetime decisions (applied across the documentation)
++
++For consistency the following lifetimes are recommended and applied in the documentation examples:
++
++- `IImportService` -> **Scoped**
++  - Reason: import operations often carry per-operation state (parsing context, progress) and Scoped avoids unintended shared state.
++- `IExportService` -> **Scoped**
++  - Reason: export operations frequently use operation-specific buffers and settings; Scoped avoids concurrency/state issues when used in web or background contexts.
++- `ICopyPasteService` -> **Singleton**
++  - Reason: clipboard/copy-paste semantics are globally shared and typically stateless wrappers; Singleton provides a single coordinated clipboard manager. Ensure thread-safety in the implementation.
++
++These decisions are reflected in all DI registration examples in the documentation.
++
++
+ # KOMPLETNÁ ŠPECIFIKÁCIA INITIALIZATION INFRASTRUCTURE SYSTÉMU
+ 
+ ## 🏗️ ARCHITEKTONICKÉ PRINCÍPY
+@@ -52,7 +67,7 @@
+     internal bool ValidateConfiguration { get; init; } = true;
+     internal TimeSpan InitializationTimeout { get; init; } = TimeSpan.FromMinutes(5);
+     internal IProgress<InitializationProgress>? ProgressReporter { get; init; }
+-    internal CancellationToken CancellationToken { get; init; } = default;
++    internal cancellationToken cancellationToken { get; init; } = default;
+ 
+     // Factory methods pre common scenarios
+     internal static InitializeComponentCommand ForUI(InitializationConfiguration? config = null) =>
+@@ -249,7 +264,7 @@
+         // UI Interaction Services
+         services.AddSingleton<IAutoRowHeightService, AutoRowHeightService>();
+         services.AddSingleton<IKeyboardShortcutsService, KeyboardShortcutsService>();
+-        services.AddScoped<ICopyPasteService, CopyPasteService>();
++        services.AddSingleton<ICopyPasteService, CopyPasteService>();
+ 
+         // UI Logging Services
+         services.AddSingleton(typeof(IUIInteractionLogger<>), typeof(UIInteractionLogger<>));
+@@ -387,7 +402,7 @@
+     }
+ 
+     // GRACEFUL SHUTDOWN SEQUENCE
+-    internal async Task<bool> ShutdownAsync(CancellationToken cancellationToken = default)
++    internal async Task<bool> ShutdownAsync(cancellationToken cancellationToken = default)
+     {
+         lock (_lifecycleLock)
+         {
+@@ -632,7 +647,7 @@
+ /// </summary>
+ Task<InitializationResult> InitializeAsync(
+     InitializeComponentCommand command,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Initialize for UI mode with default configuration
+@@ -641,7 +656,7 @@
+ Task<InitializationResult> InitializeForUIAsync(
+     InitializationConfiguration? config = null,
+     IProgress<InitializationProgress>? progress = null,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Initialize for headless mode with server optimizations
+@@ -650,13 +665,13 @@
+ Task<InitializationResult> InitializeForHeadlessAsync(
+     InitializationConfiguration? config = null,
+     IProgress<InitializationProgress>? progress = null,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Graceful component shutdown with cleanup
+ /// LIFECYCLE: Proper resource cleanup and disposal
+ /// </summary>
+-Task<bool> ShutdownAsync(CancellationToken cancellationToken = default);
++Task<bool> ShutdownAsync(cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Validate initialization configuration before use
+@@ -721,3 +736,8 @@
+ ```
+ 
+ Táto kompletná inicializačná infraštruktúra poskytuje enterprise-ready, thread-safe, a vysoko optimalizovanú inicializáciu komponentu s podporou dual-mode operations, sophisticated lifecycle management, a comprehensive configuration system podľa Clean Architecture + Command Pattern princípov.
++
++// Register the public facade
++```csharp
++services.AddScoped<AdvancedDataGridFacade>();
++```
+--- original/LoggingDocumentation.md
++++ fixed/LoggingDocumentation.md
+@@ -575,7 +575,7 @@
+     IReadOnlyList<Dictionary<string, object?>> data,
+     IReadOnlyList<ColumnDefinition> columns,
+     GridBehaviorConfiguration behavior,
+-    CancellationToken cancellationToken = default)
++    cancellationToken cancellationToken = default)
+ {
+     using var scope = _operationLogger.LogOperationStart("AnalyzeSmartDelete",
+         new { rowCount = data.Count, enableSmartDelete = behavior.EnableSmartDelete });
+--- original/PerformanceDocumentation.md
++++ fixed/PerformanceDocumentation.md
+@@ -313,7 +313,7 @@
+         int pageNumber,
+         int pageSize,
+         Func<int, int, Task<DataPage>> dataLoader,
+-        CancellationToken cancellationToken = default)
++        cancellationToken cancellationToken = default)
+     {
+         // Check cache first
+         if (_pageCache.TryGetValue(pageNumber, out var cachedPage))
+@@ -347,7 +347,7 @@
+     /// MEMORY PRESSURE: Intelligent cleanup during high memory usage
+     /// GC OPTIMIZATION: Force garbage collection and finalization
+     /// </summary>
+-    public async Task OptimizeMemoryUsageAsync(CancellationToken cancellationToken = default)
++    public async Task OptimizeMemoryUsageAsync(cancellationToken cancellationToken = default)
+     {
+         await Task.Run(() =>
+         {
+@@ -438,7 +438,7 @@
+     public bool OptimizeCaches { get; init; } = true;
+     public TimeSpan? MaxOptimizationTime { get; init; }
+     public IProgress<OptimizationProgress>? ProgressReporter { get; init; }
+-    public CancellationToken CancellationToken { get; init; } = default;
++    public cancellationToken cancellationToken { get; init; } = default;
+ 
+     // FLEXIBLE factory methods s DI support
+     public static OptimizePerformanceCommand Create(OptimizationType optimizationType) =>
+@@ -478,7 +478,7 @@
+     public bool IncludeOperationMetrics { get; init; } = true;
+     public IReadOnlyList<string> SpecificCounters { get; init; } = Array.Empty<string>();
+     public IProgress<PerformanceSnapshot>? ProgressReporter { get; init; }
+-    public CancellationToken CancellationToken { get; init; } = default;
++    public cancellationToken cancellationToken { get; init; } = default;
+ 
+     // FLEXIBLE factory methods
+     public static MonitorPerformanceCommand Create(TimeSpan monitoringWindow) =>
+@@ -507,7 +507,7 @@
+ /// </summary>
+ Task<Result<PerformanceOptimizationResult>> OptimizePerformanceAsync(
+     OptimizePerformanceCommand command,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Monitor performance metrics
+@@ -516,7 +516,7 @@
+ /// </summary>
+ Task<Result<PerformanceMonitoringResult>> MonitorPerformanceAsync(
+     MonitorPerformanceCommand command,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Get current performance snapshot
+@@ -539,7 +539,7 @@
+ /// ENTERPRISE: Intelligent memory management with pressure detection
+ /// AUTOMATIC: Automatic cleanup and optimization strategies
+ /// </summary>
+-Task<Result<MemoryOptimizationResult>> OptimizeMemoryAsync(CancellationToken cancellationToken = default);
++Task<Result<MemoryOptimizationResult>> OptimizeMemoryAsync(cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Get memory usage statistics
+@@ -610,7 +610,7 @@
+ 
+                 try
+                 {
+-                    await task.ExecuteAsync(CancellationToken.None);
++                    await task.ExecuteAsync(cancellationToken.None);
+                     PerformanceCounters.IncrementCounter("BackgroundTask_Success");
+                 }
+                 catch (Exception ex)
+@@ -632,7 +632,7 @@
+ /// </summary>
+ public interface IBackgroundTask
+ {
+-    Task ExecuteAsync(CancellationToken cancellationToken);
++    Task ExecuteAsync(cancellationToken cancellationToken);
+     string TaskName { get; }
+     TaskPriority Priority { get; }
+ }
+@@ -868,7 +868,7 @@
+ 
+     private readonly ILogger<BackgroundProcessingService> _logger;
+     private readonly IServiceProvider _serviceProvider;
+-    private readonly CancellationTokenSource _cancellationTokenSource = new();
++    private readonly cancellationTokenSource _cancellationTokenSource = new();
+ 
+     private volatile bool _isProcessing = false;
+     private volatile bool _isDisposed = false;
+@@ -1052,7 +1052,7 @@
+     int MaxRetries { get; }
+     IServiceProvider? ServiceProvider { get; set; }
+ 
+-    Task<BackgroundTaskResult> ExecuteAsync(CancellationToken cancellationToken);
++    Task<BackgroundTaskResult> ExecuteAsync(cancellationToken cancellationToken);
+ }
+ 
+ internal enum BackgroundTaskPriority
+--- original/RowNumberDocumentation.md
++++ fixed/RowNumberDocumentation.md
+@@ -64,7 +64,7 @@
+     /// ATOMIC: Thread-safe single row number assignment
+     /// </summary>
+     Task<bool> AssignRowNumberAsync(int rowIndex, int? customRowNumber = null,
+-        CancellationToken cancellationToken = default);
++        cancellationToken cancellationToken = default);
+ 
+     /// <summary>
+     /// ENTERPRISE: Regenerate all row numbers with sequential ordering
+@@ -73,14 +73,14 @@
+     /// </summary>
+     Task<RowNumberValidationResult> RegenerateRowNumbersAsync(
+         bool preserveOrder = true,
+-        CancellationToken cancellationToken = default);
++        cancellationToken cancellationToken = default);
+ 
+     /// <summary>
+     /// MAINTENANCE: Compact row numbers to eliminate gaps
+     /// OPTIMIZATION: Reorganize numbering sequence for optimal performance
+     /// </summary>
+     Task<RowNumberValidationResult> CompactRowNumbersAsync(
+-        CancellationToken cancellationToken = default);
++        cancellationToken cancellationToken = default);
+ 
+     #endregion
+ 
+@@ -92,13 +92,13 @@
+     /// </summary>
+     Task<RowNumberValidationResult> AssignRowNumbersBatchAsync(
+         IReadOnlyDictionary<int, int> rowIndexToRowNumber,
+-        CancellationToken cancellationToken = default);
++        cancellationToken cancellationToken = default);
+ 
+     /// <summary>
+     /// UTILITY: Get next available row number in sequence
+     /// SMART: Automatic recovery from RowNumber inconsistencies
+     /// </summary>
+-    Task<int> GetNextRowNumberAsync(CancellationToken cancellationToken = default);
++    Task<int> GetNextRowNumberAsync(cancellationToken cancellationToken = default);
+ 
+     #endregion
+ 
+@@ -109,7 +109,7 @@
+     /// DIAGNOSTICS: Comprehensive sequence analysis with gap detection
+     /// </summary>
+     Task<RowNumberValidationResult> ValidateRowNumberSequenceAsync(
+-        CancellationToken cancellationToken = default);
++        cancellationToken cancellationToken = default);
+ 
+     /// <summary>
+     /// REPAIR: Repair corrupted or inconsistent row number sequences
+@@ -117,14 +117,14 @@
+     /// </summary>
+     Task<RowNumberValidationResult> RepairRowNumberSequenceAsync(
+         bool preserveUserAssignments = true,
+-        CancellationToken cancellationToken = default);
++        cancellationToken cancellationToken = default);
+ 
+     /// <summary>
+     /// STATISTICS: Get comprehensive row numbering statistics
+     /// MONITORING: Performance metrics and sequence health analysis
+     /// </summary>
+     Task<RowNumberStatistics> GetRowNumberStatisticsAsync(
+-        CancellationToken cancellationToken = default);
++        cancellationToken cancellationToken = default);
+ 
+     #endregion
+ }
+@@ -174,7 +174,7 @@
+     #region Basic Row Number Operations
+ 
+     public async Task<bool> AssignRowNumberAsync(int rowIndex, int? customRowNumber = null,
+-        CancellationToken cancellationToken = default)
++        cancellationToken cancellationToken = default)
+     {
+         using var scope = _operationLogger.LogOperationStart("AssignRowNumber",
+             new { rowIndex, customRowNumber });
+@@ -207,7 +207,7 @@
+     }
+ 
+     public async Task<RowNumberValidationResult> RegenerateRowNumbersAsync(
+-        bool preserveOrder = true, CancellationToken cancellationToken = default)
++        bool preserveOrder = true, cancellationToken cancellationToken = default)
+     {
+         using var scope = _operationLogger.LogOperationStart("RegenerateRowNumbers",
+             new { preserveOrder });
+@@ -270,7 +270,7 @@
+     }
+ 
+     public async Task<RowNumberValidationResult> CompactRowNumbersAsync(
+-        CancellationToken cancellationToken = default)
++        cancellationToken cancellationToken = default)
+     {
+         // OPTIMIZATION: Reorganize numbering sequence for optimal performance
+         // LINQ OPTIMIZATION: Efficient gap elimination with minimal operations
+@@ -334,7 +334,7 @@
+     #region Private Helper Methods
+ 
+     private async Task<IEnumerable<DataRow>> GetRowsForRenumberingAsync(
+-        bool preserveOrder, CancellationToken cancellationToken)
++        bool preserveOrder, cancellationToken cancellationToken)
+     {
+         // Implementation for getting rows with proper ordering
+         // Uses creation time as fallback when RowNumbers are corrupted
+@@ -450,7 +450,7 @@
+ /// </summary>
+ Task<Result<RowNumberValidationResult>> RegenerateRowNumbersAsync(
+     bool preserveOrder = true,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Assign row number to specific row
+@@ -459,28 +459,28 @@
+ Task<Result<bool>> AssignRowNumberAsync(
+     int rowIndex,
+     int? customRowNumber = null,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Compact row numbers to eliminate gaps
+ /// OPTIMIZATION: Sequence optimization for performance
+ /// </summary>
+ Task<Result<RowNumberValidationResult>> CompactRowNumbersAsync(
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Validate row number sequence integrity
+ /// DIAGNOSTICS: Comprehensive sequence health check
+ /// </summary>
+ Task<Result<RowNumberValidationResult>> ValidateRowNumberSequenceAsync(
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Get row numbering statistics
+ /// MONITORING: Real-time numbering performance metrics
+ /// </summary>
+ Task<Result<RowNumberStatistics>> GetRowNumberStatisticsAsync(
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Repair corrupted row number sequences
+@@ -488,7 +488,7 @@
+ /// </summary>
+ Task<Result<RowNumberValidationResult>> RepairRowNumberSequenceAsync(
+     bool preserveUserAssignments = true,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ #endregion
+ ```
+@@ -511,7 +511,7 @@
+     public static async Task PostImportRowNumberUpdate(
+         IRowNumberService rowNumberService,
+         int importedRowCount,
+-        CancellationToken cancellationToken = default)
++        cancellationToken cancellationToken = default)
+     {
+         if (importedRowCount > 0)
+         {
+@@ -528,7 +528,7 @@
+     public static async Task PostFilterRowNumberUpdate(
+         IRowNumberService rowNumberService,
+         int visibleRowCount,
+-        CancellationToken cancellationToken = default)
++        cancellationToken cancellationToken = default)
+     {
+         if (visibleRowCount > 0)
+         {
+@@ -542,7 +542,7 @@
+     /// </summary>
+     public static async Task PreExportRowNumberValidation(
+         IRowNumberService rowNumberService,
+-        CancellationToken cancellationToken = default)
++        cancellationToken cancellationToken = default)
+     {
+         var validation = await rowNumberService.ValidateRowNumberSequenceAsync(cancellationToken);
+ 
+@@ -574,7 +574,7 @@
+     public static async Task<Dictionary<int, int>> AssignRowNumbersParallel(
+         IEnumerable<int> rowIndexes,
+         int startNumber = 1,
+-        CancellationToken cancellationToken = default)
++        cancellationToken cancellationToken = default)
+     {
+         return await Task.Run(() =>
+             rowIndexes
+--- original/SearchDocumentation.md
++++ fixed/SearchDocumentation.md
+@@ -114,7 +114,7 @@
+ {
+     internal IServiceProvider? ServiceProvider { get; init; }
+     internal IReadOnlyDictionary<string, object?> SearchParameters { get; init; } = new Dictionary<string, object?>();
+-    internal CancellationToken CancellationToken { get; init; } = default;
++    internal cancellationToken cancellationToken { get; init; } = default;
+     internal DateTime ExecutionTime { get; init; } = DateTime.UtcNow;
+     internal SearchScope Scope { get; init; } = SearchScope.AllData;
+ }
+@@ -281,7 +281,7 @@
+     internal bool EnableParallelProcessing { get; init; } = true;
+     internal TimeSpan? Timeout { get; init; }
+     internal IProgress<SearchProgress>? ProgressReporter { get; init; }
+-    internal CancellationToken CancellationToken { get; init; } = default;
++    internal cancellationToken cancellationToken { get; init; } = default;
+ 
+     // FLEXIBLE factory methods s LINQ optimization
+     internal static SearchCommand Create(
+@@ -321,7 +321,7 @@
+     internal bool UseSmartRanking { get; init; } = true;
+     internal TimeSpan? Timeout { get; init; }
+     internal IProgress<SearchProgress>? ProgressReporter { get; init; }
+-    internal CancellationToken CancellationToken { get; init; } = default;
++    internal cancellationToken cancellationToken { get; init; } = default;
+     internal SearchContext? Context { get; init; }
+ 
+     // FLEXIBLE factory methods
+@@ -363,7 +363,7 @@
+     internal bool UseCache { get; init; } = true;
+     internal TimeSpan? Timeout { get; init; }
+     internal IProgress<SearchProgress>? ProgressReporter { get; init; }
+-    internal CancellationToken CancellationToken { get; init; } = default;
++    internal cancellationToken cancellationToken { get; init; } = default;
+ 
+     // FLEXIBLE factory methods
+     internal static SmartSearchCommand Create(
+@@ -477,7 +477,7 @@
+     string searchText,
+     string[]? targetColumns = null,
+     bool caseSensitive = false,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Advanced search with comprehensive criteria
+@@ -487,7 +487,7 @@
+ Task<IReadOnlyList<SearchResult>> AdvancedSearchAsync(
+     IEnumerable<IReadOnlyDictionary<string, object?>> data,
+     AdvancedSearchCriteria searchCriteria,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Smart search with automatic optimization
+@@ -499,7 +499,7 @@
+     string searchText,
+     string[]? targetColumns = null,
+     bool caseSensitive = false,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Quick search for immediate results
+@@ -607,7 +607,7 @@
+         {
+             SearchMode.Contains => dataList
+                 .AsParallel()
+-                .WithCancellation(command.CancellationToken)
++                .WithCancellation(command.cancellationToken)
+                 .SelectMany((row, rowIndex) => SearchInRow(row, rowIndex, command.SearchCriteria))
+                 .Where(result => result != null)
+                 .OrderByDescending(result => result.RelevanceScore)
+@@ -616,7 +616,7 @@
+ 
+             SearchMode.Regex => dataList
+                 .AsParallel()
+-                .WithCancellation(command.CancellationToken)
++                .WithCancellation(command.cancellationToken)
+                 .SelectMany((row, rowIndex) => SearchInRowWithRegex(row, rowIndex, command.SearchCriteria))
+                 .Where(result => result != null)
+                 .OrderByDescending(result => result.MatchScore)
+@@ -624,7 +624,7 @@
+ 
+             SearchMode.Fuzzy => dataList
+                 .AsParallel()
+-                .WithCancellation(command.CancellationToken)
++                .WithCancellation(command.cancellationToken)
+                 .SelectMany((row, rowIndex) => SearchInRowWithFuzzy(row, rowIndex, command.SearchCriteria))
+                 .Where(result => result != null && result.MatchScore >= (command.SearchCriteria.FuzzyThreshold ?? 0.8))
+                 .OrderByDescending(result => result.MatchScore)
+@@ -1069,7 +1069,7 @@
+ // FilterService.cs - Integration with pure functional algorithms
+ internal sealed class FilterService : IFilterService
+ {
+-    public async Task<FilterResult> ApplyFilterAsync(FilterCommand command, CancellationToken cancellationToken = default)
++    public async Task<FilterResult> ApplyFilterAsync(FilterCommand command, cancellationToken cancellationToken = default)
+     {
+         var stopwatch = Stopwatch.StartNew();
+ 
+@@ -1086,7 +1086,7 @@
+         return FilterResult.CreateSuccess(filteredData, command.FilterCriteria, stopwatch.Elapsed);
+     }
+ 
+-    public async Task<FilterResult> ApplyAdvancedFilterAsync(AdvancedFilterCommand command, CancellationToken cancellationToken = default)
++    public async Task<FilterResult> ApplyAdvancedFilterAsync(AdvancedFilterCommand command, cancellationToken cancellationToken = default)
+     {
+         // Complex filter logic using multiple criteria
+         var filteredData = command.Data.Where(row =>
+@@ -1105,7 +1105,7 @@
+ // SearchService.cs - Integration with pure functional algorithms
+ internal sealed class SearchService : ISearchService
+ {
+-    public async Task<SearchResult> SearchAsync(SearchCommand command, CancellationToken cancellationToken = default)
++    public async Task<SearchResult> SearchAsync(SearchCommand command, cancellationToken cancellationToken = default)
+     {
+         var stopwatch = Stopwatch.StartNew();
+ 
+@@ -1141,7 +1141,7 @@
+         return SearchResult.CreateSuccess(searchResults, command.SearchText, stopwatch.Elapsed);
+     }
+ 
+-    public async Task<SearchResult> SmartSearchAsync(SmartSearchCommand command, CancellationToken cancellationToken = default)
++    public async Task<SearchResult> SmartSearchAsync(SmartSearchCommand command, cancellationToken cancellationToken = default)
+     {
+         // Intelligent search using pattern detection
+         var detectedPattern = AnalyzeSearchPattern(command.SearchText);
+--- original/SecurityDocumentation.md
++++ fixed/SecurityDocumentation.md
+@@ -584,7 +584,7 @@
+     public bool EnableAuditLogging { get; init; } = true;
+     public bool ThrowOnValidationFailure { get; init; } = false;
+     public IProgress<SecurityValidationProgress>? ProgressReporter { get; init; }
+-    public CancellationToken CancellationToken { get; init; } = default;
++    public cancellationToken cancellationToken { get; init; } = default;
+ 
+     // FLEXIBLE factory methods s DI support
+     public static ValidateSecurityCommand Create(object? input, string context) =>
+@@ -640,7 +640,7 @@
+ /// </summary>
+ Task<Result<SecurityValidationResult>> ValidateSecurityAsync(
+     ValidateSecurityCommand command,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Authorize operation execution
+@@ -649,7 +649,7 @@
+ /// </summary>
+ Task<Result<AuthorizationResult>> AuthorizeOperationAsync(
+     AuthorizeOperationCommand command,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Get current security context
+@@ -674,7 +674,7 @@
+ /// </summary>
+ Task<Result<ThreatMonitoringResult>> MonitorSecurityThreatsAsync(
+     TimeSpan monitoringWindow,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Get security health status
+@@ -699,7 +699,7 @@
+ Task<Result<IReadOnlyList<SecurityAuditEntry>>> GetSecurityAuditLogAsync(
+     DateTime fromDate,
+     DateTime toDate,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Generate security compliance report
+@@ -707,7 +707,7 @@
+ /// </summary>
+ Task<Result<SecurityComplianceReport>> GenerateComplianceReportAsync(
+     ComplianceReportParameters parameters,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ #endregion
+ ```
+--- original/ShortcutsDocumentation.md
++++ fixed/ShortcutsDocumentation.md
+@@ -134,7 +134,7 @@
+ {
+     internal IServiceProvider? ServiceProvider { get; init; }
+     internal IReadOnlyDictionary<string, object?> Parameters { get; init; } = new Dictionary<string, object?>();
+-    internal CancellationToken CancellationToken { get; init; } = default;
++    internal cancellationToken cancellationToken { get; init; } = default;
+     internal DateTime ExecutionTime { get; init; } = DateTime.UtcNow;
+     internal ShortcutContext Context { get; init; } = ShortcutContext.Normal;
+     internal object? SourceElement { get; init; }
+@@ -266,7 +266,7 @@
+     internal bool OverrideExisting { get; init; } = false;
+     internal bool ValidateConflicts { get; init; } = true;
+     internal IProgress<ShortcutProgress>? ProgressReporter { get; init; }
+-    internal CancellationToken CancellationToken { get; init; } = default;
++    internal cancellationToken cancellationToken { get; init; } = default;
+ 
+     internal static RegisterShortcutCommand Create(ShortcutDefinition definition) =>
+         new() { ShortcutDefinition = definition };
+@@ -283,7 +283,7 @@
+     internal bool StrictContextMatch { get; init; } = true;
+     internal TimeSpan? ExecutionTimeout { get; init; }
+     internal IProgress<ShortcutProgress>? ProgressReporter { get; init; }
+-    internal CancellationToken CancellationToken { get; init; } = default;
++    internal cancellationToken cancellationToken { get; init; } = default;
+ 
+     internal static ExecuteShortcutCommand Create(
+         KeyCombination keyCombination,
+@@ -302,7 +302,7 @@
+     internal bool ValidateConflicts { get; init; } = true;
+     internal ShortcutExecutionMode DefaultExecutionMode { get; init; } = ShortcutExecutionMode.Immediate;
+     internal IProgress<ShortcutProgress>? ProgressReporter { get; init; }
+-    internal CancellationToken CancellationToken { get; init; } = default;
++    internal cancellationToken cancellationToken { get; init; } = default;
+ 
+     internal static RegisterShortcutsCommand Create(IReadOnlyList<ShortcutDefinition> definitions) =>
+         new() { ShortcutDefinitions = definitions };
+@@ -386,7 +386,7 @@
+ /// </summary>
+ Task<ShortcutRegistrationResult> RegisterShortcutAsync(
+     RegisterShortcutCommand command,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Register multiple shortcuts with bulk processing
+@@ -394,7 +394,7 @@
+ /// </summary>
+ Task<ShortcutRegistrationResult> RegisterShortcutsAsync(
+     RegisterShortcutsCommand command,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Execute shortcut command
+@@ -402,7 +402,7 @@
+ /// </summary>
+ Task<ShortcutResult> ExecuteShortcutAsync(
+     ExecuteShortcutCommand command,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Unregister shortcut by key combination
+--- original/SmartAddDeleteDocumentation.md
++++ fixed/SmartAddDeleteDocumentation.md
+@@ -149,7 +149,7 @@
+     internal bool PreserveRowNumbers { get; init; } = true;
+     internal TimeSpan? Timeout { get; init; }
+     internal IProgress<RowManagementProgress>? ProgressReporter { get; init; }
+-    internal CancellationToken CancellationToken { get; init; } = default;
++    internal cancellationToken cancellationToken { get; init; } = default;
+ 
+     internal static SmartAddRowsCommand Create(
+         IEnumerable<IReadOnlyDictionary<string, object?>> dataToAdd,
+@@ -174,7 +174,7 @@
+     internal bool ForcePhysicalDelete { get; init; } = false;
+     internal TimeSpan? Timeout { get; init; }
+     internal IProgress<RowManagementProgress>? ProgressReporter { get; init; }
+-    internal CancellationToken CancellationToken { get; init; } = default;
++    internal cancellationToken cancellationToken { get; init; } = default;
+ 
+     internal static SmartDeleteRowsCommand Create(
+         IReadOnlyList<int> rowIndexesToDelete,
+@@ -202,7 +202,7 @@
+     internal required RowManagementConfiguration Configuration { get; init; }
+     internal int CurrentRowCount { get; init; }
+     internal bool TriggerExpansion { get; init; } = true;
+-    internal CancellationToken CancellationToken { get; init; } = default;
++    internal cancellationToken cancellationToken { get; init; } = default;
+ 
+     internal static AutoExpandEmptyRowCommand Create(
+         RowManagementConfiguration configuration,
+@@ -288,7 +288,7 @@
+ /// </summary>
+ Task<RowManagementResult> SmartAddRowsAsync(
+     SmartAddRowsCommand command,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Smart delete rows with context-aware logic
+@@ -297,7 +297,7 @@
+ /// </summary>
+ Task<RowManagementResult> SmartDeleteRowsAsync(
+     SmartDeleteRowsCommand command,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Auto-expand empty row maintenance
+@@ -306,7 +306,7 @@
+ /// </summary>
+ Task<RowManagementResult> AutoExpandEmptyRowAsync(
+     AutoExpandEmptyRowCommand command,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Validate row management configuration
+@@ -387,7 +387,7 @@
+     // LINQ OPTIMIZATION: Efficient row state analysis
+     private async Task<RowState[]> AnalyzeRowStatesAsync(
+         IReadOnlyList<IReadOnlyDictionary<string, object?>> data,
+-        CancellationToken cancellationToken)
++        cancellationToken cancellationToken)
+     {
+         return await Task.Run(() =>
+             data.AsParallel()
+@@ -402,7 +402,7 @@
+     private async Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> ShiftRowsUpAsync(
+         IReadOnlyList<IReadOnlyDictionary<string, object?>> data,
+         int deletedRowIndex,
+-        CancellationToken cancellationToken)
++        cancellationToken cancellationToken)
+     {
+         return await Task.Run(() =>
+             data.Take(deletedRowIndex)
+--- original/SortDocumentation.md
++++ fixed/SortDocumentation.md
+@@ -125,7 +125,7 @@
+ {
+     internal IServiceProvider? ServiceProvider { get; init; }
+     internal IReadOnlyDictionary<string, object?> SortParameters { get; init; } = new Dictionary<string, object?>();
+-    internal CancellationToken CancellationToken { get; init; } = default;
++    internal cancellationToken cancellationToken { get; init; } = default;
+     internal DateTime ExecutionTime { get; init; } = DateTime.UtcNow;
+     internal SortPerformanceMode PerformanceMode { get; init; } = SortPerformanceMode.Auto;
+ }
+@@ -261,7 +261,7 @@
+     internal SortPerformanceMode PerformanceMode { get; init; } = SortPerformanceMode.Auto;
+     internal TimeSpan? Timeout { get; init; }
+     internal IProgress<SortProgress>? ProgressReporter { get; init; }
+-    internal CancellationToken CancellationToken { get; init; } = default;
++    internal cancellationToken cancellationToken { get; init; } = default;
+ 
+     // FLEXIBLE factory methods s LINQ optimization
+     internal static SortCommand Create(
+@@ -304,7 +304,7 @@
+     internal SortStability Stability { get; init; } = SortStability.Stable;
+     internal TimeSpan? Timeout { get; init; }
+     internal IProgress<SortProgress>? ProgressReporter { get; init; }
+-    internal CancellationToken CancellationToken { get; init; } = default;
++    internal cancellationToken cancellationToken { get; init; } = default;
+     internal SortContext? Context { get; init; }
+ 
+     // FLEXIBLE factory methods
+@@ -343,7 +343,7 @@
+     internal bool UseSmartOptimization { get; init; } = true;
+     internal TimeSpan? Timeout { get; init; }
+     internal IProgress<SortProgress>? ProgressReporter { get; init; }
+-    internal CancellationToken CancellationToken { get; init; } = default;
++    internal cancellationToken cancellationToken { get; init; } = default;
+     internal SortContext? Context { get; init; }
+ 
+     // FLEXIBLE factory methods
+@@ -452,7 +452,7 @@
+ /// </summary>
+ Task<SortResult> SortAsync(
+     SortCommand command,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Multi-column sort with comprehensive configuration
+@@ -461,7 +461,7 @@
+ /// </summary>
+ Task<SortResult> MultiSortAsync(
+     MultiSortCommand command,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Advanced sort with business rules
+@@ -470,7 +470,7 @@
+ /// </summary>
+ Task<SortResult> AdvancedSortAsync(
+     AdvancedSortCommand command,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Quick sort for immediate results
+@@ -620,7 +620,7 @@
+             SortStrategy.QuickSort => dataList.OrderBy(row => GetSortValue(row, command.ColumnName)),
+             SortStrategy.ParallelQuickSort => dataList
+                 .AsParallel()
+-                .WithCancellation(command.CancellationToken)
++                .WithCancellation(command.cancellationToken)
+                 .OrderBy(row => GetSortValue(row, command.ColumnName)),
+             SortStrategy.StableSort => dataList.OrderBy(row => GetSortValue(row, command.ColumnName)),
+             SortStrategy.CustomOptimized => ApplyCustomOptimizedSort(dataList, command),
+@@ -1372,7 +1372,7 @@
+ // SortService.cs - Integration with pure functional algorithms
+ internal sealed class SortService : ISortService
+ {
+-    public async Task<SortResult> SortAsync(SortCommand command, CancellationToken cancellationToken = default)
++    public async Task<SortResult> SortAsync(SortCommand command, cancellationToken cancellationToken = default)
+     {
+         // Sortability validation using pure algorithms
+         var isSortable = SortAlgorithms.IsColumnSortable(command.Data, command.ColumnName);
+@@ -1394,7 +1394,7 @@
+         return SortResult.CreateSuccess(sortedData.ToList(), command);
+     }
+ 
+-    public async Task<SortResult> MultiSortAsync(MultiSortCommand command, CancellationToken cancellationToken = default)
++    public async Task<SortResult> MultiSortAsync(MultiSortCommand command, cancellationToken cancellationToken = default)
+     {
+         // Multi-column sorting using pure functional key generation
+         var columnNames = command.SortColumns.Select(s => s.ColumnName).ToList();
+--- original/UIDocumentation.md
++++ fixed/UIDocumentation.md
+@@ -71,7 +71,7 @@
+         IReadOnlyDictionary<string, object?> rowData,
+         IReadOnlyList<ColumnDefinition> columns,
+         AutoRowHeightConfiguration configuration,
+-        CancellationToken cancellationToken = default)
++        cancellationToken cancellationToken = default)
+     {
+         // Generate cache key based on content and configuration
+         var cacheKey = GenerateCacheKey(rowData, columns, configuration);
+@@ -89,8 +89,8 @@
+             var maxHeight = await CalculateMaxCellHeightAsync(rowData, columns, configuration, cancellationToken);
+ 
+             // Apply height constraints
+-            var constrainedHeight = Math.Max(configuration.MinRowHeight,
+-                                   Math.Min(configuration.MaxRowHeight, maxHeight));
++            var constrainedHeight = Math.Max(configuration.MinimumRowHeight,
++                                   Math.Min(configuration.MaximumRowHeight, maxHeight));
+ 
+             // Cache the result
+             if (_cachingEnabled)
+@@ -115,7 +115,7 @@
+         IReadOnlyList<ColumnDefinition> columns,
+         AutoRowHeightConfiguration configuration,
+         IProgress<RowHeightCalculationProgress>? progressReporter = null,
+-        CancellationToken cancellationToken = default)
++        cancellationToken cancellationToken = default)
+     {
+         var rowList = rows.ToList();
+         var results = new ConcurrentDictionary<int, double>();
+@@ -150,20 +150,20 @@
+         IReadOnlyDictionary<string, object?> rowData,
+         IReadOnlyList<ColumnDefinition> columns,
+         AutoRowHeightConfiguration configuration,
+-        CancellationToken cancellationToken)
+-    {
+-        var maxHeight = configuration.MinRowHeight;
++        cancellationToken cancellationToken)
++    {
++        var maxHeight = configuration.MinimumRowHeight;
+ 
+         var heightTasks = columns
+             .Where(col => col.IsVisible && !col.IsReadOnly)
+             .Select(async column =>
+             {
+                 if (!rowData.TryGetValue(column.Name, out var cellValue) || cellValue == null)
+-                    return configuration.MinRowHeight;
++                    return configuration.MinimumRowHeight;
+ 
+                 var cellText = cellValue.ToString() ?? string.Empty;
+                 if (string.IsNullOrEmpty(cellText))
+-                    return configuration.MinRowHeight;
++                    return configuration.MinimumRowHeight;
+ 
+                 // Use TextMeasurementAlgorithms for precise calculation
+                 var textHeight = await Task.Run(() =>
+@@ -224,8 +224,8 @@
+ /// </summary>
+ public sealed record AutoRowHeightConfiguration
+ {
+-    public double MinRowHeight { get; init; } = 25.0;
+-    public double MaxRowHeight { get; init; } = 200.0;
++    public double MinimumRowHeight { get; init; } = 25.0;
++    public double MaximumRowHeight { get; init; } = 200.0;
+     public double DefaultColumnWidth { get; init; } = 150.0;
+     public double FontSize { get; init; } = 14.0;
+     public string FontFamily { get; init; } = "Segoe UI";
+@@ -236,8 +236,8 @@
+     public static AutoRowHeightConfiguration Default => new();
+     public static AutoRowHeightConfiguration Compact => new()
+     {
+-        MinRowHeight = 20.0,
+-        MaxRowHeight = 100.0,
++        MinimumRowHeight = 20.0,
++        MaximumRowHeight = 100.0,
+         FontSize = 12.0,
+         CellPadding = new(2, 2, 4, 4)
+     };
+@@ -556,7 +556,7 @@
+     /// </summary>
+     public async Task<Result<EditingSession>> StartEditingAsync(
+         CellEditingCommand command,
+-        CancellationToken cancellationToken = default)
++        cancellationToken cancellationToken = default)
+     {
+         await _editingSemaphore.WaitAsync(cancellationToken);
+         try
+@@ -604,7 +604,7 @@
+     public async Task<Result<ValidationResult>> ValidateEditingValueAsync(
+         string sessionId,
+         object? newValue,
+-        CancellationToken cancellationToken = default)
++        cancellationToken cancellationToken = default)
+     {
+         if (!_activeSessions.TryGetValue(sessionId, out var session))
+         {
+@@ -645,7 +645,7 @@
+     /// </summary>
+     public async Task<Result<CellEditingResult>> CommitEditingAsync(
+         string sessionId,
+-        CancellationToken cancellationToken = default)
++        cancellationToken cancellationToken = default)
+     {
+         if (!_activeSessions.TryGetValue(sessionId, out var session))
+         {
+@@ -700,7 +700,7 @@
+     /// </summary>
+     public async Task<Result<bool>> CancelEditingAsync(
+         string sessionId,
+-        CancellationToken cancellationToken = default)
++        cancellationToken cancellationToken = default)
+     {
+         if (!_activeSessions.TryGetValue(sessionId, out var session))
+         {
+@@ -725,7 +725,7 @@
+     /// </summary>
+     public async Task<Result<IReadOnlyList<CellEditingResult>>> CommitBatchEditingAsync(
+         IEnumerable<string> sessionIds,
+-        CancellationToken cancellationToken = default)
++        cancellationToken cancellationToken = default)
+     {
+         var sessionList = sessionIds.ToList();
+         var results = new ConcurrentBag<CellEditingResult>();
+@@ -786,7 +786,7 @@
+ 
+     private async Task<Result<bool>> ValidateEditingPermissionsAsync(
+         CellEditingCommand command,
+-        CancellationToken cancellationToken)
++        cancellationToken cancellationToken)
+     {
+         // Implement permission validation based on column definition and user context
+         if (command.ColumnDefinition.IsReadOnly)
+@@ -800,7 +800,7 @@
+ 
+     private async Task<ValidationResult> ExecuteEditingValidationAsync(
+         EditingSession session,
+-        CancellationToken cancellationToken)
++        cancellationToken cancellationToken)
+     {
+         // Implement comprehensive validation logic
+         var errors = new List<string>();
+@@ -901,7 +901,7 @@
+     public bool AutoCommit { get; init; } = false;
+     public TimeSpan? EditingTimeout { get; init; }
+     public IProgress<EditingProgress>? ProgressReporter { get; init; }
+-    public CancellationToken CancellationToken { get; init; } = default;
++    public cancellationToken cancellationToken { get; init; } = default;
+ 
+     // FLEXIBLE factory methods s DI support
+     public static CellEditingCommand Create(int rowIndex, string columnName, ColumnDefinition columnDef) =>
+@@ -973,7 +973,7 @@
+ /// </summary>
+ Task<Result<EditingSession>> StartCellEditingAsync(
+     CellEditingCommand command,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Process UI interaction
+@@ -982,7 +982,7 @@
+ /// </summary>
+ Task<Result<UIInteractionResult>> ProcessUIInteractionAsync(
+     UIInteractionCommand command,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Calculate optimal row heights
+@@ -993,7 +993,7 @@
+     IReadOnlyList<ColumnDefinition> columns,
+     AutoRowHeightConfiguration? configuration = null,
+     IProgress<RowHeightCalculationProgress>? progressReporter = null,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Get current UI state
+@@ -1034,7 +1034,7 @@
+ Task<Result<ShortcutExecutionResult>> ProcessKeyboardShortcutAsync(
+     KeyboardShortcut shortcut,
+     UIContext context,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// PUBLIC API: Configure keyboard shortcuts
+@@ -1254,3 +1254,60 @@
+ - **Critical**: UI system failures, unrecoverable editing states, critical rendering failures
+ 
+ Táto špecifikácia poskytuje kompletný, enterprise-ready UI systém s pokročilými editovania capabilities, WinUI integráciou a jednotnou architektúrou s ostatnými časťami komponentu.
++
++
++## Column resize (drag & drop)
++
++Behavior:
++- User can resize a column by moving the mouse to the right border of a column header (cursor changes to horizontal resize).
++- Press and hold left mouse button on the column border, then drag left or right.
++- The entire column (header and data cells) resizes together.
++- Minimum and maximum widths are enforced by configuration (`MinimumColumnWidth`, `MaximumColumnWidth`).
++
++Public API (entry point):
++```csharp
++// Example on the public entry point (AdvancedDataGridFacade)
++void ResizeColumn(int columnIndex, double newWidth);
++void StartColumnResize(int columnIndex, double clientX); // called by UI when mouse down
++void UpdateColumnResize(double clientX); // called on mouse move
++void EndColumnResize(); // called on mouse up
++```
++
++Internal implementation note:
++- Entry point methods map to internal services (e.g. `IColumnService.ResizeColumnInternal(...)`) via DI.
++- Implementation should debounce width updates for performance and only reflow visible rows when necessary.
++
++
++
++## Cell selection & multi-select behaviors
++
++Behavior:
++- Single click on a cell selects that cell.
++- Click and drag selects a contiguous rectangular range of cells (including header and data coordinates).
++- Ctrl + Click toggles selection of individual cells without losing the existing selection (multi-select arbitrary cells).
++- Shift + Click extends selection from the last focused cell to the clicked cell (range).
++- Copying the selection should preserve the relative layout / shape: when pasted into Excel or similar, the cells retain their relative positions (row/column offsets).
++
++Public API (entry point):
++```csharp
++// Selection operations exposed on the public entry point
++void SelectCell(int rowIndex, int columnIndex);
++void StartDragSelect(int startRow, int startColumn);
++void UpdateDragSelect(int currentRow, int currentColumn);
++void EndDragSelect();
++void ToggleCellSelection(int rowIndex, int columnIndex); // Ctrl+Click behavior
++void ExtendSelectionTo(int rowIndex, int columnIndex); // Shift+Click behavior
++CopyResult CopySelection(); // returns a structured payload suitable for clipboard, preserving shape
++```
++
++Clipboard copy semantics:
++- `CopyResult` should include a 2D array of cell payloads and metadata about empty cells so that pasting into Excel keeps the same offsets.
++- For example, copying cells {(0,0), (0,2)} produces a 1-row x 3-column area with a blank in the middle so Excel preserves spacing.
++
++Internal implementation note:
++- Internal services manage the low-level buffer; the public entry point maps calls to those internals.
++- The `CopySelection` implementation should serialize as tab-separated lines preserving empty cells:
++  - Each row of the selection becomes one line.
++  - Cells separated by `	`.
++  - Empty cells represented by empty fields between tabs.
++```
+--- original/ValidationDocumentation.md
++++ fixed/ValidationDocumentation.md
+@@ -167,7 +167,7 @@
+         if (string.IsNullOrEmpty(username)) return true;
+ 
+         // External API call with timeout
+-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
++        using var cts = cancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+         cts.CancelAfter(ValidationTimeout);
+ 
+         return await context.UserService.IsUsernameAvailableAsync(username, cts.Token);
+@@ -575,7 +575,7 @@
+     public bool OnlyNonEmptyRows { get; init; } = true;
+     public bool OnlyFilteredRows { get; init; } = false;
+     public IProgress<ValidationProgress>? ProgressReporter { get; init; }
+-    public CancellationToken CancellationToken { get; init; } = default;
++    public cancellationToken cancellationToken { get; init; } = default;
+ 
+     // FLEXIBLE factory methods s LINQ optimization
+     public static ValidateDataCommand Create(IEnumerable<IReadOnlyDictionary<string, object?>> data) =>
+@@ -606,7 +606,7 @@
+ public async Task<Result<ValidationBasedDeleteResult>> DeleteRowsWithValidationAsync(
+     ValidationDeletionCriteria validationCriteria,
+     ValidationDeletionOptions? options = null,
+-    CancellationToken cancellationToken = default)
++    cancellationToken cancellationToken = default)
+ 
+ public record ValidationDeletionCriteria(
+     ValidationDeletionMode Mode,
+@@ -960,7 +960,7 @@
+ 
+ Task<Result<ValidationResult>> ValidateWithOptimalStrategyAsync(
+     IEnumerable<IReadOnlyDictionary<string, object?>> data,
+-    CancellationToken cancellationToken = default);
++    cancellationToken cancellationToken = default);
+ ```
+ 
+ ## 📊 VALIDALERTS COLUMN (nie validÁlerts)
+@@ -1694,7 +1694,7 @@
+         string columnName,
+         object? value,
+         IReadOnlyDictionary<string, object?> rowData,
+-        CancellationToken cancellationToken = default)
++        cancellationToken cancellationToken = default)
+     {
+         var applicableRules = _rulesCache.GetRulesForColumn(columnName);
+         var context = new ValidationContext
+@@ -1736,7 +1736,7 @@
+ 
+     public async Task<ValidationResult> ValidateRowAsync(
+         IReadOnlyDictionary<string, object?> rowData,
+-        CancellationToken cancellationToken = default)
++        cancellationToken cancellationToken = default)
+     {
+         var allRules = _rulesCache.GetAllRules();
+         var context = new ValidationContext

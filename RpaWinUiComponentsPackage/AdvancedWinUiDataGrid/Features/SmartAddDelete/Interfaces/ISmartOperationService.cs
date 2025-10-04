@@ -1,0 +1,40 @@
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.SmartAddDelete.Commands;
+
+namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.SmartAddDelete.Interfaces;
+
+/// <summary>
+/// Internal service interface for smart row add/delete operations
+/// </summary>
+internal interface ISmartOperationService
+{
+    /// <summary>
+    /// Smart add rows with minimum rows management
+    /// </summary>
+    Task<RowManagementResult> SmartAddRowsAsync(SmartAddRowsInternalCommand command, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Smart delete rows with context-aware logic
+    /// </summary>
+    Task<RowManagementResult> SmartDeleteRowsAsync(SmartDeleteRowsInternalCommand command, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Auto-expand empty row maintenance
+    /// </summary>
+    Task<RowManagementResult> AutoExpandEmptyRowAsync(AutoExpandEmptyRowInternalCommand command, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Validate row management configuration
+    /// </summary>
+    Task<Result> ValidateRowManagementConfigurationAsync(RowManagementConfiguration configuration, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Get current row management statistics
+    /// </summary>
+    RowManagementStatistics GetRowManagementStatistics();
+}
