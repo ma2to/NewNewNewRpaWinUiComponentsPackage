@@ -71,6 +71,8 @@ internal static class ServiceRegistration
         services.AddScoped<AdvancedDataGridFacade>();
         services.AddScoped<IAdvancedDataGridFacade>(sp => sp.GetRequiredService<AdvancedDataGridFacade>());
 
+        // Note: Modular facades are created via DataGridModuleFactory, not registered here
+
         return services;
     }
 

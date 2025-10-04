@@ -23,7 +23,8 @@
       "Bash(test:*)",
       "Bash(Select-String -Pattern \"error|warning|Build succeeded|Build FAILED\" -Context 0,2)",
       "Bash(Select-String -Pattern \"CS0117\" -Context 2,2)",
-      "Bash(dotnet new:*)"
+      "Bash(dotnet new:*)",
+      "Bash(dotnet run:*)"
     ],
     "deny": [],
     "ask": []
