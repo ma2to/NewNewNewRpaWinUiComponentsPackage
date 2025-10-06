@@ -3,30 +3,14 @@ using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.AutoRowHeight.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 
-namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Internal;
+namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Mappings;
 
 /// <summary>
 /// Mapping extensions for common types (Result, enums, etc.)
 /// </summary>
 internal static class CommonMappings
 {
-    #region Result Mappings
-
-    public static PublicResult ToPublic(this Result result)
-    {
-        return result.IsSuccess
-            ? PublicResult.Success()
-            : PublicResult.Failure(result.ErrorMessage ?? "Operation failed");
-    }
-
-    public static PublicResult<T> ToPublic<T>(this Result<T> result)
-    {
-        return result.IsSuccess
-            ? PublicResult<T>.Success(result.Value)
-            : PublicResult<T>.Failure(result.ErrorMessage ?? "Operation failed");
-    }
-
-    #endregion
+    // Result Mappings moved to Api/Mappings/ResultMappings.cs to avoid conflicts
 
     #region Enum Mappings
 
@@ -54,46 +38,7 @@ internal static class CommonMappings
         };
     }
 
-    public static PublicFilterOperator ToPublic(this FilterOperator op)
-    {
-        return op switch
-        {
-            FilterOperator.Equals => PublicFilterOperator.Equals,
-            FilterOperator.NotEquals => PublicFilterOperator.NotEquals,
-            FilterOperator.Contains => PublicFilterOperator.Contains,
-            FilterOperator.NotContains => PublicFilterOperator.NotContains,
-            FilterOperator.StartsWith => PublicFilterOperator.StartsWith,
-            FilterOperator.EndsWith => PublicFilterOperator.EndsWith,
-            FilterOperator.GreaterThan => PublicFilterOperator.GreaterThan,
-            FilterOperator.LessThan => PublicFilterOperator.LessThan,
-            FilterOperator.GreaterThanOrEqual => PublicFilterOperator.GreaterThanOrEqual,
-            FilterOperator.LessThanOrEqual => PublicFilterOperator.LessThanOrEqual,
-            FilterOperator.IsNull => PublicFilterOperator.IsNull,
-            FilterOperator.IsNotNull => PublicFilterOperator.IsNotNull,
-            _ => PublicFilterOperator.Equals
-        };
-    }
-
-    public static FilterOperator ToInternal(this PublicFilterOperator op)
-    {
-        return op switch
-        {
-            PublicFilterOperator.Equals => FilterOperator.Equals,
-            PublicFilterOperator.NotEquals => FilterOperator.NotEquals,
-            PublicFilterOperator.Contains => FilterOperator.Contains,
-            PublicFilterOperator.NotContains => FilterOperator.NotContains,
-            PublicFilterOperator.StartsWith => FilterOperator.StartsWith,
-            PublicFilterOperator.EndsWith => FilterOperator.EndsWith,
-            PublicFilterOperator.GreaterThan => FilterOperator.GreaterThan,
-            PublicFilterOperator.LessThan => FilterOperator.LessThan,
-            PublicFilterOperator.GreaterThanOrEqual => FilterOperator.GreaterThanOrEqual,
-            PublicFilterOperator.LessThanOrEqual => FilterOperator.LessThanOrEqual,
-            PublicFilterOperator.IsNull => FilterOperator.IsNull,
-            PublicFilterOperator.IsNotNull => FilterOperator.IsNotNull,
-            PublicFilterOperator.InRange => FilterOperator.GreaterThanOrEqual, // Map to range check
-            _ => FilterOperator.Equals
-        };
-    }
+    // FilterOperator mappings moved to Api/Mappings/FilterMappings.cs to avoid conflicts
 
     public static PublicValidationSeverity ToPublic(this ValidationSeverity severity)
     {

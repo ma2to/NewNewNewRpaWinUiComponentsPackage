@@ -3,7 +3,7 @@ using InternalImportResult = RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Com
 using InternalExportDataCommand = RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models.InternalExportDataCommand;
 using InternalExportResult = RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models.InternalExportResult;
 
-namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Internal;
+namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Mappings;
 
 /// <summary>
 /// INTERNAL: Maps between public API models and internal service models

@@ -1,4 +1,11 @@
-namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
+
+namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Validation;
+
+/// <summary>
+/// Public models for DataGrid Validation operations.
+/// Contains enums, DTOs, and statistics models used by IDataGridValidation interface.
+/// </summary>
 
 /// <summary>
 /// Public validation severity levels
