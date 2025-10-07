@@ -1,6 +1,5 @@
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 
-namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Validation;
+namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 
 /// <summary>
 /// Public models for DataGrid Validation operations.
@@ -23,6 +22,65 @@ public enum PublicValidationSeverity
 
     /// <summary>Critical error message</summary>
     Critical = 3
+}
+
+/// <summary>
+/// Public validation rule types
+/// </summary>
+public enum PublicValidationRuleType
+{
+    /// <summary>Required field validation</summary>
+    Required = 0,
+
+    /// <summary>Regular expression validation</summary>
+    Regex = 1,
+
+    /// <summary>Range validation</summary>
+    Range = 2,
+
+    /// <summary>Custom validation</summary>
+    Custom = 3
+}
+
+/// <summary>
+/// Public validation rule definition
+/// </summary>
+public class PublicValidationRule
+{
+    /// <summary>
+    /// Type of validation rule
+    /// </summary>
+    public PublicValidationRuleType RuleType { get; set; } = PublicValidationRuleType.Required;
+
+    /// <summary>
+    /// Error message to display when validation fails
+    /// </summary>
+    public string ErrorMessage { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Regular expression pattern (for Regex rule type)
+    /// </summary>
+    public string? RegexPattern { get; set; }
+
+    /// <summary>
+    /// Minimum value (for Range rule type)
+    /// </summary>
+    public object? MinValue { get; set; }
+
+    /// <summary>
+    /// Maximum value (for Range rule type)
+    /// </summary>
+    public object? MaxValue { get; set; }
+
+    /// <summary>
+    /// Custom validation function (for Custom rule type)
+    /// </summary>
+    public Func<object?, bool>? CustomValidator { get; set; }
+
+    /// <summary>
+    /// Validation severity level
+    /// </summary>
+    public PublicValidationSeverity Severity { get; set; } = PublicValidationSeverity.Error;
 }
 
 /// <summary>

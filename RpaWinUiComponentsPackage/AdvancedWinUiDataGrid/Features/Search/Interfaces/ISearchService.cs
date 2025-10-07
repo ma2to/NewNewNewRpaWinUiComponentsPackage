@@ -58,4 +58,32 @@ internal interface ISearchService
     IReadOnlyList<SearchMode> GetRecommendedSearchModes(
         IEnumerable<IReadOnlyDictionary<string, object?>> data,
         string searchText);
+
+    /// <summary>
+    /// Zvýrazní search matches v data grid
+    /// </summary>
+    Task<Result> HighlightSearchMatchesAsync(
+        SearchResultCollection searchResults,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Vymaže search highlights
+    /// </summary>
+    Task<Result> ClearSearchHighlightsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Prejde na ďalší search match
+    /// </summary>
+    Task<Result> GoToNextMatchAsync(
+        SearchResultCollection searchResults,
+        int currentMatchIndex,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Prejde na predchádzajúci search match
+    /// </summary>
+    Task<Result> GoToPreviousMatchAsync(
+        SearchResultCollection searchResults,
+        int currentMatchIndex,
+        CancellationToken cancellationToken = default);
 }

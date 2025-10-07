@@ -78,6 +78,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Remove="nul" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Update="Microsoft.Extensions.Logging.Abstractions" Version="9.0.9" />
     <PackageReference Update="Microsoft.WindowsAppSDK" Version="1.8.250916003" />
   </ItemGroup>

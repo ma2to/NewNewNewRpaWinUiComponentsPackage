@@ -1,3 +1,5 @@
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
+
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
 
 /// <summary>
@@ -21,6 +23,7 @@ public class PublicColumnDefinition
     public string? FormatString { get; set; }
     public object? DefaultValue { get; set; }
     public PublicSpecialColumnType SpecialType { get; set; } = PublicSpecialColumnType.None;
+    public List<PublicValidationRule>? ValidationRules { get; set; }
 }
 
 public enum PublicSpecialColumnType

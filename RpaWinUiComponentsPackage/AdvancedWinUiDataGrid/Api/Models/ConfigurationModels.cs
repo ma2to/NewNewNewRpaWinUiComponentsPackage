@@ -1,6 +1,22 @@
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 
 /// <summary>
+/// Public model for DataGrid configuration
+/// </summary>
+public class PublicDataGridConfiguration
+{
+    public bool EnableVirtualization { get; init; } = true;
+    public bool EnableBatchUpdates { get; init; } = true;
+    public bool EnableValidation { get; init; } = true;
+    public bool EnableZebraRows { get; init; } = false;
+    public int MinimumColumnWidth { get; init; } = 50;
+    public int MaximumColumnWidth { get; init; } = 500;
+    public int DefaultRowHeight { get; init; } = 32;
+
+    public static PublicDataGridConfiguration Default => new();
+}
+
+/// <summary>
 /// Public grid configuration
 /// </summary>
 public sealed class PublicGridConfiguration

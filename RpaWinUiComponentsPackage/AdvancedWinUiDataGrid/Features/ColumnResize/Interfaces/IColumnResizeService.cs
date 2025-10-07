@@ -46,4 +46,19 @@ internal interface IColumnResizeService
     /// </summary>
     /// <returns>True if resizing, false otherwise</returns>
     bool IsResizing();
+
+    /// <summary>
+    /// Auto-fit all columns to content width
+    /// </summary>
+    Task AutoFitAllColumnsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Auto-fit specific column to content width
+    /// </summary>
+    Task AutoFitColumnAsync(string columnName, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Resize column by name to specific width
+    /// </summary>
+    Task ResizeColumnAsync(string columnName, double width, CancellationToken cancellationToken = default);
 }

@@ -1,7 +1,7 @@
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Color;
 
-namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Mappings;
+namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Theming;
 
 /// <summary>
 /// Extension mappings for theme models

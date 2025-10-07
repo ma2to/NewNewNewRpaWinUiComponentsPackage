@@ -2,7 +2,7 @@ using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Filter.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 
-namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Mappings;
+namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Filtering;
 
 /// <summary>
 /// Extension methods for mapping filter-related types between public and internal representations

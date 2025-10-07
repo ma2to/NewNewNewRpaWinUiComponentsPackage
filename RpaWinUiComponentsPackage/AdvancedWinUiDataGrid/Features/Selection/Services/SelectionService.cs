@@ -18,14 +18,18 @@ internal sealed class SelectionService : ISelectionService
     private readonly ILogger<SelectionService> _logger;
     private readonly AdvancedDataGridOptions _options;
     private readonly IOperationLogger<SelectionService> _operationLogger;
+    private readonly ConcurrentDictionary<int, bool> _selectedRows = new();
+    private readonly Infrastructure.Persistence.Interfaces.IRowStore? _rowStore;
 
     public SelectionService(
         ILogger<SelectionService> logger,
         AdvancedDataGridOptions options,
-        IOperationLogger<SelectionService>? operationLogger = null)
+        IOperationLogger<SelectionService>? operationLogger = null,
+        Infrastructure.Persistence.Interfaces.IRowStore? rowStore = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _options = options ?? throw new ArgumentNullException(nameof(options));
+        _rowStore = rowStore;
 
         // Použijeme null pattern ak logger nie je poskytnutý
         _operationLogger = operationLogger ?? NullOperationLogger<SelectionService>.Instance;
@@ -729,4 +733,154 @@ internal sealed class SelectionService : ISelectionService
         _logger.LogDebug("Extending selection (internal) to ({Row},{Col})", row, col);
         // Implementation would extend selection with per-operation local state
     }
+
+    #region Public API Compatibility Methods
+
+    /// <summary>
+    /// Selects a specific row by index (async for public API)
+    /// </summary>
+    public async Task<Common.Models.Result> SelectRowAsync(int rowIndex, CancellationToken cancellationToken = default)
+    {
+        return await Task.Run(() =>
+        {
+            try
+            {
+                _logger.LogInformation("Selecting row {RowIndex}", rowIndex);
+                SelectRow(rowIndex);
+                _selectedRows[rowIndex] = true;
+                return Common.Models.Result.Success();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to select row {RowIndex}: {Message}", rowIndex, ex.Message);
+                return Common.Models.Result.Failure($"Failed to select row: {ex.Message}");
+            }
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Selects multiple rows by indices (async for public API)
+    /// </summary>
+    public async Task<Common.Models.Result> SelectRowsAsync(IEnumerable<int> rowIndices, CancellationToken cancellationToken = default)
+    {
+        return await Task.Run(() =>
+        {
+            try
+            {
+                var indices = rowIndices.ToList();
+                _logger.LogInformation("Selecting {Count} rows", indices.Count);
+
+                foreach (var rowIndex in indices)
+                {
+                    SelectRow(rowIndex);
+                    _selectedRows[rowIndex] = true;
+                }
+
+                return Common.Models.Result.Success();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to select rows: {Message}", ex.Message);
+                return Common.Models.Result.Failure($"Failed to select rows: {ex.Message}");
+            }
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Selects a range of rows (async for public API)
+    /// </summary>
+    public async Task<Common.Models.Result> SelectRowRangeAsync(int startRowIndex, int endRowIndex, CancellationToken cancellationToken = default)
+    {
+        return await Task.Run(() =>
+        {
+            try
+            {
+                _logger.LogInformation("Selecting row range [{Start}-{End}]", startRowIndex, endRowIndex);
+
+                var start = Math.Min(startRowIndex, endRowIndex);
+                var end = Math.Max(startRowIndex, endRowIndex);
+
+                for (int i = start; i <= end; i++)
+                {
+                    SelectRow(i);
+                    _selectedRows[i] = true;
+                }
+
+                return Common.Models.Result.Success();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to select row range: {Message}", ex.Message);
+                return Common.Models.Result.Failure($"Failed to select row range: {ex.Message}");
+            }
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Selects all rows (async for public API)
+    /// </summary>
+    public async Task<Common.Models.Result> SelectAllRowsAsync(CancellationToken cancellationToken = default)
+    {
+        return await Task.Run(() =>
+        {
+            try
+            {
+                _logger.LogInformation("Selecting all rows");
+                SelectAll();
+                return Common.Models.Result.Success();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to select all rows: {Message}", ex.Message);
+                return Common.Models.Result.Failure($"Failed to select all rows: {ex.Message}");
+            }
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Clears all selections (public API compatibility)
+    /// Calls the synchronous ClearSelection method
+    /// </summary>
+    public Task<Common.Models.Result> ClearSelectionPublicAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation("Clearing selection (public API)");
+            ClearSelection();
+            _selectedRows.Clear();
+            return Task.FromResult(Common.Models.Result.Success());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to clear selection: {Message}", ex.Message);
+            return Task.FromResult(Common.Models.Result.Failure($"Failed to clear selection: {ex.Message}"));
+        }
+    }
+
+    /// <summary>
+    /// Gets indices of selected rows (public API compatibility)
+    /// </summary>
+    public IReadOnlyList<int> GetSelectedRowIndices()
+    {
+        var selectedRows = GetSelectedRows();
+        return selectedRows;
+    }
+
+    /// <summary>
+    /// Gets count of selected rows (public API compatibility)
+    /// </summary>
+    public int GetSelectedRowCount()
+    {
+        return GetSelectedRows().Count;
+    }
+
+    /// <summary>
+    /// Gets data from selected rows (public API compatibility)
+    /// </summary>
+    public IReadOnlyList<IReadOnlyDictionary<string, object?>> GetSelectedRowsData()
+    {
+        return GetSelectedData();
+    }
+
+    #endregion
 }

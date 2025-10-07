@@ -539,4 +539,99 @@ internal sealed class AutoRowHeightService : IAutoRowHeightService
     }
 
     #endregion
+
+    #region Simple Wrapper Methods for Public API
+
+    // Tieto metódy slúžia ako jednoduché wrappery pre DataGridAutoRowHeight v /Api
+    // Mapujú jednoduché volania na command-based internal API
+
+    async Task<Common.Models.Result> IAutoRowHeightService.EnableAutoRowHeightAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await this.EnableAutoRowHeightAsync(AutoRowHeightConfiguration.Default, cancellationToken);
+            return result.IsSuccess
+                ? Common.Models.Result.Success()
+                : Common.Models.Result.Failure(result.ErrorMessage ?? "Enable failed");
+        }
+        catch (Exception ex)
+        {
+            return Common.Models.Result.Failure($"Enable auto row height failed: {ex.Message}");
+        }
+    }
+
+    public async Task<Common.Models.Result> DisableAutoRowHeightAsync(CancellationToken cancellationToken = default)
+    {
+        await Task.CompletedTask;
+        _isEnabled = false;
+        _currentConfiguration = _currentConfiguration with { IsEnabled = false };
+        _logger.LogInformation("Auto row height disabled");
+        return Common.Models.Result.Success();
+    }
+
+    public async Task<Common.Models.Result<double>> AdjustRowHeightAsync(int rowIndex, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var rowData = await _rowStore.GetRowAsync(rowIndex, cancellationToken);
+            if (rowData == null)
+                return Common.Models.Result<double>.Failure("Row not found");
+
+            var result = await CalculateRowHeightAsync(rowIndex, rowData, null, cancellationToken);
+            return result.IsSuccess
+                ? Common.Models.Result<double>.Success(result.CalculatedHeight)
+                : Common.Models.Result<double>.Failure(result.ErrorMessage ?? "Calculation failed");
+        }
+        catch (Exception ex)
+        {
+            return Common.Models.Result<double>.Failure($"Adjust row height failed: {ex.Message}");
+        }
+    }
+
+    public async Task<Common.Models.Result> AdjustAllRowHeightsAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var results = await CalculateOptimalRowHeightsAsync(null, cancellationToken);
+            var failedCount = results.Count(r => !r.IsSuccess);
+            return failedCount == 0
+                ? Common.Models.Result.Success()
+                : Common.Models.Result.Failure($"{failedCount} rows failed calculation");
+        }
+        catch (Exception ex)
+        {
+            return Common.Models.Result.Failure($"Adjust all row heights failed: {ex.Message}");
+        }
+    }
+
+    public Common.Models.Result SetMinRowHeight(double height)
+    {
+        _currentConfiguration = _currentConfiguration with { MinimumRowHeight = height };
+        _logger.LogInformation("Minimum row height set to {Height}", height);
+        return Common.Models.Result.Success();
+    }
+
+    public Common.Models.Result SetMaxRowHeight(double height)
+    {
+        _currentConfiguration = _currentConfiguration with { MaximumRowHeight = height };
+        _logger.LogInformation("Maximum row height set to {Height}", height);
+        return Common.Models.Result.Success();
+    }
+
+    public bool IsAutoRowHeightEnabled()
+    {
+        return _isEnabled;
+    }
+
+    public double GetMinRowHeight()
+    {
+        return _currentConfiguration.MinimumRowHeight;
+    }
+
+    public double GetMaxRowHeight()
+    {
+        return _currentConfiguration.MaximumRowHeight;
+    }
+
+    #endregion
 }

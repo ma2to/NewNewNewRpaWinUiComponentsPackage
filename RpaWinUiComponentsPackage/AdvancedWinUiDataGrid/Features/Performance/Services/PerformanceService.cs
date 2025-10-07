@@ -18,6 +18,8 @@ internal sealed class PerformanceService : IPerformanceService
     private long _totalOperations = 0;
     private long _totalErrors = 0;
     private readonly Stopwatch _uptime = Stopwatch.StartNew();
+    private bool _virtualizationEnabled = true;
+    private int _renderingThrottleMs = 16;
 
     public PerformanceService(ILogger<PerformanceService> logger)
     {
@@ -146,5 +148,67 @@ internal sealed class PerformanceService : IPerformanceService
         }
 
         return PerformanceThreshold.Normal;
+    }
+
+    // Wrapper methods for public API
+    public async Task<PerformanceMetrics> GetPerformanceMetrics()
+    {
+        var process = Process.GetCurrentProcess();
+        return new PerformanceMetrics
+        {
+            TotalOperations = _totalOperations,
+            TotalErrors = _totalErrors,
+            MemoryUsageMB = GC.GetTotalMemory(false) / 1024 / 1024,
+            ThreadCount = process.Threads.Count,
+            Uptime = _uptime.Elapsed
+        };
+    }
+
+    public async Task ResetPerformanceMetrics()
+    {
+        Interlocked.Exchange(ref _totalOperations, 0);
+        Interlocked.Exchange(ref _totalErrors, 0);
+        _logger.LogInformation("Performance metrics reset");
+    }
+
+    public async Task EnableVirtualizationAsync(CancellationToken cancellationToken = default)
+    {
+        _virtualizationEnabled = true;
+        _logger.LogInformation("Virtualization enabled");
+    }
+
+    public async Task DisableVirtualizationAsync(CancellationToken cancellationToken = default)
+    {
+        _virtualizationEnabled = false;
+        _logger.LogInformation("Virtualization disabled");
+    }
+
+    public async Task OptimizeMemoryAsync(CancellationToken cancellationToken = default)
+    {
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, true, true);
+        GC.WaitForPendingFinalizers();
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, true, true);
+        _logger.LogInformation("Memory optimized");
+    }
+
+    public long GetMemoryUsage()
+    {
+        return GC.GetTotalMemory(false);
+    }
+
+    public bool IsVirtualizationEnabled()
+    {
+        return _virtualizationEnabled;
+    }
+
+    public async Task SetRenderingThrottle(int milliseconds)
+    {
+        _renderingThrottleMs = milliseconds;
+        _logger.LogInformation("Rendering throttle set to {Milliseconds}ms", milliseconds);
+    }
+
+    public int GetRenderingThrottle()
+    {
+        return _renderingThrottleMs;
     }
 }

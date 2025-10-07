@@ -180,6 +180,48 @@ internal interface ISelectionService
     /// <param name="row">Row index</param>
     /// <param name="col">Column index</param>
     void ExtendSelectionInternal(int row, int col);
+
+    // PUBLIC API COMPATIBILITY METHODS
+
+    /// <summary>
+    /// Selects a specific row by index (async for public API)
+    /// </summary>
+    Task<Common.Models.Result> SelectRowAsync(int rowIndex, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Selects multiple rows by indices (async for public API)
+    /// </summary>
+    Task<Common.Models.Result> SelectRowsAsync(IEnumerable<int> rowIndices, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Selects a range of rows (async for public API)
+    /// </summary>
+    Task<Common.Models.Result> SelectRowRangeAsync(int startRowIndex, int endRowIndex, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Selects all rows (async for public API)
+    /// </summary>
+    Task<Common.Models.Result> SelectAllRowsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Clears all selections (public API compatibility)
+    /// </summary>
+    Task<Common.Models.Result> ClearSelectionPublicAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets indices of selected rows (public API compatibility)
+    /// </summary>
+    IReadOnlyList<int> GetSelectedRowIndices();
+
+    /// <summary>
+    /// Gets count of selected rows (public API compatibility)
+    /// </summary>
+    int GetSelectedRowCount();
+
+    /// <summary>
+    /// Gets data from selected rows (public API compatibility)
+    /// </summary>
+    IReadOnlyList<IReadOnlyDictionary<string, object?>> GetSelectedRowsData();
 }
 
 /// <summary>

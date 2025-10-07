@@ -21,6 +21,7 @@ internal sealed class CellEditService : ICellEditService
     private readonly AdvancedDataGridOptions _options;
     private EditSession? _currentEditSession;
     private readonly object _sessionLock = new();
+    private bool _editingEnabled = true;
 
     /// <summary>
     /// Constructor for CellEditService
@@ -319,5 +320,45 @@ internal sealed class CellEditService : ICellEditService
         {
             return _currentEditSession != null && _currentEditSession.IsActive;
         }
+    }
+
+    /// <summary>
+    /// Checks if currently editing (alias for HasActiveEditSession)
+    /// </summary>
+    public bool IsEditing()
+    {
+        return HasActiveEditSession();
+    }
+
+    /// <summary>
+    /// Gets the current edit position (row and column)
+    /// </summary>
+    public (int rowIndex, string columnName)? GetCurrentEditPosition()
+    {
+        lock (_sessionLock)
+        {
+            if (_currentEditSession == null || !_currentEditSession.IsActive)
+            {
+                return null;
+            }
+            return (_currentEditSession.RowIndex, _currentEditSession.ColumnName);
+        }
+    }
+
+    /// <summary>
+    /// Sets whether editing is enabled globally
+    /// </summary>
+    public void SetEditingEnabled(bool enabled)
+    {
+        _editingEnabled = enabled;
+        _logger.LogInformation("Cell editing globally {Status}", enabled ? "enabled" : "disabled");
+    }
+
+    /// <summary>
+    /// Checks if editing is enabled globally
+    /// </summary>
+    public bool IsEditingEnabled()
+    {
+        return _editingEnabled;
     }
 }

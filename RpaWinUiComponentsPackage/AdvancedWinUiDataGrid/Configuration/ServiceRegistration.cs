@@ -67,11 +67,33 @@ internal static class ServiceRegistration
         // COLUMN RESIZE FEATURE
         Features.ColumnResize.Registration.AddColumnResizeFeature(services);
 
+        // CONFIGURATION FEATURE
+        Features.Configuration.Registration.Register(services, options);
+
         // Facade implementation (internal)
         services.AddScoped<AdvancedDataGridFacade>();
         services.AddScoped<IAdvancedDataGridFacade>(sp => sp.GetRequiredService<AdvancedDataGridFacade>());
 
-        // Note: Modular facades are created via DataGridModuleFactory, not registered here
+        // Register modular API facades (public interfaces with namespace separation)
+        services.AddScoped<IO.IDataGridIO, IO.DataGridIO>();
+        services.AddScoped<Validation.IDataGridValidation, Validation.DataGridValidation>();
+        services.AddScoped<Search.IDataGridSearch, Search.DataGridSearch>();
+        services.AddScoped<Sorting.IDataGridSorting, Sorting.DataGridSorting>();
+        services.AddScoped<Filtering.IDataGridFiltering, Filtering.DataGridFiltering>();
+        services.AddScoped<Selection.IDataGridSelection, Selection.DataGridSelection>();
+        services.AddScoped<Columns.IDataGridColumns, Columns.DataGridColumns>();
+        services.AddScoped<Rows.IDataGridRows, Rows.DataGridRows>();
+        services.AddScoped<SmartOperations.IDataGridSmartOperations, SmartOperations.DataGridSmartOperations>();
+        services.AddScoped<Batch.IDataGridBatch, Batch.DataGridBatch>();
+        services.AddScoped<Editing.IDataGridEditing, Editing.DataGridEditing>();
+        services.AddScoped<Clipboard.IDataGridClipboard, Clipboard.DataGridClipboard>();
+        services.AddScoped<AutoRowHeight.IDataGridAutoRowHeight, AutoRowHeight.DataGridAutoRowHeight>();
+        services.AddScoped<Shortcuts.IDataGridShortcuts, Shortcuts.DataGridShortcuts>();
+        services.AddScoped<Theming.IDataGridTheming, Theming.DataGridTheming>();
+        services.AddScoped<Performance.IDataGridPerformance, Performance.DataGridPerformance>();
+        services.AddScoped<MVVM.IDataGridMVVM, MVVM.DataGridMVVM>();
+        services.AddScoped<Notifications.IDataGridNotifications, Notifications.DataGridNotifications>();
+        services.AddScoped<Configuration.IDataGridConfiguration, Configuration.DataGridConfiguration>();
 
         return services;
     }
@@ -85,6 +107,9 @@ internal static class ServiceRegistration
         if (options.LoggerFactory != null)
         {
             services.AddSingleton(options.LoggerFactory);
+
+            // Register generic ILogger<T> using the ILoggerFactory
+            services.AddSingleton(typeof(ILogger<>), typeof(Logger<>));
         }
 
         // Register dispatcher queue for UI mode

@@ -545,4 +545,140 @@ internal sealed class SortService : ISortService
             return Common.Models.Result.Failure($"Validation error: {ex.Message}");
         }
     }
+
+    #region Public API Compatibility Methods
+
+    /// <summary>
+    /// Sort by multiple columns (public API compatibility)
+    /// </summary>
+    public async Task<Common.Models.Result> SortByMultipleColumnsAsync(IReadOnlyList<CoreTypes.SortColumnConfiguration> sortDescriptors, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (_rowStore == null)
+            {
+                _logger.LogWarning("RowStore not available for multi-column sort");
+                return Common.Models.Result.Failure("RowStore not available");
+            }
+
+            _logger.LogInformation("Multi-column sort: {ColumnCount} columns", sortDescriptors.Count);
+
+            var allRows = await _rowStore.GetAllRowsAsync(cancellationToken);
+
+            // Build OrderBy -> ThenBy chain
+            IOrderedEnumerable<IReadOnlyDictionary<string, object?>> orderedData = null!;
+            var enabledSorts = sortDescriptors.Where(s => s.IsEnabled && s.Direction != CoreTypes.SortDirection.None).OrderBy(s => s.Priority).ToList();
+
+            if (!enabledSorts.Any())
+            {
+                return Common.Models.Result.Success();
+            }
+
+            foreach (var (sortConfig, index) in enabledSorts.Select((s, i) => (s, i)))
+            {
+                if (index == 0)
+                {
+                    orderedData = sortConfig.Direction == CoreTypes.SortDirection.Ascending
+                        ? allRows.OrderBy(row => SortAlgorithms.GetSortValue(row, sortConfig.ColumnName))
+                        : allRows.OrderByDescending(row => SortAlgorithms.GetSortValue(row, sortConfig.ColumnName));
+                }
+                else
+                {
+                    orderedData = sortConfig.Direction == CoreTypes.SortDirection.Ascending
+                        ? orderedData.ThenBy(row => SortAlgorithms.GetSortValue(row, sortConfig.ColumnName))
+                        : orderedData.ThenByDescending(row => SortAlgorithms.GetSortValue(row, sortConfig.ColumnName));
+                }
+            }
+
+            var sortedRows = orderedData?.ToList() ?? allRows.ToList();
+            await _rowStore.ReplaceAllRowsAsync(sortedRows, cancellationToken);
+
+            _currentSort = enabledSorts.Select(s => (s.ColumnName, s.Direction)).ToList();
+
+            _logger.LogInformation("Multi-column sort completed: {RowCount} rows", sortedRows.Count);
+            return Common.Models.Result.Success();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Multi-column sort failed: {Message}", ex.Message);
+            return Common.Models.Result.Failure($"Multi-column sort failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Clear sorting (public API compatibility)
+    /// </summary>
+    public async Task<Common.Models.Result> ClearSortingAsync(CancellationToken cancellationToken = default)
+    {
+        var success = await ClearSortAsync(cancellationToken);
+        return success ? Common.Models.Result.Success() : Common.Models.Result.Failure("Failed to clear sorting");
+    }
+
+    /// <summary>
+    /// Get current sort descriptors (public API compatibility)
+    /// </summary>
+    public IReadOnlyList<CoreTypes.SortColumnConfiguration> GetCurrentSortDescriptors()
+    {
+        return _currentSort
+            .Select((s, index) => CoreTypes.SortColumnConfiguration.Create(s.ColumnName, s.Direction, priority: index))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Toggle sort direction for column (public API compatibility)
+    /// None -> Ascending -> Descending -> None
+    /// </summary>
+    public async Task<Common.Models.Result<CoreTypes.SortDirection>> ToggleSortDirectionAsync(string columnName, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var currentDirection = GetColumnSortDirection(columnName);
+
+            var newDirection = currentDirection switch
+            {
+                CoreTypes.SortDirection.None => CoreTypes.SortDirection.Ascending,
+                CoreTypes.SortDirection.Ascending => CoreTypes.SortDirection.Descending,
+                CoreTypes.SortDirection.Descending => CoreTypes.SortDirection.None,
+                _ => CoreTypes.SortDirection.Ascending
+            };
+
+            if (newDirection == CoreTypes.SortDirection.None)
+            {
+                await ClearSortAsync(cancellationToken);
+            }
+            else
+            {
+                await SortByColumnAsync(columnName, newDirection, cancellationToken);
+            }
+
+            _logger.LogInformation("Toggled sort direction for {ColumnName}: {OldDirection} -> {NewDirection}",
+                columnName, currentDirection, newDirection);
+
+            return Common.Models.Result<CoreTypes.SortDirection>.Success(newDirection);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Toggle sort direction failed for {ColumnName}: {Message}", columnName, ex.Message);
+            return Common.Models.Result<CoreTypes.SortDirection>.Failure($"Toggle failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Check if column is sorted (public API compatibility)
+    /// </summary>
+    public bool IsColumnSorted(string columnName)
+    {
+        return _currentSort.Any(s => s.ColumnName.Equals(columnName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Get column sort direction (public API compatibility)
+    /// </summary>
+    public CoreTypes.SortDirection GetColumnSortDirection(string columnName)
+    {
+        var sort = _currentSort.FirstOrDefault(s => s.ColumnName.Equals(columnName, StringComparison.OrdinalIgnoreCase));
+        return sort.ColumnName != null ? sort.Direction : CoreTypes.SortDirection.None;
+    }
+
+    #endregion
 }

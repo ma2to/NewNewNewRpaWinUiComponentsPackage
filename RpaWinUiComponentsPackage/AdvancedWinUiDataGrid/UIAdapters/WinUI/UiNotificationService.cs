@@ -233,6 +233,43 @@ internal sealed class UiNotificationService
     public event Action<string, double, string?>? OnOperationProgress;
 
     /// <summary>
+    /// Event raised when data changes
+    /// </summary>
+    public event EventHandler<DataChangedEventArgs>? DataChanged;
+
+    /// <summary>
+    /// Event raised when validation state changes
+    /// </summary>
+    public event EventHandler<ValidationChangedEventArgs>? ValidationChanged;
+
+    /// <summary>
+    /// Event raised when a cell is edited
+    /// </summary>
+    public event EventHandler<CellEditedEventArgs>? CellEdited;
+
+    /// <summary>
+    /// Event raised when selection changes
+    /// </summary>
+    public event EventHandler<SelectionChangedEventArgs>? SelectionChanged;
+
+    /// <summary>
+    /// Event raised for custom notifications
+    /// </summary>
+    public event EventHandler<CustomNotificationEventArgs>? CustomNotification;
+
+    /// <summary>
+    /// Raise custom notification event
+    /// </summary>
+    public void RaiseCustomNotification(string message, object? data = null)
+    {
+        ExecuteOnUIThread(() =>
+        {
+            _logger.LogInformation("Custom notification: {Message}", message);
+            CustomNotification?.Invoke(this, new CustomNotificationEventArgs { Message = message, Data = data });
+        });
+    }
+
+    /// <summary>
     /// Dispose the service and clean up resources
     /// </summary>
     public void Dispose()
@@ -246,7 +283,58 @@ internal sealed class UiNotificationService
         OnValidationResultsRefreshed = null;
         OnDataRefreshed = null;
         OnOperationProgress = null;
+        DataChanged = null;
+        ValidationChanged = null;
+        CellEdited = null;
+        SelectionChanged = null;
+        CustomNotification = null;
 
         _logger.LogDebug("UiNotificationService disposed");
     }
+}
+
+/// <summary>
+/// Event args for data changed events
+/// </summary>
+internal class DataChangedEventArgs : EventArgs
+{
+    public string OperationType { get; init; } = string.Empty;
+    public int AffectedRowCount { get; init; }
+}
+
+/// <summary>
+/// Event args for validation changed events
+/// </summary>
+internal class ValidationChangedEventArgs : EventArgs
+{
+    public int ErrorCount { get; init; }
+    public bool HasErrors { get; init; }
+}
+
+/// <summary>
+/// Event args for cell edited events
+/// </summary>
+internal class CellEditedEventArgs : EventArgs
+{
+    public int RowIndex { get; init; }
+    public string ColumnName { get; init; } = string.Empty;
+    public object? OldValue { get; init; }
+    public object? NewValue { get; init; }
+}
+
+/// <summary>
+/// Event args for selection changed events
+/// </summary>
+internal class SelectionChangedEventArgs : EventArgs
+{
+    public IReadOnlyList<int> SelectedRowIndices { get; init; } = Array.Empty<int>();
+}
+
+/// <summary>
+/// Event args for custom notifications
+/// </summary>
+internal class CustomNotificationEventArgs : EventArgs
+{
+    public string Message { get; init; } = string.Empty;
+    public object? Data { get; init; }
 }

@@ -2,7 +2,6 @@ using System.Data;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.AutoRowHeight.Interfaces;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Commands;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
@@ -434,6 +433,14 @@ public interface IAdvancedDataGridFacade : IAsyncDisposable
     Task<int> AddRowAsync(IReadOnlyDictionary<string, object?> rowData);
 
     /// <summary>
+    /// Adds multiple rows to the grid in a single batch operation (high performance)
+    /// </summary>
+    /// <param name="rows">Collection of rows to add</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Number of rows added</returns>
+    Task<int> AddRowsBatchAsync(IEnumerable<IReadOnlyDictionary<string, object?>> rows, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Removes a row by index
     /// </summary>
     /// <param name="rowIndex">Index of row to remove</param>
@@ -466,6 +473,47 @@ public interface IAdvancedDataGridFacade : IAsyncDisposable
     /// </summary>
     /// <returns>Visible row count</returns>
     int GetVisibleRowCount();
+
+    /// <summary>
+    /// Clears all rows from the grid
+    /// </summary>
+    /// <returns>Task representing the asynchronous operation</returns>
+    Task ClearAllRowsAsync();
+
+    /// <summary>
+    /// Gets a column definition by name
+    /// </summary>
+    /// <param name="columnName">Name of the column</param>
+    /// <returns>Column definition or null if not found</returns>
+    PublicColumnDefinition? GetColumn(string columnName);
+
+    /// <summary>
+    /// Selects a row by index
+    /// </summary>
+    /// <param name="rowIndex">Index of row to select</param>
+    /// <returns>Task representing the asynchronous operation</returns>
+    Task SelectRowAsync(int rowIndex);
+
+    /// <summary>
+    /// Clears all selections
+    /// </summary>
+    /// <returns>Task representing the asynchronous operation</returns>
+    Task ClearSelectionAsync();
+
+    /// <summary>
+    /// Clears the current filter
+    /// </summary>
+    /// <returns>Task representing the asynchronous operation</returns>
+    Task ClearFilterAsync();
+
+    /// <summary>
+    /// Updates a cell value with simplified signature
+    /// </summary>
+    /// <param name="rowIndex">Row index</param>
+    /// <param name="columnName">Column name</param>
+    /// <param name="value">New value</param>
+    /// <returns>Task representing the asynchronous operation</returns>
+    Task UpdateCellAsync(int rowIndex, string columnName, object? value);
 
     #region AutoRowHeight API
 

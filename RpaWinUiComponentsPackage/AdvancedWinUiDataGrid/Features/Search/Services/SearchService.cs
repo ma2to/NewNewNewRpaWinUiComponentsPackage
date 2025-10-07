@@ -861,4 +861,182 @@ internal sealed class SearchService : ISearchService
     }
 
     #endregion
+
+    #region Search Navigation Methods
+
+    /// <summary>
+    /// Zvýrazní search matches v data grid
+    /// </summary>
+    public async Task<Result> HighlightSearchMatchesAsync(
+        SearchResultCollection searchResults,
+        CancellationToken cancellationToken = default)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        var operationId = Guid.NewGuid();
+
+        _logger.LogInformation("HighlightSearchMatchesAsync {OperationId}: highlighting {Count} matches",
+            operationId, searchResults.Results.Count);
+
+        try
+        {
+            await Task.CompletedTask; // Placeholder for async implementation
+
+            // TODO: Implement actual highlighting logic when UI layer is connected
+            // This would typically involve:
+            // - Applying visual styles to matched cells
+            // - Storing highlight state for rendering
+            // - Triggering UI refresh
+
+            stopwatch.Stop();
+
+            _logger.LogInformation("HighlightSearchMatchesAsync {OperationId} completed in {Duration}ms",
+                operationId, stopwatch.ElapsedMilliseconds);
+
+            return Result.Success();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "HighlightSearchMatchesAsync {OperationId} failed: {Message}",
+                operationId, ex.Message);
+            return Result.Failure($"Highlight failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Vymaže search highlights
+    /// </summary>
+    public async Task<Result> ClearSearchHighlightsAsync(CancellationToken cancellationToken = default)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        var operationId = Guid.NewGuid();
+
+        _logger.LogInformation("ClearSearchHighlightsAsync {OperationId}: clearing all highlights", operationId);
+
+        try
+        {
+            await Task.CompletedTask; // Placeholder for async implementation
+
+            // TODO: Implement actual clear highlights logic when UI layer is connected
+            // This would typically involve:
+            // - Removing all visual highlight styles
+            // - Clearing highlight state
+            // - Triggering UI refresh
+
+            stopwatch.Stop();
+
+            _logger.LogInformation("ClearSearchHighlightsAsync {OperationId} completed in {Duration}ms",
+                operationId, stopwatch.ElapsedMilliseconds);
+
+            return Result.Success();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "ClearSearchHighlightsAsync {OperationId} failed: {Message}",
+                operationId, ex.Message);
+            return Result.Failure($"Clear highlights failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Prejde na ďalší search match
+    /// </summary>
+    public async Task<Result> GoToNextMatchAsync(
+        SearchResultCollection searchResults,
+        int currentMatchIndex,
+        CancellationToken cancellationToken = default)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        var operationId = Guid.NewGuid();
+
+        _logger.LogInformation("GoToNextMatchAsync {OperationId}: current index={CurrentIndex}, total matches={TotalMatches}",
+            operationId, currentMatchIndex, searchResults.Results.Count);
+
+        try
+        {
+            await Task.CompletedTask; // Placeholder for async implementation
+
+            if (searchResults.Results.Count == 0)
+            {
+                _logger.LogWarning("GoToNextMatchAsync {OperationId}: no matches available", operationId);
+                return Result.Failure("No search matches available");
+            }
+
+            var nextIndex = (currentMatchIndex + 1) % searchResults.Results.Count;
+            var nextMatch = searchResults.Results[nextIndex];
+
+            // TODO: Implement actual navigation when UI layer is connected
+            // This would typically involve:
+            // - Scrolling to the next match row/cell
+            // - Highlighting the current match
+            // - Updating selection state
+
+            stopwatch.Stop();
+
+            _logger.LogInformation("GoToNextMatchAsync {OperationId} completed in {Duration}ms: moved to match {NextIndex}",
+                operationId, stopwatch.ElapsedMilliseconds, nextIndex);
+
+            return Result.Success();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GoToNextMatchAsync {OperationId} failed: {Message}",
+                operationId, ex.Message);
+            return Result.Failure($"Navigate to next match failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Prejde na predchádzajúci search match
+    /// </summary>
+    public async Task<Result> GoToPreviousMatchAsync(
+        SearchResultCollection searchResults,
+        int currentMatchIndex,
+        CancellationToken cancellationToken = default)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        var operationId = Guid.NewGuid();
+
+        _logger.LogInformation("GoToPreviousMatchAsync {OperationId}: current index={CurrentIndex}, total matches={TotalMatches}",
+            operationId, currentMatchIndex, searchResults.Results.Count);
+
+        try
+        {
+            await Task.CompletedTask; // Placeholder for async implementation
+
+            if (searchResults.Results.Count == 0)
+            {
+                _logger.LogWarning("GoToPreviousMatchAsync {OperationId}: no matches available", operationId);
+                return Result.Failure("No search matches available");
+            }
+
+            var previousIndex = currentMatchIndex - 1;
+            if (previousIndex < 0)
+            {
+                previousIndex = searchResults.Results.Count - 1;
+            }
+
+            var previousMatch = searchResults.Results[previousIndex];
+
+            // TODO: Implement actual navigation when UI layer is connected
+            // This would typically involve:
+            // - Scrolling to the previous match row/cell
+            // - Highlighting the current match
+            // - Updating selection state
+
+            stopwatch.Stop();
+
+            _logger.LogInformation("GoToPreviousMatchAsync {OperationId} completed in {Duration}ms: moved to match {PreviousIndex}",
+                operationId, stopwatch.ElapsedMilliseconds, previousIndex);
+
+            return Result.Success();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GoToPreviousMatchAsync {OperationId} failed: {Message}",
+                operationId, ex.Message);
+            return Result.Failure($"Navigate to previous match failed: {ex.Message}");
+        }
+    }
+
+    #endregion
 }

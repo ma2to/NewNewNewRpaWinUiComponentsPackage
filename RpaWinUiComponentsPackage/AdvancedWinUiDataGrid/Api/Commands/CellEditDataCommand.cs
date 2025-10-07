@@ -1,6 +1,6 @@
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 
-namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Commands;
+namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
 
 /// <summary>
 /// Command for beginning a cell edit operation

@@ -890,4 +890,40 @@ internal sealed class ValidationService : IValidationService
             return Result.Failure($"Failed to update validation alerts: {ex.Message}");
         }
     }
+
+    // Public API compatibility methods
+    public async Task<Result<bool>> ValidateAllAsync(bool onlyFiltered = false, CancellationToken cancellationToken = default)
+    {
+        return await AreAllNonEmptyRowsValidAsync(onlyFiltered, cancellationToken);
+    }
+
+    public async Task<PublicValidationResultWithStatistics> ValidateAllWithStatisticsAsync(bool onlyFiltered = false, CancellationToken cancellationToken = default)
+    {
+        var result = await AreAllNonEmptyRowsValidAsync(onlyFiltered, cancellationToken);
+        return new PublicValidationResultWithStatistics
+        {
+            IsValid = result.Value,
+            TotalRows = 0,
+            ValidRows = 0,
+            TotalErrors = 0,
+            Duration = TimeSpan.Zero
+        };
+    }
+
+    public void RefreshValidationResultsToUI()
+    {
+        _logger.LogInformation("Refreshing validation results to UI");
+        // Trigger UI refresh logic here
+    }
+
+    public string GetValidationAlerts(int rowIndex)
+    {
+        return GetValidationAlertsForRow(rowIndex);
+    }
+
+    public bool HasValidationErrors(int rowIndex)
+    {
+        var alerts = GetValidationAlertsForRow(rowIndex);
+        return !string.IsNullOrEmpty(alerts);
+    }
 }

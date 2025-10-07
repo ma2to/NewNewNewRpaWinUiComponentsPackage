@@ -3,7 +3,7 @@ using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Configuration;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Commands;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Models;
 
-namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Internal;
+namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Configuration;
 
 /// <summary>
 /// Mapping extensions medzi public a internal Initialization models

@@ -480,4 +480,80 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
     }
 
     #endregion
+
+    #region Public API Compatibility Methods
+
+    public async Task<int> AddRowAsync(IReadOnlyDictionary<string, object?> rowData, CancellationToken cancellationToken = default)
+    {
+        await AppendRowsAsync(new[] { rowData }, cancellationToken);
+        return _rows.Count - 1; // Return index of added row
+    }
+
+    public async Task<int> AddRowsAsync(IEnumerable<IReadOnlyDictionary<string, object?>> rowsData, CancellationToken cancellationToken = default)
+    {
+        var rowsList = rowsData.ToList();
+        await AppendRowsAsync(rowsList, cancellationToken);
+        return rowsList.Count;
+    }
+
+    public async Task InsertRowAsync(int rowIndex, IReadOnlyDictionary<string, object?> rowData, CancellationToken cancellationToken = default)
+    {
+        await InsertRowsAsync(new[] { rowData }, rowIndex, cancellationToken);
+    }
+
+    public async Task RemoveRowAsync(int rowIndex, CancellationToken cancellationToken = default)
+    {
+        await Task.Run(() =>
+        {
+            _rows.TryRemove(rowIndex, out _);
+        }, cancellationToken);
+    }
+
+    public async Task<int> RemoveRowsAsync(IEnumerable<int> rowIndices, CancellationToken cancellationToken = default)
+    {
+        return await Task.Run(() =>
+        {
+            var indices = rowIndices.ToList();
+            var removed = 0;
+            foreach (var index in indices)
+            {
+                if (_rows.TryRemove(index, out _))
+                {
+                    removed++;
+                }
+            }
+            return removed;
+        }, cancellationToken);
+    }
+
+    public async Task ClearAllRowsAsync(CancellationToken cancellationToken = default)
+    {
+        await ClearAsync(cancellationToken);
+    }
+
+    public IReadOnlyDictionary<string, object?>? GetRow(int rowIndex)
+    {
+        if (rowIndex >= 0 && rowIndex < _rows.Count)
+        {
+            return _rows[rowIndex];
+        }
+        return null;
+    }
+
+    public IReadOnlyList<IReadOnlyDictionary<string, object?>> GetAllRows()
+    {
+        return _rows.Values.ToList();
+    }
+
+    public int GetRowCount()
+    {
+        return _rows.Count;
+    }
+
+    public bool RowExists(int rowIndex)
+    {
+        return rowIndex >= 0 && rowIndex < _rows.Count;
+    }
+
+    #endregion
 }

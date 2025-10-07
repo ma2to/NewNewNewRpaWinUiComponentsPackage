@@ -39,4 +39,27 @@ internal interface IPerformanceService
     /// Get performance statistics
     /// </summary>
     PerformanceStatistics GetPerformanceStatistics();
+
+    // Wrapper methods for public API
+    Task<PerformanceMetrics> GetPerformanceMetrics();
+    Task ResetPerformanceMetrics();
+    Task EnableVirtualizationAsync(CancellationToken cancellationToken = default);
+    Task DisableVirtualizationAsync(CancellationToken cancellationToken = default);
+    Task OptimizeMemoryAsync(CancellationToken cancellationToken = default);
+    long GetMemoryUsage();
+    bool IsVirtualizationEnabled();
+    Task SetRenderingThrottle(int milliseconds);
+    int GetRenderingThrottle();
+}
+
+/// <summary>
+/// Performance metrics for public API
+/// </summary>
+internal class PerformanceMetrics
+{
+    public long TotalOperations { get; init; }
+    public long TotalErrors { get; init; }
+    public long MemoryUsageMB { get; init; }
+    public int ThreadCount { get; init; }
+    public TimeSpan Uptime { get; init; }
 }

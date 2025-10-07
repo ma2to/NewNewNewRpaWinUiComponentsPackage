@@ -1,17 +1,6 @@
-namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 
-/// <summary>
-/// Sort direction for data grid operations
-/// </summary>
-public enum PublicSortDirection
-{
-    /// <summary>No sorting</summary>
-    None = 0,
-    /// <summary>Ascending sort (A-Z, 0-9)</summary>
-    Ascending = 1,
-    /// <summary>Descending sort (Z-A, 9-0)</summary>
-    Descending = 2
-}
+namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
 
 /// <summary>
 /// Performance mode for sort operations

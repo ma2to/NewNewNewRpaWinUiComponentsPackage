@@ -1,5 +1,6 @@
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Validation.Interfaces;
 
@@ -135,4 +136,11 @@ internal interface IValidationService
         int rowIndex,
         IReadOnlyList<ValidationResult> results,
         CancellationToken cancellationToken = default);
+
+    // Public API compatibility methods
+    Task<Result<bool>> ValidateAllAsync(bool onlyFiltered = false, CancellationToken cancellationToken = default);
+    Task<PublicValidationResultWithStatistics> ValidateAllWithStatisticsAsync(bool onlyFiltered = false, CancellationToken cancellationToken = default);
+    void RefreshValidationResultsToUI();
+    string GetValidationAlerts(int rowIndex);
+    bool HasValidationErrors(int rowIndex);
 }

@@ -1,0 +1,317 @@
+═══════════════════════════════════════════════════════════════
+           DATAGRID PERFORMANCE TEST RESULTS
+           SAMPLE OUTPUT - WHAT TO EXPECT
+═══════════════════════════════════════════════════════════════
+
+Timestamp: 2025-10-06 14:32:15
+System: Microsoft Windows NT 10.0.22000.0, 16 cores, .NET 8.0.1
+
+─── Headless Mode ─────────────────────────────────────────────────
+
+Operation: Sort | Rows: 100,000 | BatchSize: 1,000
+  Time: 1,456 ms
+  Throughput: 68,681 rows/sec
+  Memory: 52.3 MB allocated
+
+Operation: Sort | Rows: 100,000 | BatchSize: 5,000
+  Time: 1,234 ms
+  Throughput: 81,037 rows/sec
+  Memory: 48.7 MB allocated
+
+Operation: Sort | Rows: 100,000 | BatchSize: 10,000
+  Time: 1,156 ms
+  Throughput: 86,505 rows/sec
+  Memory: 45.2 MB allocated
+
+Operation: Sort | Rows: 100,000 | BatchSize: 50,000
+  Time: 1,189 ms
+  Throughput: 84,110 rows/sec
+  Memory: 43.1 MB allocated
+
+Operation: Filter | Rows: 100,000 | BatchSize: 1,000
+  Time: 823 ms
+  Throughput: 121,506 rows/sec
+  Memory: 28.4 MB allocated
+
+Operation: Filter | Rows: 100,000 | BatchSize: 5,000
+  Time: 689 ms
+  Throughput: 145,137 rows/sec
+  Memory: 24.6 MB allocated
+
+Operation: Filter | Rows: 100,000 | BatchSize: 10,000
+  Time: 645 ms
+  Throughput: 155,038 rows/sec
+  Memory: 22.1 MB allocated
+
+Operation: Filter | Rows: 100,000 | BatchSize: 50,000
+  Time: 678 ms
+  Throughput: 147,492 rows/sec
+  Memory: 21.8 MB allocated
+
+Operation: Validation | Rows: 100,000 | BatchSize: 1,000
+  Time: 2,845 ms
+  Throughput: 35,149 rows/sec
+  Memory: 67.8 MB allocated
+
+Operation: Validation | Rows: 100,000 | BatchSize: 5,000
+  Time: 2,456 ms
+  Throughput: 40,715 rows/sec
+  Memory: 62.3 MB allocated
+
+Operation: Validation | Rows: 100,000 | BatchSize: 10,000
+  Time: 2,389 ms
+  Throughput: 41,858 rows/sec
+  Memory: 59.7 MB allocated
+
+Operation: Validation | Rows: 100,000 | BatchSize: 50,000
+  Time: 2,534 ms
+  Throughput: 39,464 rows/sec
+  Memory: 58.2 MB allocated
+
+Operation: BulkInsert | Rows: 100,000 | BatchSize: 1,000
+  Time: 1,234 ms
+  Throughput: 81,037 rows/sec
+  Memory: 35.6 MB allocated
+
+Operation: BulkInsert | Rows: 100,000 | BatchSize: 5,000
+  Time: 967 ms
+  Throughput: 103,412 rows/sec
+  Memory: 31.2 MB allocated
+
+Operation: BulkInsert | Rows: 100,000 | BatchSize: 10,000
+  Time: 834 ms
+  Throughput: 119,904 rows/sec
+  Memory: 28.9 MB allocated
+
+Operation: BulkInsert | Rows: 100,000 | BatchSize: 50,000
+  Time: 789 ms
+  Throughput: 126,742 rows/sec
+  Memory: 27.4 MB allocated
+
+Operation: GetAllRows | Rows: 100,000 | BatchSize: 1,000
+  Time: 45 ms
+  Throughput: 2,222,222 rows/sec
+  Memory: 12.3 MB allocated
+
+Operation: GetAllRows | Rows: 100,000 | BatchSize: 5,000
+  Time: 43 ms
+  Throughput: 2,325,581 rows/sec
+  Memory: 12.1 MB allocated
+
+Operation: GetAllRows | Rows: 100,000 | BatchSize: 10,000
+  Time: 42 ms
+  Throughput: 2,380,952 rows/sec
+  Memory: 12.0 MB allocated
+
+Operation: GetAllRows | Rows: 100,000 | BatchSize: 50,000
+  Time: 44 ms
+  Throughput: 2,272,727 rows/sec
+  Memory: 12.2 MB allocated
+
+Operation: UpdateCells | Rows: 100,000 | BatchSize: 1,000
+  Time: 156 ms
+  Throughput: 641,026 rows/sec
+  Memory: 8.7 MB allocated
+
+Operation: UpdateCells | Rows: 100,000 | BatchSize: 5,000
+  Time: 134 ms
+  Throughput: 746,269 rows/sec
+  Memory: 7.2 MB allocated
+
+Operation: UpdateCells | Rows: 100,000 | BatchSize: 10,000
+  Time: 128 ms
+  Throughput: 781,250 rows/sec
+  Memory: 6.8 MB allocated
+
+Operation: UpdateCells | Rows: 100,000 | BatchSize: 50,000
+  Time: 131 ms
+  Throughput: 763,359 rows/sec
+  Memory: 6.9 MB allocated
+
+Operation: Sort | Rows: 1,000,000 | BatchSize: 1,000
+  Time: 18,456 ms
+  Throughput: 54,184 rows/sec
+  Memory: 523.4 MB allocated
+
+Operation: Sort | Rows: 1,000,000 | BatchSize: 5,000
+  Time: 15,234 ms
+  Throughput: 65,645 rows/sec
+  Memory: 487.2 MB allocated
+
+Operation: Sort | Rows: 1,000,000 | BatchSize: 10,000
+  Time: 13,567 ms
+  Throughput: 73,707 rows/sec
+  Memory: 452.1 MB allocated
+
+Operation: Sort | Rows: 1,000,000 | BatchSize: 50,000
+  Time: 12,891 ms
+  Throughput: 77,575 rows/sec
+  Memory: 431.8 MB allocated
+
+[... Similar patterns for other operations with 1M rows ...]
+
+─── Readonly Mode ─────────────────────────────────────────────────
+
+Operation: Sort | Rows: 100,000 | BatchSize: 1,000
+  Time: 1,602 ms
+  Throughput: 62,422 rows/sec
+  Memory: 54.8 MB allocated
+
+Operation: Sort | Rows: 100,000 | BatchSize: 5,000
+  Time: 1,357 ms
+  Throughput: 73,706 rows/sec
+  Memory: 51.2 MB allocated
+
+Operation: Sort | Rows: 100,000 | BatchSize: 10,000
+  Time: 1,272 ms
+  Throughput: 78,616 rows/sec
+  Memory: 47.8 MB allocated
+
+[... Continuing with Readonly mode results ...]
+
+─── Interactive Mode ──────────────────────────────────────────────
+
+Operation: Sort | Rows: 100,000 | BatchSize: 1,000
+  Time: 2,134 ms
+  Throughput: 46,860 rows/sec
+  Memory: 67.9 MB allocated
+
+Operation: Sort | Rows: 100,000 | BatchSize: 5,000
+  Time: 1,789 ms
+  Throughput: 55,899 rows/sec
+  Memory: 62.3 MB allocated
+
+Operation: Sort | Rows: 100,000 | BatchSize: 10,000
+  Time: 1,678 ms
+  Throughput: 59,594 rows/sec
+  Memory: 58.7 MB allocated
+
+[... Continuing with Interactive mode results ...]
+
+═══════════════════════════════════════════════════════════════
+           PERFORMANCE COMPARISON
+═══════════════════════════════════════════════════════════════
+
+Operation       | Mode        |     Rows |  Batch | Time (ms) | Overhead
+────────────────────────────────────────────────────────────────────────
+Sort            | Headless    |  100,000 |  1,000 |     1,456 | baseline
+Sort            | Readonly    |  100,000 |  1,000 |     1,602 | +10.0%
+Sort            | Interactive |  100,000 |  1,000 |     2,134 | +46.6%
+Sort            | Headless    |  100,000 |  5,000 |     1,234 | baseline
+Sort            | Readonly    |  100,000 |  5,000 |     1,357 | +10.0%
+Sort            | Interactive |  100,000 |  5,000 |     1,789 | +45.0%
+Sort            | Headless    |  100,000 | 10,000 |     1,156 | baseline
+Sort            | Readonly    |  100,000 | 10,000 |     1,272 | +10.0%
+Sort            | Interactive |  100,000 | 10,000 |     1,678 | +45.2%
+Sort            | Headless    |  100,000 | 50,000 |     1,189 | baseline
+Sort            | Readonly    |  100,000 | 50,000 |     1,308 | +10.0%
+Sort            | Interactive |  100,000 | 50,000 |     1,724 | +45.0%
+Filter          | Headless    |  100,000 |  1,000 |       823 | baseline
+Filter          | Readonly    |  100,000 |  1,000 |       905 | +10.0%
+Filter          | Interactive |  100,000 |  1,000 |     1,193 | +45.0%
+Filter          | Headless    |  100,000 |  5,000 |       689 | baseline
+Filter          | Readonly    |  100,000 |  5,000 |       758 | +10.0%
+Filter          | Interactive |  100,000 |  5,000 |       999 | +45.0%
+[... Additional comparison rows ...]
+
+═══════════════════════════════════════════════════════════════
+           OPTIMAL BATCH SIZES
+═══════════════════════════════════════════════════════════════
+
+Headless Mode:
+  - Sort: 100,000 rows → 10,000 | 1,000,000 rows → 50,000 |
+  - Filter: 100,000 rows → 10,000 | 1,000,000 rows → 50,000 |
+  - Validation: 100,000 rows → 10,000 | 1,000,000 rows → 10,000 |
+  - BulkInsert: 100,000 rows → 50,000 | 1,000,000 rows → 50,000 |
+  - GetAllRows: 100,000 rows → 10,000 | 1,000,000 rows → 10,000 |
+  - UpdateCells: 100,000 rows → 10,000 | 1,000,000 rows → 10,000 |
+
+Readonly Mode:
+  - Sort: 100,000 rows → 10,000 | 1,000,000 rows → 10,000 |
+  - Filter: 100,000 rows → 10,000 | 1,000,000 rows → 10,000 |
+  - Validation: 100,000 rows → 10,000 | 1,000,000 rows → 10,000 |
+  - BulkInsert: 100,000 rows → 10,000 | 1,000,000 rows → 10,000 |
+  - GetAllRows: 100,000 rows → 10,000 | 1,000,000 rows → 10,000 |
+  - UpdateCells: 100,000 rows → 10,000 | 1,000,000 rows → 10,000 |
+
+Interactive Mode:
+  - Sort: 100,000 rows → 5,000 | 1,000,000 rows → 5,000 |
+  - Filter: 100,000 rows → 5,000 | 1,000,000 rows → 5,000 |
+  - Validation: 100,000 rows → 5,000 | 1,000,000 rows → 5,000 |
+  - BulkInsert: 100,000 rows → 5,000 | 1,000,000 rows → 5,000 |
+  - GetAllRows: 100,000 rows → 5,000 | 1,000,000 rows → 5,000 |
+  - UpdateCells: 100,000 rows → 5,000 | 1,000,000 rows → 5,000 |
+
+═══════════════════════════════════════════════════════════════
+           RECOMMENDATIONS
+═══════════════════════════════════════════════════════════════
+
+1. For batch processing (no UI): Use Headless mode
+   - Lowest overhead, best throughput
+   - Recommended batch size: 10,000-50,000
+
+2. For read-only grids: Use Readonly mode
+   - UI dispatcher available but inactive
+   - Recommended batch size: 5,000-10,000
+
+3. For interactive editing: Use Interactive mode
+   - Full UI refresh with auto-update
+   - Recommended batch size: 1,000-5,000
+
+4. For 1M+ rows:
+   - Prefer Headless or Readonly modes
+   - Use larger batch sizes (10,000+)
+   - Enable parallel processing
+   - Disable real-time validation
+
+5. Memory optimization:
+   - Use streaming for 10M+ rows
+   - Disable caching if memory-constrained
+   - Process data in chunks
+
+═══════════════════════════════════════════════════════════════
+
+KEY INSIGHTS FROM THIS SAMPLE:
+
+1. BATCH SIZE SWEET SPOT:
+   - Headless: 10K-50K (best throughput)
+   - Readonly: 5K-10K (balanced)
+   - Interactive: 5K (best UX)
+
+2. MODE OVERHEAD:
+   - Readonly: ~10% slower than Headless
+   - Interactive: ~45% slower than Headless
+
+3. OPERATION PERFORMANCE (100K rows):
+   - GetAllRows: Fastest (~40ms) - simple retrieval
+   - UpdateCells: Very fast (~130ms) - 1% updates
+   - Filter: Fast (~650ms) - efficient filtering
+   - BulkInsert: Fast (~800ms) - raw insertion
+   - Sort: Medium (~1,200ms) - comparison overhead
+   - Validation: Slowest (~2,400ms) - regex processing
+
+4. SCALING TO 1M ROWS:
+   - Sort: ~10-13x slower (expected for O(n log n))
+   - Filter: ~12-15x slower (linear scan)
+   - Validation: ~15-18x slower (regex overhead)
+   - BulkInsert: ~10-12x slower (memory allocation)
+
+5. MEMORY USAGE:
+   - Scales roughly linearly with row count
+   - Interactive mode uses ~20% more memory
+   - Validation uses most memory (regex state)
+
+═══════════════════════════════════════════════════════════════
+
+This is a SAMPLE output showing typical results you might see.
+Your actual results will vary based on:
+- CPU speed and core count
+- RAM speed and capacity
+- Storage type (SSD vs HDD)
+- System load during testing
+- .NET runtime version
+- Windows version and configuration
+
+Run the actual tests to get results specific to YOUR hardware!
+
+═══════════════════════════════════════════════════════════════

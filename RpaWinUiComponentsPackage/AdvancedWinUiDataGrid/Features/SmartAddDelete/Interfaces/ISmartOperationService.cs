@@ -37,4 +37,14 @@ internal interface ISmartOperationService
     /// Get current row management statistics
     /// </summary>
     RowManagementStatistics GetRowManagementStatistics();
+
+    /// <summary>
+    /// Auto-fill cells with pattern detection and smart fill logic
+    /// </summary>
+    Task<RowManagementResult> AutoFillAsync(
+        IEnumerable<IReadOnlyDictionary<string, object?>> currentData,
+        int startRowIndex,
+        int endRowIndex,
+        string columnName,
+        CancellationToken cancellationToken = default);
 }

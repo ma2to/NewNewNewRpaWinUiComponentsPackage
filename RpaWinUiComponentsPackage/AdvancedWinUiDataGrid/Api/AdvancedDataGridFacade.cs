@@ -15,13 +15,17 @@ using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Co
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Internal;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Mappings;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Columns;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Filtering;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Sorting;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Search;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Configuration;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Configuration;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Persistence.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.NullPattern;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Commands;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
 
@@ -1590,25 +1594,151 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
 
     #endregion
 
+    /// <summary>
+    /// Adds a single row to the grid
+    /// </summary>
     public async Task<int> AddRowAsync(IReadOnlyDictionary<string, object?> rowData)
     {
         ThrowIfDisposed();
-        await Task.Delay(1); // Placeholder
-        return 0;
+        EnsureFeatureEnabled(GridFeature.RowColumnOperations, nameof(AddRowAsync));
+
+        try
+        {
+            using var scope = ServiceRegistration.CreateOperationScope(_serviceProvider);
+            var rowsService = scope.ServiceProvider.GetRequiredService<Rows.IDataGridRows>();
+
+            var result = await rowsService.AddRowAsync(rowData, CancellationToken.None);
+
+            if (result.IsSuccess)
+            {
+                // Trigger UI refresh in Interactive mode
+                await TriggerUIRefreshIfNeededAsync("AddRow", 1);
+
+                _logger.LogDebug("Row added successfully at index {RowIndex}", result.Data);
+                return result.Data;
+            }
+            else
+            {
+                _logger.LogWarning("AddRowAsync failed: {Message}", result.Message);
+                return -1;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "AddRowAsync failed");
+            throw;
+        }
     }
 
+    /// <summary>
+    /// Adds multiple rows to the grid in a single batch operation (high performance)
+    /// </summary>
+    public async Task<int> AddRowsBatchAsync(IEnumerable<IReadOnlyDictionary<string, object?>> rows, CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+        EnsureFeatureEnabled(GridFeature.RowColumnOperations, nameof(AddRowsBatchAsync));
+
+        var rowsList = rows.ToList();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+
+        _logger.LogInformation("Starting batch add of {RowCount} rows", rowsList.Count);
+
+        try
+        {
+            using var scope = ServiceRegistration.CreateOperationScope(_serviceProvider);
+            var rowsService = scope.ServiceProvider.GetRequiredService<Rows.IDataGridRows>();
+
+            var result = await rowsService.AddRowsAsync(rowsList, cancellationToken);
+
+            if (result.IsSuccess)
+            {
+                // Single UI refresh for entire batch in Interactive mode
+                await TriggerUIRefreshIfNeededAsync("AddRowsBatch", result.Data);
+
+                _logger.LogInformation("Batch add completed: {RowCount} rows in {Duration}ms",
+                    result.Data, sw.ElapsedMilliseconds);
+
+                return result.Data;
+            }
+            else
+            {
+                _logger.LogWarning("AddRowsBatchAsync failed: {Message}", result.Message);
+                return 0;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "AddRowsBatchAsync failed for {RowCount} rows", rowsList.Count);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Removes a row at the specified index
+    /// </summary>
     public async Task<bool> RemoveRowAsync(int rowIndex)
     {
         ThrowIfDisposed();
-        await Task.Delay(1); // Placeholder
-        return false;
+        EnsureFeatureEnabled(GridFeature.RowColumnOperations, nameof(RemoveRowAsync));
+
+        try
+        {
+            using var scope = ServiceRegistration.CreateOperationScope(_serviceProvider);
+            var rowsService = scope.ServiceProvider.GetRequiredService<Rows.IDataGridRows>();
+
+            var result = await rowsService.RemoveRowAsync(rowIndex, CancellationToken.None);
+
+            if (result.IsSuccess)
+            {
+                await TriggerUIRefreshIfNeededAsync("RemoveRow", 1);
+                _logger.LogDebug("Row {RowIndex} removed successfully", rowIndex);
+                return true;
+            }
+            else
+            {
+                _logger.LogWarning("RemoveRowAsync failed for row {RowIndex}: {Message}", rowIndex, result.Message);
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "RemoveRowAsync failed for row {RowIndex}", rowIndex);
+            throw;
+        }
     }
 
+    /// <summary>
+    /// Updates a row at the specified index
+    /// </summary>
     public async Task<bool> UpdateRowAsync(int rowIndex, IReadOnlyDictionary<string, object?> rowData)
     {
         ThrowIfDisposed();
-        await Task.Delay(1); // Placeholder
-        return false;
+        EnsureFeatureEnabled(GridFeature.RowColumnOperations, nameof(UpdateRowAsync));
+
+        try
+        {
+            using var scope = ServiceRegistration.CreateOperationScope(_serviceProvider);
+            var rowsService = scope.ServiceProvider.GetRequiredService<Rows.IDataGridRows>();
+
+            var result = await rowsService.UpdateRowAsync(rowIndex, rowData, CancellationToken.None);
+
+            if (result.IsSuccess)
+            {
+                await TriggerUIRefreshIfNeededAsync("UpdateRow", 1);
+                _logger.LogDebug("Row {RowIndex} updated successfully", rowIndex);
+                return true;
+            }
+            else
+            {
+                _logger.LogWarning("UpdateRowAsync failed for row {RowIndex}: {Message}", rowIndex, result.Message);
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "UpdateRowAsync failed for row {RowIndex}", rowIndex);
+            throw;
+        }
     }
 
     public IReadOnlyDictionary<string, object?>? GetRow(int rowIndex)
@@ -1627,6 +1757,119 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
     {
         ThrowIfDisposed();
         return 0; // Placeholder
+    }
+
+    public async Task ClearAllRowsAsync()
+    {
+        ThrowIfDisposed();
+        EnsureFeatureEnabled(GridFeature.RowColumnOperations, nameof(ClearAllRowsAsync));
+
+        try
+        {
+            var rowStore = _serviceProvider.GetRequiredService<IRowStore>();
+            await rowStore.ClearAllRowsAsync();
+            await TriggerUIRefreshIfNeededAsync("ClearAllRows", 0);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to clear all rows");
+            throw;
+        }
+    }
+
+    public PublicColumnDefinition? GetColumn(string columnName)
+    {
+        ThrowIfDisposed();
+        EnsureFeatureEnabled(GridFeature.RowColumnOperations, nameof(GetColumn));
+
+        try
+        {
+            var columnService = _serviceProvider.GetRequiredService<Features.Column.Interfaces.IColumnService>();
+            var columns = columnService.GetColumnDefinitions();
+            var column = columns.FirstOrDefault(c => c.Name == columnName);
+            return column?.ToPublic();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get column {ColumnName}", columnName);
+            return null;
+        }
+    }
+
+    public async Task SelectRowAsync(int rowIndex)
+    {
+        ThrowIfDisposed();
+        EnsureFeatureEnabled(GridFeature.Selection, nameof(SelectRowAsync));
+
+        try
+        {
+            var selectionService = _serviceProvider.GetRequiredService<ISelectionService>();
+            selectionService.SelectCell(rowIndex, 0);
+            await TriggerUIRefreshIfNeededAsync("SelectRow", 1);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to select row {RowIndex}", rowIndex);
+            throw;
+        }
+    }
+
+    public async Task ClearSelectionAsync()
+    {
+        ThrowIfDisposed();
+        EnsureFeatureEnabled(GridFeature.Selection, nameof(ClearSelectionAsync));
+
+        try
+        {
+            var selectionService = _serviceProvider.GetRequiredService<ISelectionService>();
+            selectionService.ClearSelection();
+            await TriggerUIRefreshIfNeededAsync("ClearSelection", 0);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to clear selection");
+            throw;
+        }
+    }
+
+    public async Task ClearFilterAsync()
+    {
+        ThrowIfDisposed();
+        EnsureFeatureEnabled(GridFeature.Filter, nameof(ClearFilterAsync));
+
+        try
+        {
+            var filterService = _serviceProvider.GetRequiredService<IFilterService>();
+            await filterService.ClearFiltersAsync();
+            await TriggerUIRefreshIfNeededAsync("ClearFilter", 0);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to clear filter");
+            throw;
+        }
+    }
+
+    public async Task UpdateCellAsync(int rowIndex, string columnName, object? value)
+    {
+        ThrowIfDisposed();
+        EnsureFeatureEnabled(GridFeature.RowColumnOperations, nameof(UpdateCellAsync));
+
+        try
+        {
+            var command = new UpdateCellDataCommand
+            {
+                RowIndex = rowIndex,
+                ColumnName = columnName,
+                NewValue = value
+            };
+            await UpdateCellAsync(command);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update cell at row {RowIndex}, column {ColumnName}", rowIndex, columnName);
+            throw;
+        }
     }
 
     #endregion

@@ -308,6 +308,18 @@ internal sealed class ShortcutService : IShortcutService
         return await Task.FromResult(conflicts);
     }
 
+    public IReadOnlyList<ShortcutDefinition> GetAllShortcuts()
+    {
+        lock (_lock)
+        {
+            var allShortcuts = _shortcuts.Values.ToList();
+
+            _logger.LogInformation("GetAllShortcuts: returning {Count} registered shortcuts", allShortcuts.Count);
+
+            return allShortcuts;
+        }
+    }
+
     #region Private Helper Methods
 
     private void RegisterDefaultShortcuts()

@@ -34,4 +34,39 @@ internal interface IRowColumnCellService
     /// Validate batch operation before execution
     /// </summary>
     Task<Result> ValidateBatchOperationAsync(object command, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Begin batch update mode (suspend UI updates)
+    /// </summary>
+    void BeginBatchUpdate();
+
+    /// <summary>
+    /// End batch update mode (resume UI updates)
+    /// </summary>
+    void EndBatchUpdate();
+
+    /// <summary>
+    /// Check if batch update mode is active
+    /// </summary>
+    bool IsInBatchUpdate();
+
+    /// <summary>
+    /// Batch update column values for specified rows
+    /// </summary>
+    Task<int> BatchUpdateColumnAsync(IEnumerable<int> rowIndices, string columnName, object? newValue, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Batch transform column values using a transformation function
+    /// </summary>
+    Task<int> BatchTransformAsync(IEnumerable<int> rowIndices, string columnName, Func<object?, object?> transformFunc, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Batch delete rows by indices
+    /// </summary>
+    Task<int> BatchDeleteRowsAsync(IEnumerable<int> rowIndices, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Batch update cells
+    /// </summary>
+    Task<int> BatchUpdateCellsAsync(IEnumerable<Api.Models.PublicCellUpdate> cellUpdates, CancellationToken cancellationToken = default);
 }

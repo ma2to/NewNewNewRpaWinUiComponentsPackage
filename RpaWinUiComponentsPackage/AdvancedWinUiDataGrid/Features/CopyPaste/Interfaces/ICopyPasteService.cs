@@ -53,4 +53,12 @@ internal interface ICopyPasteService
     (long EstimatedSize, TimeSpan EstimatedProcessingTime) EstimateClipboardRequirements(
         IEnumerable<IReadOnlyDictionary<string, object?>> selectedData,
         ClipboardFormat format);
+
+    // Wrapper methods for public API
+    Task<Common.Models.Result> CopyAsync(bool includeHeaders, CancellationToken cancellationToken = default);
+    Task<Common.Models.Result> CutAsync(bool includeHeaders, CancellationToken cancellationToken = default);
+    Task<Common.Models.Result<int>> PasteAsync(int startRowIndex, string startColumnName, CancellationToken cancellationToken = default);
+    bool CanPaste();
+    Task<string> GetClipboardTextAsync();
+    Task<Common.Models.Result> SetClipboardTextAsync(string text, CancellationToken cancellationToken = default);
 }

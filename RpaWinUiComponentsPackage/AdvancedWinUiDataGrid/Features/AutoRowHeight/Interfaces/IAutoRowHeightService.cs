@@ -85,6 +85,17 @@ internal interface IAutoRowHeightService
     CacheStatistics GetCacheStatistics();
 
     #endregion
+
+    // Simple wrapper methods for /Api public interface
+    Task<Common.Models.Result> EnableAutoRowHeightAsync(CancellationToken cancellationToken = default);
+    Task<Common.Models.Result> DisableAutoRowHeightAsync(CancellationToken cancellationToken = default);
+    Task<Common.Models.Result<double>> AdjustRowHeightAsync(int rowIndex, CancellationToken cancellationToken = default);
+    Task<Common.Models.Result> AdjustAllRowHeightsAsync(CancellationToken cancellationToken = default);
+    Common.Models.Result SetMinRowHeight(double height);
+    Common.Models.Result SetMaxRowHeight(double height);
+    bool IsAutoRowHeightEnabled();
+    double GetMinRowHeight();
+    double GetMaxRowHeight();
 }
 
 /// <summary>

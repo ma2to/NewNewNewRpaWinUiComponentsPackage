@@ -33,6 +33,16 @@ internal interface IFilterService
     /// Get filtered data based on active filters
     /// </summary>
     Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> GetFilteredDataAsync();
+
+    // Wrapper methods for public API
+    Task<Common.Models.Result> ApplyColumnFilterAsync(string columnName, FilterOperator @operator, object? value, CancellationToken cancellationToken = default);
+    Task<Common.Models.Result> ApplyMultipleFiltersAsync(IEnumerable<FilterCriteria> filters, CancellationToken cancellationToken = default);
+    Task<Common.Models.Result> RemoveColumnFilterAsync(string columnName, CancellationToken cancellationToken = default);
+    Task<Common.Models.Result> ClearAllFiltersAsync(CancellationToken cancellationToken = default);
+    IReadOnlyList<FilterCriteria> GetCurrentFilters();
+    bool IsColumnFiltered(string columnName);
+    int GetFilterCount();
+    Task<long> GetFilteredRowCountAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>

@@ -48,4 +48,9 @@ internal interface IShortcutService
     /// Validate shortcut conflicts
     /// </summary>
     Task<IReadOnlyList<string>> ValidateShortcutConflictsAsync(IReadOnlyList<ShortcutDefinition> shortcuts, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Get all registered shortcuts with full details
+    /// </summary>
+    IReadOnlyList<ShortcutDefinition> GetAllShortcuts();
 }

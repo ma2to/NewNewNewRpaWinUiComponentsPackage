@@ -218,4 +218,96 @@ internal sealed class ColumnResizeService : IColumnResizeService
 
         return width;
     }
+
+    public async Task AutoFitAllColumnsAsync(CancellationToken cancellationToken = default)
+    {
+        await Task.Run(() =>
+        {
+            lock (_resizeLock)
+            {
+                _logger.LogInformation("Auto-fitting all columns");
+                var columns = _columnService.GetColumnDefinitions();
+
+                for (int i = 0; i < columns.Count; i++)
+                {
+                    var column = columns[i];
+                    var optimalWidth = CalculateOptimalWidth(column);
+                    ResizeColumn(i, optimalWidth);
+                }
+
+                _logger.LogInformation("Auto-fit completed for {Count} columns", columns.Count);
+            }
+        }, cancellationToken);
+    }
+
+    public async Task AutoFitColumnAsync(string columnName, CancellationToken cancellationToken = default)
+    {
+        await Task.Run(() =>
+        {
+            lock (_resizeLock)
+            {
+                _logger.LogInformation("Auto-fitting column '{ColumnName}'", columnName);
+                var columns = _columnService.GetColumnDefinitions();
+                var columnIndex = -1;
+                for (int i = 0; i < columns.Count; i++)
+                {
+                    if (columns[i].Name == columnName)
+                    {
+                        columnIndex = i;
+                        break;
+                    }
+                }
+
+                if (columnIndex == -1)
+                {
+                    throw new InvalidOperationException($"Column '{columnName}' not found");
+                }
+
+                var column = columns[columnIndex];
+                var optimalWidth = CalculateOptimalWidth(column);
+                ResizeColumn(columnIndex, optimalWidth);
+
+                _logger.LogInformation("Auto-fit completed for column '{ColumnName}' with width {Width}px",
+                    columnName, optimalWidth);
+            }
+        }, cancellationToken);
+    }
+
+    public async Task ResizeColumnAsync(string columnName, double width, CancellationToken cancellationToken = default)
+    {
+        await Task.Run(() =>
+        {
+            lock (_resizeLock)
+            {
+                _logger.LogInformation("Resizing column '{ColumnName}' to {Width}px", columnName, width);
+                var columns = _columnService.GetColumnDefinitions();
+                var columnIndex = -1;
+                for (int i = 0; i < columns.Count; i++)
+                {
+                    if (columns[i].Name == columnName)
+                    {
+                        columnIndex = i;
+                        break;
+                    }
+                }
+
+                if (columnIndex == -1)
+                {
+                    throw new InvalidOperationException($"Column '{columnName}' not found");
+                }
+
+                ResizeColumn(columnIndex, width);
+                _logger.LogInformation("Resize completed for column '{ColumnName}'", columnName);
+            }
+        }, cancellationToken);
+    }
+
+    private double CalculateOptimalWidth(dynamic column)
+    {
+        // Simplified optimal width calculation
+        // In real implementation, this would measure content width
+        var headerLength = column.Name?.Length ?? 0;
+        var estimatedWidth = Math.Max(100, headerLength * 10 + 40);
+        return EnforceWidthConstraints(estimatedWidth);
+    }
 }

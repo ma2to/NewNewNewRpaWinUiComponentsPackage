@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <RootNamespace>RpaWinUiComponentsPackage.PerformanceTests</RootNamespace>
+    <AssemblyName>OptimizedPerfTests</AssemblyName>
+    <StartupObject>RpaWinUiComponentsPackage.PerformanceTests.OptimizedPerfTest</StartupObject>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- XAML Compiler Issue Fix: Disable all XAML/WinUI build features -->
+    <EnableMsixTooling>false</EnableMsixTooling>
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <WindowsPackageType>None</WindowsPackageType>
+    <AppxPackage>false</AppxPackage>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <UseWinUI>false</UseWinUI>
+    <GenerateAppxPackageOnBuild>false</GenerateAppxPackageOnBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="OPTIMIZED_PERF_TEST.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="RpaWinUiComponentsPackage\RpaWinUiComponentsPackage.csproj">
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+      <Private>true</Private>
+      <ExcludeAssets>buildTransitive</ExcludeAssets>
+    </ProjectReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.9" />
+  </ItemGroup>
+
+</Project>

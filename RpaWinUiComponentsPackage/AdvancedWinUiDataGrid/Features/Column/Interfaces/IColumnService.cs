@@ -149,4 +149,12 @@ internal interface IColumnService
     /// <param name="columnDefinition">Updated column definition</param>
     /// <returns>True if successful</returns>
     bool UpdateColumn(ColumnDefinition columnDefinition);
+
+    // Wrapper methods for public API
+    Task<Result> ShowColumnAsync(string columnName, CancellationToken cancellationToken = default);
+    Task<Result> HideColumnAsync(string columnName, CancellationToken cancellationToken = default);
+    ColumnDefinition? GetColumn(string columnName);
+    IReadOnlyList<ColumnDefinition> GetAllColumns();
+    bool ColumnExists(string columnName);
+    int GetVisibleColumnCount();
 }

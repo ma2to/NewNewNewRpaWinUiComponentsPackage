@@ -2,7 +2,7 @@ using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Search.Commands;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Search.Models;
 
-namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Internal;
+namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Search;
 
 /// <summary>
 /// Mapping extensions pre konverziu medzi public a internal search types

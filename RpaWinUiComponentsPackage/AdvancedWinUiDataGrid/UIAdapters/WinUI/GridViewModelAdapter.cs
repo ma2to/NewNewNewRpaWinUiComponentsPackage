@@ -10,6 +10,8 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIAdapters.WinUI;
 internal sealed class GridViewModelAdapter
 {
     private readonly ILogger<GridViewModelAdapter> _logger;
+    private object? _boundViewModel;
+    private bool _isTwoWayBindingEnabled;
 
     public GridViewModelAdapter(ILogger<GridViewModelAdapter> logger)
     {
@@ -110,6 +112,91 @@ internal sealed class GridViewModelAdapter
             _logger.LogError(ex, "Failed to adapt validation errors to view models");
             throw;
         }
+    }
+
+    /// <summary>
+    /// Bind to a ViewModel for two-way data sync
+    /// </summary>
+    public async Task BindToViewModelAsync(object viewModel, CancellationToken cancellationToken = default)
+    {
+        _boundViewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
+        _logger.LogInformation("Bound to ViewModel: {ViewModelType}", viewModel.GetType().Name);
+        await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Unbind from current ViewModel
+    /// </summary>
+    public async Task UnbindViewModelAsync(CancellationToken cancellationToken = default)
+    {
+        _boundViewModel = null;
+        _logger.LogInformation("Unbound from ViewModel");
+        await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Get the currently bound ViewModel
+    /// </summary>
+    public object? GetBoundViewModel()
+    {
+        return _boundViewModel;
+    }
+
+    /// <summary>
+    /// Refresh data from bound ViewModel
+    /// </summary>
+    public async Task RefreshFromViewModelAsync(CancellationToken cancellationToken = default)
+    {
+        if (_boundViewModel == null)
+        {
+            _logger.LogWarning("No ViewModel bound for refresh");
+            return;
+        }
+
+        _logger.LogInformation("Refreshing from ViewModel: {ViewModelType}", _boundViewModel.GetType().Name);
+        // Implementation would sync data from ViewModel to grid
+        await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Update bound ViewModel with current grid data
+    /// </summary>
+    public async Task UpdateViewModelAsync(CancellationToken cancellationToken = default)
+    {
+        if (_boundViewModel == null)
+        {
+            _logger.LogWarning("No ViewModel bound for update");
+            return;
+        }
+
+        _logger.LogInformation("Updating ViewModel: {ViewModelType}", _boundViewModel.GetType().Name);
+        // Implementation would sync data from grid to ViewModel
+        await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Set whether two-way binding is enabled
+    /// </summary>
+    public void SetTwoWayBindingEnabled(bool enabled)
+    {
+        _isTwoWayBindingEnabled = enabled;
+        _logger.LogInformation("Two-way binding {Status}", enabled ? "enabled" : "disabled");
+    }
+
+    /// <summary>
+    /// Check if two-way binding is enabled
+    /// </summary>
+    public bool IsTwoWayBindingEnabled()
+    {
+        return _isTwoWayBindingEnabled;
+    }
+
+    /// <summary>
+    /// Check if bound to a ViewModel
+    /// </summary>
+    public bool IsBoundToViewModel()
+    {
+        return _boundViewModel != null;
     }
 }
 

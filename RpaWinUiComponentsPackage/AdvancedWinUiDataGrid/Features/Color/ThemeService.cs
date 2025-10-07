@@ -1,4 +1,7 @@
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Color.Interfaces;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Color;
 
@@ -6,15 +9,23 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Color;
 /// Internal service for theme management
 /// Stores current theme and provides theme manipulation
 /// </summary>
-internal sealed class ThemeService
+internal sealed class ThemeService : IThemeService
 {
     private readonly ILogger? _logger;
     private GridTheme _currentTheme;
+    private readonly Dictionary<string, GridTheme> _themes;
 
     public ThemeService(ILogger? logger = null)
     {
         _logger = logger;
         _currentTheme = GridTheme.Default;
+        _themes = new Dictionary<string, GridTheme>
+        {
+            ["Default"] = GridTheme.Default,
+            ["Dark"] = GridTheme.Dark,
+            ["Light"] = GridTheme.Light,
+            ["HighContrast"] = GridTheme.HighContrast
+        };
     }
 
     /// <summary>
@@ -77,6 +88,94 @@ internal sealed class ThemeService
 
         _currentTheme = _currentTheme with { ValidationColors = validationColors };
         _logger?.LogDebug("Updated validation colors in theme");
+    }
+
+    public async Task CreateThemeAsync(string themeName, IEnumerable<PublicElementStatePropertyColor> colorDefinitions, CancellationToken cancellationToken = default)
+    {
+        await Task.Run(() =>
+        {
+            var theme = new GridTheme { ThemeName = themeName };
+            _themes[themeName] = theme;
+            _logger?.LogInformation("Created theme: {ThemeName}", themeName);
+        }, cancellationToken);
+    }
+
+    public async Task ApplyThemeAsync(string themeName, CancellationToken cancellationToken = default)
+    {
+        await Task.Run(() =>
+        {
+            if (_themes.TryGetValue(themeName, out var theme))
+            {
+                ApplyTheme(theme);
+            }
+            else
+            {
+                throw new InvalidOperationException($"Theme '{themeName}' not found");
+            }
+        }, cancellationToken);
+    }
+
+    public async Task SaveThemeAsync(string themeName, string filePath, CancellationToken cancellationToken = default)
+    {
+        if (_themes.TryGetValue(themeName, out var theme))
+        {
+            var json = JsonSerializer.Serialize(theme);
+            await File.WriteAllTextAsync(filePath, json, cancellationToken);
+            _logger?.LogInformation("Saved theme '{ThemeName}' to {FilePath}", themeName, filePath);
+        }
+        else
+        {
+            throw new InvalidOperationException($"Theme '{themeName}' not found");
+        }
+    }
+
+    public async Task LoadThemeAsync(string filePath, CancellationToken cancellationToken = default)
+    {
+        var json = await File.ReadAllTextAsync(filePath, cancellationToken);
+        var theme = JsonSerializer.Deserialize<GridTheme>(json);
+        if (theme != null)
+        {
+            _themes[theme.ThemeName] = theme;
+            _logger?.LogInformation("Loaded theme '{ThemeName}' from {FilePath}", theme.ThemeName, filePath);
+        }
+    }
+
+    public IReadOnlyList<string> GetAvailableThemes()
+    {
+        return _themes.Keys.ToList();
+    }
+
+    string IThemeService.GetCurrentTheme()
+    {
+        return _currentTheme.ThemeName;
+    }
+
+    public async Task ResetToDefaultThemeAsync(CancellationToken cancellationToken = default)
+    {
+        await Task.Run(() =>
+        {
+            ResetToDefault();
+        }, cancellationToken);
+    }
+
+    public async Task DeleteThemeAsync(string themeName, CancellationToken cancellationToken = default)
+    {
+        await Task.Run(() =>
+        {
+            if (themeName == "Default" || themeName == "Dark" || themeName == "Light" || themeName == "HighContrast")
+            {
+                throw new InvalidOperationException($"Cannot delete built-in theme '{themeName}'");
+            }
+
+            if (_themes.Remove(themeName))
+            {
+                _logger?.LogInformation("Deleted theme: {ThemeName}", themeName);
+            }
+            else
+            {
+                throw new InvalidOperationException($"Theme '{themeName}' not found");
+            }
+        }, cancellationToken);
     }
 }
 

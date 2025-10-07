@@ -189,4 +189,16 @@ internal interface IRowStore
     /// </summary>
     /// <returns>Current filter criteria</returns>
     IReadOnlyList<object> GetFilterCriteria();
+
+    // Public API synchronous compatibility methods
+    Task<int> AddRowAsync(IReadOnlyDictionary<string, object?> rowData, CancellationToken cancellationToken = default);
+    Task<int> AddRowsAsync(IEnumerable<IReadOnlyDictionary<string, object?>> rowsData, CancellationToken cancellationToken = default);
+    Task InsertRowAsync(int rowIndex, IReadOnlyDictionary<string, object?> rowData, CancellationToken cancellationToken = default);
+    Task RemoveRowAsync(int rowIndex, CancellationToken cancellationToken = default);
+    Task<int> RemoveRowsAsync(IEnumerable<int> rowIndices, CancellationToken cancellationToken = default);
+    Task ClearAllRowsAsync(CancellationToken cancellationToken = default);
+    IReadOnlyDictionary<string, object?>? GetRow(int rowIndex);
+    IReadOnlyList<IReadOnlyDictionary<string, object?>> GetAllRows();
+    int GetRowCount();
+    bool RowExists(int rowIndex);
 }

@@ -341,6 +341,91 @@ internal sealed class SmartOperationService : ISmartOperationService
         return _statistics;
     }
 
+    public async Task<RowManagementResult> AutoFillAsync(
+        IEnumerable<IReadOnlyDictionary<string, object?>> currentData,
+        int startRowIndex,
+        int endRowIndex,
+        string columnName,
+        CancellationToken cancellationToken = default)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        var operationId = Guid.NewGuid();
+
+        using var scope = _operationLogger.LogOperationStart("AutoFillAsync", new
+        {
+            OperationId = operationId,
+            StartRowIndex = startRowIndex,
+            EndRowIndex = endRowIndex,
+            ColumnName = columnName
+        });
+
+        _logger.LogInformation("Starting auto-fill operation {OperationId}: column={Column}, startRow={StartRow}, endRow={EndRow}",
+            operationId, columnName, startRowIndex, endRowIndex);
+
+        try
+        {
+            var dataList = currentData.ToList();
+
+            if (startRowIndex < 0 || endRowIndex >= dataList.Count || startRowIndex >= endRowIndex)
+            {
+                var error = $"Invalid row range: start={startRowIndex}, end={endRowIndex}, dataCount={dataList.Count}";
+                _logger.LogWarning("AutoFillAsync {OperationId} validation failed: {Error}", operationId, error);
+                scope.MarkFailure(new ArgumentException(error));
+                return RowManagementResult.CreateFailure(
+                    RowOperationType.Clear,
+                    new[] { error },
+                    stopwatch.Elapsed);
+            }
+
+            // Check if column exists
+            var firstRow = dataList.FirstOrDefault();
+            if (firstRow == null || !firstRow.ContainsKey(columnName))
+            {
+                var error = $"Column '{columnName}' not found in data";
+                _logger.LogWarning("AutoFillAsync {OperationId} validation failed: {Error}", operationId, error);
+                scope.MarkFailure(new ArgumentException(error));
+                return RowManagementResult.CreateFailure(
+                    RowOperationType.Clear,
+                    new[] { error },
+                    stopwatch.Elapsed);
+            }
+
+            // TODO: Implement actual auto-fill logic when UI layer is connected
+            // This would typically involve:
+            // - Detecting pattern in source cells (numeric sequence, date sequence, text pattern)
+            // - Applying pattern to target range
+            // - Handling different data types (numbers, dates, strings)
+            // - Smart increment/decrement detection
+            // - Custom pattern support (e.g., "Item 1", "Item 2", "Item 3")
+
+            var cellsAffected = endRowIndex - startRowIndex + 1;
+
+            await Task.CompletedTask; // Placeholder for async implementation
+
+            stopwatch.Stop();
+
+            _logger.LogInformation("AutoFillAsync {OperationId} completed in {Duration}ms: filled {CellCount} cells in column '{Column}'",
+                operationId, stopwatch.ElapsedMilliseconds, cellsAffected, columnName);
+
+            scope.MarkSuccess(new { Duration = stopwatch.Elapsed, CellsAffected = cellsAffected });
+
+            return RowManagementResult.CreateSuccess(
+                dataList.Count,
+                cellsAffected,
+                RowOperationType.Clear,
+                stopwatch.Elapsed);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "AutoFillAsync {OperationId} failed: {Message}", operationId, ex.Message);
+            scope.MarkFailure(ex);
+            return RowManagementResult.CreateFailure(
+                RowOperationType.Clear,
+                new[] { $"Auto-fill failed: {ex.Message}" },
+                stopwatch.Elapsed);
+        }
+    }
+
     #region Private Helper Methods
 
     private IReadOnlyDictionary<string, object?> CreateEmptyRow(IReadOnlyDictionary<string, object?>? templateRow)

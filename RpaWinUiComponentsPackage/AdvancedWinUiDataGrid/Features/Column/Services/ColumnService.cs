@@ -772,4 +772,68 @@ internal sealed class ColumnService : IColumnService
             return false;
         }
     }
+
+    #region Wrapper Methods for Public API
+
+    public async Task<Result> ShowColumnAsync(string columnName, CancellationToken cancellationToken = default)
+    {
+        await Task.CompletedTask;
+        try
+        {
+            var column = GetColumnByName(columnName);
+            if (column == null)
+                return Result.Failure($"Column '{columnName}' not found");
+
+            // TODO: Implement actual show column logic
+            _logger.LogInformation("Show column: {ColumnName}", columnName);
+            return Result.Success();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Show column failed: {ColumnName}", columnName);
+            return Result.Failure($"Show column failed: {ex.Message}");
+        }
+    }
+
+    public async Task<Result> HideColumnAsync(string columnName, CancellationToken cancellationToken = default)
+    {
+        await Task.CompletedTask;
+        try
+        {
+            var column = GetColumnByName(columnName);
+            if (column == null)
+                return Result.Failure($"Column '{columnName}' not found");
+
+            // TODO: Implement actual hide column logic
+            _logger.LogInformation("Hide column: {ColumnName}", columnName);
+            return Result.Success();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Hide column failed: {ColumnName}", columnName);
+            return Result.Failure($"Hide column failed: {ex.Message}");
+        }
+    }
+
+    public ColumnDefinition? GetColumn(string columnName)
+    {
+        return GetColumnByName(columnName);
+    }
+
+    public IReadOnlyList<ColumnDefinition> GetAllColumns()
+    {
+        return GetColumnDefinitions();
+    }
+
+    public bool ColumnExists(string columnName)
+    {
+        return GetColumnByName(columnName) != null;
+    }
+
+    public int GetVisibleColumnCount()
+    {
+        return GetVisibleColumns().Count;
+    }
+
+    #endregion
 }

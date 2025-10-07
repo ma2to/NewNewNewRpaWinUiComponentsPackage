@@ -566,4 +566,111 @@ internal sealed class FilterService : IFilterService
 
         return filteredData;
     }
+
+    #region Wrapper Methods for Public API
+
+    public async Task<Common.Models.Result> ApplyColumnFilterAsync(string columnName, FilterOperator @operator, object? value, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await ApplyFilterAsync(columnName, @operator, value);
+            return Common.Models.Result.Success();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Apply column filter failed: {Message}", ex.Message);
+            return Common.Models.Result.Failure($"Apply filter failed: {ex.Message}");
+        }
+    }
+
+    public async Task<Common.Models.Result> ApplyMultipleFiltersAsync(IEnumerable<FilterCriteria> filters, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            foreach (var filter in filters)
+            {
+                await ApplyFilterAsync(filter.ColumnName, filter.Operator, filter.Value);
+            }
+            return Common.Models.Result.Success();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Apply multiple filters failed: {Message}", ex.Message);
+            return Common.Models.Result.Failure($"Apply multiple filters failed: {ex.Message}");
+        }
+    }
+
+    public async Task<Common.Models.Result> RemoveColumnFilterAsync(string columnName, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await Task.Run(() =>
+            {
+                var filtersToRemove = _activeFilters
+                    .Where(f => f.ColumnName.Equals(columnName, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                foreach (var filter in filtersToRemove)
+                {
+                    _activeFilters.TryTake(out _);
+                }
+
+                // Rebuild the bag without the removed items
+                var remainingFilters = _activeFilters
+                    .Where(f => !f.ColumnName.Equals(columnName, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                _activeFilters.Clear();
+                foreach (var filter in remainingFilters)
+                {
+                    _activeFilters.Add(filter);
+                }
+
+                _logger.LogInformation("Removed filter for column {ColumnName}", columnName);
+            }, cancellationToken);
+            return Common.Models.Result.Success();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Remove column filter failed: {Message}", ex.Message);
+            return Common.Models.Result.Failure($"Remove filter failed: {ex.Message}");
+        }
+    }
+
+    public async Task<Common.Models.Result> ClearAllFiltersAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await ClearFiltersAsync();
+            return Common.Models.Result.Success();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Clear all filters failed: {Message}", ex.Message);
+            return Common.Models.Result.Failure($"Clear filters failed: {ex.Message}");
+        }
+    }
+
+    public IReadOnlyList<FilterCriteria> GetCurrentFilters()
+    {
+        return GetActiveFilters();
+    }
+
+    public bool IsColumnFiltered(string columnName)
+    {
+        return _activeFilters.Any(f => f.ColumnName.Equals(columnName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public int GetFilterCount()
+    {
+        return _activeFilters.Count;
+    }
+
+    public async Task<long> GetFilteredRowCountAsync(CancellationToken cancellationToken = default)
+    {
+        var filteredData = await GetFilteredDataAsync();
+        return filteredData.Count;
+    }
+
+    #endregion
 }

@@ -2,7 +2,7 @@ using System.Windows.Input;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Shortcuts.Commands;
 
-namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Mappings;
+namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Shortcuts;
 
 /// <summary>
 /// Extension methods for mapping shortcut-related types between public and internal representations

@@ -4,10 +4,7 @@ using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Sort.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 
-// Import root namespace types (PublicSortDirection, SortColumnConfig, SortDataCommand, etc.)
-using static RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.PublicSortDirection;
-
-namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Mappings;
+namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Sorting;
 
 /// <summary>
 /// Mapping extensions pre konverziu medzi public a internal sort types
@@ -17,13 +14,13 @@ internal static class SortMappings
     #region Public → Internal
 
     /// <summary>
-    /// Konvertuje public sort direction (from root namespace) na internal Core.ValueObjects.SortDirection
+    /// Konvertuje public sort direction (Api.Models) na internal Core.ValueObjects.SortDirection
     /// </summary>
-    internal static Core.ValueObjects.SortDirection ToInternal(this PublicSortDirection direction) => direction switch
+    internal static Core.ValueObjects.SortDirection ToInternal(this Api.Models.PublicSortDirection direction) => direction switch
     {
-        PublicSortDirection.None => Core.ValueObjects.SortDirection.None,
-        PublicSortDirection.Ascending => Core.ValueObjects.SortDirection.Ascending,
-        PublicSortDirection.Descending => Core.ValueObjects.SortDirection.Descending,
+        Api.Models.PublicSortDirection.None => Core.ValueObjects.SortDirection.None,
+        Api.Models.PublicSortDirection.Ascending => Core.ValueObjects.SortDirection.Ascending,
+        Api.Models.PublicSortDirection.Descending => Core.ValueObjects.SortDirection.Descending,
         _ => Core.ValueObjects.SortDirection.Ascending
     };
 
@@ -146,17 +143,6 @@ internal static class SortMappings
             Direction = config.Direction.ToPublic(),
             Priority = config.Priority
         };
-
-    /// <summary>
-    /// Konvertuje public PublicSortDirection (Api.Models) na internal
-    /// </summary>
-    internal static Core.ValueObjects.SortDirection ToInternal(this Api.Models.PublicSortDirection direction) => direction switch
-    {
-        Api.Models.PublicSortDirection.None => Core.ValueObjects.SortDirection.None,
-        Api.Models.PublicSortDirection.Ascending => Core.ValueObjects.SortDirection.Ascending,
-        Api.Models.PublicSortDirection.Descending => Core.ValueObjects.SortDirection.Descending,
-        _ => Core.ValueObjects.SortDirection.Ascending
-    };
 
     /// <summary>
     /// Konvertuje public PublicSortDescriptor na internal SortColumnConfiguration

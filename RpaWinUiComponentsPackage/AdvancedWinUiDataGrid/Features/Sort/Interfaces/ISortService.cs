@@ -73,4 +73,36 @@ internal interface ISortService
     /// Validuje sort konfiguráciu
     /// </summary>
     Task<Common.Models.Result> ValidateSortConfigurationAsync(CoreTypes.AdvancedSortConfiguration sortConfiguration, CancellationToken cancellationToken = default);
+
+    // PUBLIC API COMPATIBILITY METHODS
+
+    /// <summary>
+    /// Sort by multiple columns (public API compatibility)
+    /// </summary>
+    Task<Common.Models.Result> SortByMultipleColumnsAsync(IReadOnlyList<CoreTypes.SortColumnConfiguration> sortDescriptors, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Clear sorting (public API compatibility)
+    /// </summary>
+    Task<Common.Models.Result> ClearSortingAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Get current sort descriptors (public API compatibility)
+    /// </summary>
+    IReadOnlyList<CoreTypes.SortColumnConfiguration> GetCurrentSortDescriptors();
+
+    /// <summary>
+    /// Toggle sort direction for column (public API compatibility)
+    /// </summary>
+    Task<Common.Models.Result<CoreTypes.SortDirection>> ToggleSortDirectionAsync(string columnName, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Check if column is sorted (public API compatibility)
+    /// </summary>
+    bool IsColumnSorted(string columnName);
+
+    /// <summary>
+    /// Get column sort direction (public API compatibility)
+    /// </summary>
+    CoreTypes.SortDirection GetColumnSortDirection(string columnName);
 }

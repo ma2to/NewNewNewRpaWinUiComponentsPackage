@@ -52,4 +52,24 @@ internal interface ICellEditService
     /// </summary>
     /// <returns>True if there is an active edit session</returns>
     bool HasActiveEditSession();
+
+    /// <summary>
+    /// Checks if currently editing (alias for HasActiveEditSession)
+    /// </summary>
+    bool IsEditing();
+
+    /// <summary>
+    /// Gets the current edit position (row and column)
+    /// </summary>
+    (int rowIndex, string columnName)? GetCurrentEditPosition();
+
+    /// <summary>
+    /// Sets whether editing is enabled globally
+    /// </summary>
+    void SetEditingEnabled(bool enabled);
+
+    /// <summary>
+    /// Checks if editing is enabled globally
+    /// </summary>
+    bool IsEditingEnabled();
 }
