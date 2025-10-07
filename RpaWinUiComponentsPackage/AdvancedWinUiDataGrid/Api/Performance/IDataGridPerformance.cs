@@ -1,4 +1,3 @@
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Performance;
 

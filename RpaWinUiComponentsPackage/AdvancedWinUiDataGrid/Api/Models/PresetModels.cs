@@ -1,4 +1,4 @@
-namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
+namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
 
 /// <summary>
 /// Public sort configuration with preset support

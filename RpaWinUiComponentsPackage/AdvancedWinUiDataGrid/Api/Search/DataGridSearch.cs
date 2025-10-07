@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Mappings;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Search;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Search.Interfaces;

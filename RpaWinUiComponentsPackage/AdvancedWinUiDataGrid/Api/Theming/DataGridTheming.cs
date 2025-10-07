@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Color.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Color;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Mappings;

@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIAdapters.WinUI;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Notifications;

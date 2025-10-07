@@ -1,5 +1,5 @@
 using RpaWinUiComponentsPackage.Tests.TestInfrastructure;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
+//using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
 
 namespace RpaWinUiComponentsPackage.Tests.Unit;

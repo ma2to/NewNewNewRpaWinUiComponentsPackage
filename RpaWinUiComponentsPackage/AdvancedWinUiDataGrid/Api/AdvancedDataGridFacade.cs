@@ -13,7 +13,6 @@ using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.AutoRowHeight.Int
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Commands;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Models;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Mappings;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Columns;

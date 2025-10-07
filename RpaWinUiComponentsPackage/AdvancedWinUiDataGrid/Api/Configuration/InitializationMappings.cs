@@ -1,4 +1,3 @@
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Configuration;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Commands;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Models;

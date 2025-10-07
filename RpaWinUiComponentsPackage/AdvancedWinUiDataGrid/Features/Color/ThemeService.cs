@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Color.Interfaces;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Color;
 

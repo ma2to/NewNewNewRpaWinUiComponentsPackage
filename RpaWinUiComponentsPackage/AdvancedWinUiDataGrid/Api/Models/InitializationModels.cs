@@ -1,4 +1,4 @@
-namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
+namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
 
 /// <summary>
 /// PUBLIC API: Výsledok inicializácie komponentu

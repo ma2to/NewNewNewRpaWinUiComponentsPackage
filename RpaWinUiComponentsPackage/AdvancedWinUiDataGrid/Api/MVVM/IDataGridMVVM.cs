@@ -1,4 +1,3 @@
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 using System.ComponentModel;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.MVVM;

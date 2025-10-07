@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using RpaWinUiComponentsPackage.Tests.TestInfrastructure;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
+//using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 
 namespace RpaWinUiComponentsPackage.Tests.Resource;
 

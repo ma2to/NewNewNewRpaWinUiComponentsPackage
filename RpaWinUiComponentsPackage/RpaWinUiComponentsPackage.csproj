@@ -40,14 +40,14 @@
 
     <!-- Package Information -->
     <PackageId>RpaWinUiComponentsPackage</PackageId>
-    <Version>2.2.4</Version>
+    <Version>2.2.5</Version>
     <Authors>RPA Team</Authors>
     <Company>RPA Company</Company>
     <Product>RPA WinUI Components Package</Product>
     <Description>Professional WinUI3 Components Package: AdvancedDataGrid + LoggerComponent</Description>
     <PackageTags>WinUI3;DataGrid;Logger;Components;Package;NET8</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageReleaseNotes>v2.2.4: MAJOR UPDATE - Fixed all table functionality: cell borders, validation alerts column, add/delete/validate buttons, import dict/datatable, cell editing (double-click/Enter), comprehensive error logging</PackageReleaseNotes>
+    <PackageReleaseNotes>v2.2.5: MAJOR UPDATE - Fixed all table functionality: cell borders, validation alerts column, add/delete/validate buttons, import dict/datatable, cell editing (double-click/Enter), comprehensive error logging</PackageReleaseNotes>
 
     <!-- Assembly Information -->
     <AssemblyTitle>RPA WinUI Components Package</AssemblyTitle>

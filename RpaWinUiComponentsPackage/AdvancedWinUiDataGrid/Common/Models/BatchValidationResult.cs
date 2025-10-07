@@ -1,5 +1,4 @@
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
 

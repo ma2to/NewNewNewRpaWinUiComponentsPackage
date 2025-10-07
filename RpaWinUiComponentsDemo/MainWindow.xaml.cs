@@ -5,7 +5,7 @@ using System.Data;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 
 using RpaWinUiComponentsPackage.AdvancedWinUiLogger;
 // ✅ NO MORE INTERNAL TYPE ALIASES - Clean API achieved!

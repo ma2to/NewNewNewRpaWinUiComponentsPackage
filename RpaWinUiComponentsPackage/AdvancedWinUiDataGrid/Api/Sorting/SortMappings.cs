@@ -1,7 +1,6 @@
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Sort.Commands;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Sort.Models;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Sorting;

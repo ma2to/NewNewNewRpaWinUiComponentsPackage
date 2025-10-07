@@ -1,6 +1,6 @@
 using System.Data;
 
-namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
+namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
 
 /// <summary>
 /// PUBLIC API: Command for importing data into the grid

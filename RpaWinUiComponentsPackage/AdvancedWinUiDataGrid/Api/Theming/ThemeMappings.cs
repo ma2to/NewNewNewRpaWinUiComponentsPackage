@@ -1,4 +1,3 @@
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Color;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Theming;
