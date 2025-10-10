@@ -3,17 +3,53 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
 /// <summary>
 /// Configuration for automatic row height calculations (Public DTO)
 /// </summary>
-public record PublicAutoRowHeightConfiguration(
-    bool IsEnabled = true,
-    double MinimumRowHeight = 20.0,
-    double MaximumRowHeight = 200.0,
-    string DefaultFontFamily = "Segoe UI",
-    double DefaultFontSize = 12.0,
-    bool EnableTextWrapping = true,
-    bool UseCache = true,
-    int CacheMaxSize = 1000,
-    double? CalculationTimeoutSeconds = null
-);
+public record PublicAutoRowHeightConfiguration
+{
+    /// <summary>
+    /// Whether auto row height is enabled
+    /// </summary>
+    public bool IsEnabled { get; init; } = true;
+
+    /// <summary>
+    /// Minimum row height in pixels
+    /// </summary>
+    public double MinimumRowHeight { get; init; } = 20.0;
+
+    /// <summary>
+    /// Maximum row height in pixels
+    /// </summary>
+    public double MaximumRowHeight { get; init; } = 200.0;
+
+    /// <summary>
+    /// Default font family for text measurement
+    /// </summary>
+    public string DefaultFontFamily { get; init; } = "Segoe UI";
+
+    /// <summary>
+    /// Default font size for text measurement
+    /// </summary>
+    public double DefaultFontSize { get; init; } = 12.0;
+
+    /// <summary>
+    /// Enable text wrapping for height calculation
+    /// </summary>
+    public bool EnableTextWrapping { get; init; } = true;
+
+    /// <summary>
+    /// Use cache for text measurements
+    /// </summary>
+    public bool UseCache { get; init; } = true;
+
+    /// <summary>
+    /// Maximum cache size for measurements
+    /// </summary>
+    public int CacheMaxSize { get; init; } = 1000;
+
+    /// <summary>
+    /// Calculation timeout in seconds (null = no timeout)
+    /// </summary>
+    public double? CalculationTimeoutSeconds { get; init; } = null;
+}
 
 /// <summary>
 /// Result of auto row height operation (Public DTO)

@@ -14,9 +14,10 @@ public interface IDataGridSearch
     /// <param name="caseSensitive">Whether search should be case sensitive</param>
     /// <param name="wholeWord">Whether to match whole words only</param>
     /// <param name="columnNames">Optional column names to search in (null = all columns)</param>
+    /// <param name="searchScope">Scope of the search (AllData, VisibleData, SelectedData, FilteredData)</param>
     /// <param name="cancellationToken">Cancellation token for operation</param>
     /// <returns>Search result with matched rows and cells</returns>
-    Task<Api.Models.PublicSearchResult> SearchAsync(string searchText, bool caseSensitive = false, bool wholeWord = false, string[]? columnNames = null, CancellationToken cancellationToken = default);
+    Task<PublicSearchResult> SearchAsync(string searchText, bool caseSensitive = false, bool wholeWord = false, string[]? columnNames = null, PublicSearchScope searchScope = PublicSearchScope.AllData, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Highlights all search matches in the grid.

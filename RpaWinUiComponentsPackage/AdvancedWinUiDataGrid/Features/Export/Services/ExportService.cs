@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Export.Interfaces;
@@ -15,7 +15,7 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Export.Servic
 /// Podporuje IBA DataTable a Dictionary export formáty podľa CRITICAL obmedzenia
 /// Spracováva onlyChecked a onlyFiltered argumenty ktoré môžu byť kombinované
 /// Thread-safe bez per-operation mutable fields
-/// Používa interný IRowStore pre streaming a batch operácie
+/// Používa interný IRowStore for streaming a batch operácie
 /// </summary>
 internal sealed class ExportService : IExportService
 {
@@ -29,7 +29,7 @@ internal sealed class ExportService : IExportService
 
     /// <summary>
     /// Konštruktor ExportService
-    /// Inicializuje všetky závislosti a nastavuje null pattern pre optional operation logger
+    /// Inicializuje všetky závislosti a nastavuje null pattern for optional operation logger
     /// </summary>
     public ExportService(
         ILogger<ExportService> logger,
@@ -85,7 +85,7 @@ internal sealed class ExportService : IExportService
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var operationId = Guid.NewGuid();
 
-        // Začíname export operáciu - vytvoríme operation scope pre automatické tracking
+        // Začíname export operáciu - vytvoríme operation scope for automatické tracking
         using var scope = _operationLogger.LogOperationStart("ExportAsync", new
         {
             OperationId = operationId,
@@ -122,7 +122,7 @@ internal sealed class ExportService : IExportService
 
             _logger.LogInformation("Validation successful for operation {OperationId}", operationId);
 
-            // CRITICAL: Voláme AreAllNonEmptyRowsValidAsync pred exportom (iba ak je EnableBatchValidation = true)
+            // CRITICAL: Voláme AreAllNonEmptyRowsValidAsync pred exportom (iba if EnableBatchValidation = true)
             if (_options.EnableBatchValidation)
             {
                 _logger.LogInformation("Starting automatic pre-export batch validation for operation {OperationId}", operationId);
@@ -164,7 +164,7 @@ internal sealed class ExportService : IExportService
             // Špecializované logovanie - data transformation
             _exportLogger.LogDataTransformation(operationId, "Internal", command.Format.ToString(), filteredData.Count, transformTime);
 
-            // Odstránime exportované riadky ak je to požadované
+            // Odstránime exportované riadky if to požadované
             if (command.RemoveAfterExport && filteredData.Count > 0)
             {
                 _logger.LogInformation("Removing {RowCount} exported rows", filteredData.Count);
@@ -247,9 +247,9 @@ internal sealed class ExportService : IExportService
         // Validate that onlyChecked is feasible (requires checkbox column)
         if (command.ExportOnlyChecked)
         {
-            // Kontrolujeme či existuje checkbox column pre onlyChecked filter
-            // Pre teraz predpokladáme že je validný ak je požadovaný
-            _logger.LogInformation("Export s onlyChecked filtrom požadovaný pre operáciu");
+            // Kontrolujeme či existuje checkbox column for onlyChecked filter
+            // Pre teraz predpokladáme že je validný if požadovaný
+            _logger.LogInformation("Export s onlyChecked filtrom požadovaný for operáciu");
         }
 
         // Additional async validations can be added here
@@ -271,7 +271,7 @@ internal sealed class ExportService : IExportService
     }
 
     /// <summary>
-    /// Odhadne požiadavky na export pre plánovanie
+    /// Odhadne požiadavky na export for plánovanie
     /// Vráti odhadovaný čas trvania a použitie pamäte
     /// </summary>
     public async Task<(TimeSpan EstimatedDuration, long EstimatedMemoryUsage)> EstimateExportRequirementsAsync(InternalExportDataCommand command)
@@ -314,7 +314,7 @@ internal sealed class ExportService : IExportService
     /// <summary>
     /// Získa filtrované dáta podľa export kritérií - thread-safe s local state only
     /// CRITICAL: Podporuje kombinovanie onlyChecked a onlyFiltered
-    /// Používa StreamRowsAsync pre pamäťovo efektívne spracovanie
+    /// Používa StreamRowsAsync for pamäťovo efektívne spracovanie
     /// </summary>
     private async Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> GetFilteredExportDataAsync(
         InternalExportDataCommand command,
@@ -327,7 +327,7 @@ internal sealed class ExportService : IExportService
         var filteredData = new List<IReadOnlyDictionary<string, object?>>();
         var originalCount = 0;
 
-        // Streamujeme dáta z row store pre pamäťovú efektívnosť
+        // Streamujeme dáta z row store for pamäťovú efektívnosť
         await foreach (var batch in _rowStore.StreamRowsAsync(command.ExportOnlyFiltered, _options.ExportBatchSize, cancellationToken))
         {
             originalCount += batch.Count;
@@ -337,16 +337,16 @@ internal sealed class ExportService : IExportService
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // Aplikujeme onlyChecked filter ak je požadovaný
+                // Aplikujeme onlyChecked filter if požadovaný
                 if (command.ExportOnlyChecked && !IsRowChecked(row))
                     continue;
 
-                // Aplikujeme column selection ak je špecifikovaný
+                // Aplikujeme column selection if špecifikovaný
                 var processedRow = command.ColumnNames != null && command.ColumnNames.Count > 0
                     ? ApplyColumnSelectionToRow(row, command.ColumnNames)
                     : row;
 
-                // Pridáme validation alerts ak je požadované
+                // Pridáme validation alerts if požadované
                 if (command.IncludeValidationAlerts)
                 {
                     processedRow = await AddValidationAlertsToRowAsync(processedRow, cancellationToken);
@@ -363,7 +363,7 @@ internal sealed class ExportService : IExportService
     }
 
     /// <summary>
-    /// Kontroluje či je riadok označený/vybraný cez checkbox stĺpec
+    /// Kontroluje či je riadok označený/vybraný via checkbox stĺpec
     /// Vyhľadáva checkbox stĺpce podľa typických názvov
     /// </summary>
     private bool IsRowChecked(IReadOnlyDictionary<string, object?> row)
@@ -398,7 +398,7 @@ internal sealed class ExportService : IExportService
     }
 
     /// <summary>
-    /// Pridá validation alerts do riadku ak je to požadované
+    /// Pridá validation alerts do riadku if to požadované
     /// Získa validation errors z row store a pridá ich ako špeciálny stĺpec
     /// </summary>
     private async Task<IReadOnlyDictionary<string, object?>> AddValidationAlertsToRowAsync(
@@ -407,7 +407,7 @@ internal sealed class ExportService : IExportService
     {
         try
         {
-            // Získame row ID pre vyhľadanie validation errors
+            // Získame row ID for vyhľadanie validation errors
             if (!row.TryGetValue("__rowId", out var rowIdObj) || rowIdObj == null)
             {
                 return row; // Žiadne row ID, nemôžeme vyhľadať validáciu
@@ -417,7 +417,7 @@ internal sealed class ExportService : IExportService
             if (string.IsNullOrEmpty(rowId))
                 return row;
 
-            // Získame validation errors pre tento riadok z row store
+            // Získame validation errors for tento riadok z row store
             var validationErrors = await _rowStore.GetValidationErrorsForRowAsync(rowId, cancellationToken);
 
             if (validationErrors == null || !validationErrors.Any())
@@ -504,7 +504,7 @@ internal sealed class ExportService : IExportService
                     dataTable.Rows.Add(row);
                 }
 
-                // Malé oneskorenie pre cooperative cancellation
+                // Malé oneskorenie for cooperative cancellation
                 if (batchEnd < data.Count)
                     await Task.Delay(1, cancellationToken);
             }
@@ -539,7 +539,7 @@ internal sealed class ExportService : IExportService
                 result.Add(data[j]);
             }
 
-            // Malé oneskorenie pre cooperative cancellation
+            // Malé oneskorenie for cooperative cancellation
             if (batchEnd < data.Count)
                 await Task.Delay(1, cancellationToken);
         }
@@ -552,7 +552,7 @@ internal sealed class ExportService : IExportService
 
     /// <summary>
     /// Odstráni exportované riadky z úložiska
-    /// Extrahuje row IDs a odstráni ich cez row store
+    /// Extrahuje row IDs a odstráni ich via row store
     /// </summary>
     private async Task RemoveExportedRowsAsync(
         IReadOnlyList<IReadOnlyDictionary<string, object?>> exportedRows,
@@ -598,7 +598,7 @@ internal sealed class ExportService : IExportService
 
     /// <summary>
     /// Kontroluje či názov stĺpca indikuje checkbox stĺpec
-    /// Vyhľadáva typické názvy pre checkbox stĺpce
+    /// Vyhľadáva typické názvy for checkbox stĺpce
     /// </summary>
     private static bool IsCheckboxColumn(string columnName)
     {
@@ -622,12 +622,12 @@ internal sealed class ExportService : IExportService
         {
             if (exportedData is DataTable dt)
             {
-                // Odhad: 512 bytov na riadok pre DataTable (má overhead)
+                // Odhad: 512 bytov na riadok for DataTable (má overhead)
                 return dt.Rows.Count * 512L * (dt.Columns.Count + 1);
             }
             else if (exportedData is IReadOnlyList<IReadOnlyDictionary<string, object?>> list)
             {
-                // Odhad: 256 bytov na riadok pre Dictionary
+                // Odhad: 256 bytov na riadok for Dictionary
                 var avgColumns = list.Count > 0 ? list[0].Count : 0;
                 return list.Count * 256L * (avgColumns + 1);
             }

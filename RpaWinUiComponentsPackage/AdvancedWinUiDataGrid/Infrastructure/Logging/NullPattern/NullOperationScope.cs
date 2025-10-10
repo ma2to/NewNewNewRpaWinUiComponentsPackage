@@ -1,20 +1,20 @@
-using System;
+﻿using System;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.Interfaces;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.NullPattern;
 
 /// <summary>
 /// Null implementation of IOperationScope - používa sa keď logging nie je dostupný
-/// Zero-overhead implementation pre scenáre bez loggingu
+/// Zero-overhead implementation for scenáre bez loggingu
 /// </summary>
 internal sealed class NullOperationScope : IOperationScope
 {
     /// <summary>
-    /// Singleton instance pre minimálne alokácie
+    /// Singleton instance for minimálne alokácie
     /// </summary>
     public static readonly NullOperationScope Instance = new();
 
-    // Súkromný konštruktor pre singleton pattern
+    // Súkromný konštruktor for singleton pattern
     private NullOperationScope() { }
 
     public string OperationName => string.Empty;

@@ -1,35 +1,35 @@
-namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Models;
+﻿namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Models;
 
 /// <summary>
-/// Reprezentuje pokrok inicializácie komponentu
-/// Thread-safe immutable record pre progress reporting
+/// Represents initialization progress information for the component
+/// Thread-safe immutable record for progress reporting
 /// </summary>
 internal sealed record InitializationProgress
 {
-    /// <summary>Počet dokončených krokov</summary>
+    /// <summary>Number of initialization steps that have been completed</summary>
     internal int CompletedSteps { get; init; }
 
-    /// <summary>Celkový počet krokov</summary>
+    /// <summary>Total number of initialization steps to complete</summary>
     internal int TotalSteps { get; init; }
 
-    /// <summary>Percentuálne dokončenie (0-100)</summary>
+    /// <summary>Completion percentage calculated as ratio of completed to total steps (0-100)</summary>
     internal double CompletionPercentage => TotalSteps > 0
         ? (double)CompletedSteps / TotalSteps * 100
         : 0;
 
-    /// <summary>Uplynulý čas od začiatku inicializácie</summary>
+    /// <summary>Time elapsed since initialization started</summary>
     internal TimeSpan ElapsedTime { get; init; }
 
-    /// <summary>Názov aktuálnej operácie</summary>
+    /// <summary>Name of the operation currently being executed</summary>
     internal string CurrentOperation { get; init; } = string.Empty;
 
-    /// <summary>Aktuálna fáza inicializácie</summary>
+    /// <summary>Current initialization phase in the startup sequence</summary>
     internal InitializationPhase CurrentPhase { get; init; } = InitializationPhase.None;
 
-    /// <summary>Indikátor headless režimu</summary>
+    /// <summary>Indicates if initialization is running in headless mode without UI</summary>
     internal bool IsHeadlessMode { get; init; }
 
-    /// <summary>Odhadovaný zostávajúci čas (null ak nie je možné odhadnúť)</summary>
+    /// <summary>Estimated time remaining based on current progress rate, null if cannot be estimated</summary>
     internal TimeSpan? EstimatedTimeRemaining => CompletedSteps > 0 && TotalSteps > CompletedSteps
         ? TimeSpan.FromTicks(ElapsedTime.Ticks * (TotalSteps - CompletedSteps) / CompletedSteps)
         : null;

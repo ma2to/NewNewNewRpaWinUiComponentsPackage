@@ -1,35 +1,35 @@
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Models;
 
 /// <summary>
-/// Fázy inicializácie komponentu
-/// Definuje sekvenčný priebeh startup procesu
+/// Initialization phases executed during component startup
+/// Defines the sequential flow of the initialization process
 /// </summary>
 internal enum InitializationPhase
 {
-    /// <summary>Žiadna fáza - komponenta nie je inicializovaná</summary>
+    /// <summary>No initialization phase - component is not yet initialized</summary>
     None = 0,
 
-    /// <summary>Registrácia služieb do DI containera</summary>
+    /// <summary>Registering services into dependency injection container</summary>
     ServiceRegistration = 1,
 
-    /// <summary>Validácia závislostí medzi službami</summary>
+    /// <summary>Validating dependencies between registered services</summary>
     DependencyValidation = 2,
 
-    /// <summary>Načítanie konfigurácie</summary>
+    /// <summary>Loading component configuration settings</summary>
     ConfigurationLoading = 3,
 
-    /// <summary>Inicializácia business komponentov</summary>
+    /// <summary>Initializing business logic components and services</summary>
     ComponentInitialization = 4,
 
-    /// <summary>Nastavenie validation systému</summary>
+    /// <summary>Setting up validation rules and validation system</summary>
     ValidationSetup = 5,
 
-    /// <summary>Inicializácia témy a farieb (len UI mode)</summary>
+    /// <summary>Initializing theme and color schemes (UI mode only)</summary>
     ThemeInitialization = 6,
 
-    /// <summary>Nastavenie smart operácií</summary>
+    /// <summary>Configuring smart operations (Add Above/Below, Smart Delete)</summary>
     SmartOperationsSetup = 7,
 
-    /// <summary>Finalizácia inicializácie</summary>
+    /// <summary>Completing initialization and performing final setup</summary>
     Finalization = 8
 }

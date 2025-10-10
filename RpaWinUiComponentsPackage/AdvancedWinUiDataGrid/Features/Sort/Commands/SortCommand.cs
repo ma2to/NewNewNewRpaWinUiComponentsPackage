@@ -1,11 +1,11 @@
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
+﻿using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 using CoreTypes = RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Sort.Commands;
 
 /// <summary>
-/// Command pre základné jednokolónkové triedenie
-/// Immutable record s factory methods pre LINQ optimization
+/// Command for basic single-column sorting
+/// Immutable record with factory methods for LINQ optimization
 /// </summary>
 internal sealed record SortCommand
 {
@@ -19,7 +19,7 @@ internal sealed record SortCommand
     internal CancellationToken CancellationToken { get; init; } = default;
 
     /// <summary>
-    /// Vytvorí základný sort command
+    /// Creates basic sort command
     /// </summary>
     internal static SortCommand Create(
         IEnumerable<IReadOnlyDictionary<string, object?>> data,
@@ -28,7 +28,7 @@ internal sealed record SortCommand
         new() { Data = data, ColumnName = columnName, Direction = direction };
 
     /// <summary>
-    /// Vytvorí command s výberom performance mode
+    /// Creates command with selected performance mode
     /// </summary>
     internal static SortCommand WithPerformanceMode(
         IEnumerable<IReadOnlyDictionary<string, object?>> data,
@@ -45,7 +45,7 @@ internal sealed record SortCommand
 }
 
 /// <summary>
-/// Command pre multi-column sort s pokročilou konfiguráciou
+/// Command for multi-column sort with advanced configuration
 /// </summary>
 internal sealed record MultiSortCommand
 {
@@ -58,7 +58,7 @@ internal sealed record MultiSortCommand
     internal CancellationToken CancellationToken { get; init; } = default;
 
     /// <summary>
-    /// Vytvorí multi-column sort command
+    /// Creates multi-column sort command
     /// </summary>
     internal static MultiSortCommand Create(
         IEnumerable<IReadOnlyDictionary<string, object?>> data,
@@ -66,7 +66,7 @@ internal sealed record MultiSortCommand
         new() { Data = data, SortColumns = sortColumns };
 
     /// <summary>
-    /// Vytvorí command s performance optimization
+    /// Creates command with performance optimization
     /// </summary>
     internal static MultiSortCommand WithPerformanceOptimization(
         IEnumerable<IReadOnlyDictionary<string, object?>> data,
@@ -81,8 +81,8 @@ internal sealed record MultiSortCommand
 }
 
 /// <summary>
-/// Command pre advanced sort s business rules
-/// Enterprise komplexné triedenie s konfiguračným správaním
+/// Command for advanced sort with business rules
+/// Enterprise complex sorting with configuration management
 /// </summary>
 internal sealed record AdvancedSortCommand
 {
@@ -96,7 +96,7 @@ internal sealed record AdvancedSortCommand
     internal CoreTypes.SortContext? Context { get; init; }
 
     /// <summary>
-    /// Vytvorí advanced sort command
+    /// Creates advanced sort command
     /// </summary>
     internal static AdvancedSortCommand Create(
         IEnumerable<IReadOnlyDictionary<string, object?>> data,
@@ -104,7 +104,7 @@ internal sealed record AdvancedSortCommand
         new() { Data = data, SortConfiguration = sortConfiguration };
 
     /// <summary>
-    /// Vytvorí command s optimalizáciou
+    /// Creates command with optimization
     /// </summary>
     internal static AdvancedSortCommand WithOptimization(
         IEnumerable<IReadOnlyDictionary<string, object?>> data,
@@ -119,7 +119,7 @@ internal sealed record AdvancedSortCommand
         };
 
     /// <summary>
-    /// Vytvorí command s kontextom
+    /// Creates command with context
     /// </summary>
     internal static AdvancedSortCommand WithContext(
         IEnumerable<IReadOnlyDictionary<string, object?>> data,

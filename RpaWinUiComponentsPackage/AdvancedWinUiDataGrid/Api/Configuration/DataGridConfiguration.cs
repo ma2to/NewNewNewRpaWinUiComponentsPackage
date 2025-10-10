@@ -138,7 +138,7 @@ internal sealed class DataGridConfiguration : IDataGridConfiguration
             _logger?.LogInformation("Applying configuration via Configuration module");
 
             // TODO: Create ToInternal mapping for PublicGridConfiguration -> PublicDataGridConfiguration
-            var internalConfig = new Api.Models.PublicDataGridConfiguration();
+            var internalConfig = new PublicDataGridConfiguration();
             await _configurationService.ApplyConfigurationAsync(internalConfig, cancellationToken);
             return PublicResult.Success();
         }

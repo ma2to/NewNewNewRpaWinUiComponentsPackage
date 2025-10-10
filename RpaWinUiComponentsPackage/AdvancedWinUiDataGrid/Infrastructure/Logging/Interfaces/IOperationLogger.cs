@@ -1,87 +1,87 @@
-using System;
+﻿using System;
 using System.Threading.Tasks;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.Interfaces;
 
 /// <summary>
 /// Universal operation logger for comprehensive operation tracking
-/// Používa sa pre logovanie všetkých operácií v systéme s automatickým meraním času
+/// Used for logging all operations in the system with automatic time measurement
 /// </summary>
 /// <typeparam name="T">Service type for logger context</typeparam>
 internal interface IOperationLogger<T>
 {
     /// <summary>
-    /// Spustí logovanie operácie a vráti scope pre automatické tracking
+    /// Starts operation logging and returns scope for automatic tracking
     /// </summary>
     IOperationScope LogOperationStart(string operationName, object? context = null);
 
     /// <summary>
-    /// Asynchrónne spustí logovanie operácie
+    /// Asynchronously starts operation logging
     /// </summary>
     Task LogOperationStartAsync(string operationName, object? context = null);
 
     /// <summary>
-    /// Zaloguje úspešné dokončenie operácie
+    /// Logs successful operation completion
     /// </summary>
     void LogOperationSuccess(string operationName, object? result = null, TimeSpan? duration = null);
 
     /// <summary>
-    /// Zaloguje zlyhanie operácie s exception
+    /// Logs operation failure with exception
     /// </summary>
     void LogOperationFailure(string operationName, Exception exception, object? context = null);
 
     /// <summary>
-    /// Zaloguje warning pre operáciu
+    /// Logs warning for operation
     /// </summary>
     void LogOperationWarning(string operationName, string warning, object? context = null);
 
     /// <summary>
-    /// Spustí logovanie command operácie
+    /// Starts logging command operation
     /// </summary>
     IOperationScope LogCommandOperationStart<TCommand>(TCommand command, object? parameters = null);
 
     /// <summary>
-    /// Zaloguje úspešné vykonanie command
+    /// Logs successful command execution
     /// </summary>
     void LogCommandSuccess<TCommand>(string commandType, TCommand command, TimeSpan duration);
 
     /// <summary>
-    /// Zaloguje zlyhanie command
+    /// Logs command failure
     /// </summary>
     void LogCommandFailure<TCommand>(string commandType, TCommand command, Exception exception, TimeSpan duration);
 
     /// <summary>
-    /// Zaloguje filter operáciu s metrikami
+    /// Logs filter operation with metrics
     /// </summary>
     void LogFilterOperation(string filterType, string filterName, int totalRows, int matchingRows, TimeSpan duration);
 
     /// <summary>
-    /// Zaloguje pokročilú filter operáciu s business rule
+    /// Logs advanced filter operation with business rule
     /// </summary>
     void LogAdvancedFilterOperation(string businessRule, int totalFilters, int totalRows, int matchingRows, TimeSpan duration);
 
     /// <summary>
-    /// Zaloguje import operáciu
+    /// Logs import operation
     /// </summary>
     void LogImportOperation(string importType, int totalRows, int importedRows, TimeSpan duration);
 
     /// <summary>
-    /// Zaloguje export operáciu
+    /// Logs export operation
     /// </summary>
     void LogExportOperation(string exportType, int totalRows, int exportedRows, TimeSpan duration);
 
     /// <summary>
-    /// Zaloguje validáciu s metrikami
+    /// Logs validation with metrics
     /// </summary>
     void LogValidationOperation(string validationType, int totalRows, int validRows, int ruleCount, TimeSpan duration);
 
     /// <summary>
-    /// Zaloguje performance metriky
+    /// Logs performance metrics
     /// </summary>
     void LogPerformanceMetrics(string operationType, object metrics);
 
     /// <summary>
-    /// Zaloguje LINQ optimalizáciu
+    /// Logs LINQ optimization
     /// </summary>
     void LogLINQOptimization(string operationType, bool usedParallel, bool usedShortCircuit, TimeSpan duration);
 }

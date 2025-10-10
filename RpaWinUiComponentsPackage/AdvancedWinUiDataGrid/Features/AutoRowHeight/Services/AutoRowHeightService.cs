@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.AutoRowHeight.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Persistence.Interfaces;
@@ -61,7 +61,7 @@ internal sealed class AutoRowHeightService : IAutoRowHeightService
         var stopwatch = Stopwatch.StartNew();
         var operationId = Guid.NewGuid();
 
-        // Začíname enable auto row height operáciu - vytvoríme operation scope pre automatické tracking
+        // Začíname enable auto row height operáciu - vytvoríme operation scope for automatické tracking
         using var scope = _operationLogger.LogOperationStart("EnableAutoRowHeightAsync", new
         {
             OperationId = operationId,
@@ -177,7 +177,7 @@ internal sealed class AutoRowHeightService : IAutoRowHeightService
         var stopwatch = Stopwatch.StartNew();
         var operationId = Guid.NewGuid();
 
-        // Začíname batch row height calculation - vytvoríme operation scope pre automatické tracking
+        // Začíname batch row height calculation - vytvoríme operation scope for automatické tracking
         using var scope = _operationLogger.LogOperationStart("CalculateOptimalRowHeightsAsync", new
         {
             OperationId = operationId
@@ -224,7 +224,7 @@ internal sealed class AutoRowHeightService : IAutoRowHeightService
                     CurrentOperation: $"Processing batch {batchStart}-{batchEnd - 1}"
                 ));
 
-                // Malé delay pre cooperative processing
+                // Malé delay for cooperative processing
                 if (batchEnd < totalRows)
                     await Task.Delay(1, cancellationToken);
             }
@@ -542,7 +542,7 @@ internal sealed class AutoRowHeightService : IAutoRowHeightService
 
     #region Simple Wrapper Methods for Public API
 
-    // Tieto metódy slúžia ako jednoduché wrappery pre DataGridAutoRowHeight v /Api
+    // Tieto metódy slúžia ako jednoduché wrappery for DataGridAutoRowHeight v /Api
     // Mapujú jednoduché volania na command-based internal API
 
     async Task<Common.Models.Result> IAutoRowHeightService.EnableAutoRowHeightAsync(CancellationToken cancellationToken)

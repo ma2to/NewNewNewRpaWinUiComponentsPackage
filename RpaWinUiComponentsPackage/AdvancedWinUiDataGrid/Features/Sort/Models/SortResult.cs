@@ -4,8 +4,8 @@ using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Sort.Models;
 
 /// <summary>
-/// Výsledok sort operácie s kompletnou štatistikou
-/// Immutable record s factory methods
+/// Result of sort operation with complete statistics
+/// Immutable record with factory methods
 /// </summary>
 internal sealed record SortResult
 {
@@ -21,7 +21,7 @@ internal sealed record SortResult
     internal SortStatistics Statistics { get; init; } = new();
 
     /// <summary>
-    /// Vytvorí úspešný sort result
+    /// Creates successful sort result
     /// </summary>
     internal static SortResult CreateSuccess(
         IReadOnlyList<IReadOnlyDictionary<string, object?>> sortedData,
@@ -50,7 +50,7 @@ internal sealed record SortResult
         };
 
     /// <summary>
-    /// Vytvorí neúspešný sort result
+    /// Creates failed sort result
     /// </summary>
     internal static SortResult CreateFailure(
         IReadOnlyList<string> errors,

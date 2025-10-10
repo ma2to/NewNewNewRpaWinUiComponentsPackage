@@ -7,7 +7,6 @@ using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 
 namespace RpaWinUiComponentsPackage.PerformanceTests;
 

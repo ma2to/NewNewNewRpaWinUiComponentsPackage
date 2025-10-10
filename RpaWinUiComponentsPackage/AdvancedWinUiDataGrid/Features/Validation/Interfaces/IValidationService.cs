@@ -11,7 +11,7 @@ internal interface IValidationService
 {
     /// <summary>
     /// CRITICAL: Validates all non-empty rows with batched, thread-safe processing
-    /// CRITICAL: Must be batchovaná, thread-safe a pracovať so streamami (in-memory / cache / disk)
+    /// CRITICAL: Must be batched, thread-safe and work with streams (in-memory / cache / disk)
     /// Called by Import & Paste & Export operations automatically
     /// </summary>
     /// <param name="onlyFiltered">Whether to validate only filtered rows</param>

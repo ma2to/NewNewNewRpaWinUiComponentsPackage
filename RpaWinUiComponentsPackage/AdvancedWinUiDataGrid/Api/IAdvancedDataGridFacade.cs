@@ -620,7 +620,7 @@ public interface IAdvancedDataGridFacade : IAsyncDisposable
     /// Gets all registered shortcuts
     /// </summary>
     /// <returns>List of registered shortcuts</returns>
-    IReadOnlyList<PublicShortcutDefinition> GetRegisteredShortcuts();
+    IReadOnlyList<PublicShortcutInfo> GetRegisteredShortcuts();
 
     #endregion
 

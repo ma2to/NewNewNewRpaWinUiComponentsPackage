@@ -13,7 +13,7 @@ public interface IDataGridShortcuts
     /// <param name="shortcut">Shortcut definition</param>
     /// <param name="cancellationToken">Cancellation token for operation</param>
     /// <returns>Result of the operation</returns>
-    Task<PublicResult> RegisterShortcutAsync(Api.Models.PublicShortcutDefinition shortcut, CancellationToken cancellationToken = default);
+    Task<PublicResult> RegisterShortcutAsync(PublicShortcutDefinition shortcut, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Unregisters a keyboard shortcut.
@@ -27,7 +27,7 @@ public interface IDataGridShortcuts
     /// Gets all registered shortcuts.
     /// </summary>
     /// <returns>Collection of shortcut definitions</returns>
-    IReadOnlyList<PublicShortcutDefinition> GetAllShortcuts();
+    IReadOnlyList<PublicShortcutInfo> GetAllShortcuts();
 
     /// <summary>
     /// Enables or disables shortcuts.

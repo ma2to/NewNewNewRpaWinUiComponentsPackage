@@ -1,4 +1,4 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Persistence;
@@ -127,8 +127,8 @@ internal static class ServiceRegistration
             services.TryAddSingleton<UIAdapters.WinUI.GridViewModelAdapter>();
         }
 
-        // Register logging infrastructure (OPTIONAL - ak nie je ILoggerFactory, použije sa null pattern v services)
-        // Používame TryAddSingleton pre optional registration - ak už existuje, nenahradíme ho
+        // Register logging infrastructure (OPTIONAL - uses null object pattern if ILoggerFactory is not available)
+        // Uses TryAddSingleton for optional registration - does not replace existing registrations
         services.TryAddSingleton(typeof(IOperationLogger<>), typeof(OperationLogger<>));
 
         // Register specialized loggers for features

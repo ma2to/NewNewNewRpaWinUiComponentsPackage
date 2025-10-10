@@ -3,7 +3,6 @@ using System.Text;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.UI.Dispatching;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 
 namespace RpaWinUiComponentsPackage.PerformanceTests;
 

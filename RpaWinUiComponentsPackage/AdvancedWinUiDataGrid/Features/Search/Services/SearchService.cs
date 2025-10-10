@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.Utilities;
@@ -7,31 +7,35 @@ using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Search.Commands;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Search.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Search.Models;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Filter.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.NullPattern;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Search.Services;
 
 /// <summary>
-/// Interná implementácia search služby s LINQ optimalizáciami
-/// Thread-safe s podporou parallel processing, regex, fuzzy matching
+/// Internal implementation of search service with LINQ optimizations
+/// Thread-safe with parallel processing, regex, fuzzy matching support
 /// </summary>
 internal sealed class SearchService : ISearchService
 {
     private const int ParallelProcessingThreshold = 1000;
     private readonly ILogger<SearchService> _logger;
     private readonly IOperationLogger<SearchService> _operationLogger;
+    private readonly IFilterService _filterService;
 
     public SearchService(
         ILogger<SearchService> logger,
+        IFilterService filterService,
         IOperationLogger<SearchService>? operationLogger = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _filterService = filterService ?? throw new ArgumentNullException(nameof(filterService));
         _operationLogger = operationLogger ?? NullOperationLogger<SearchService>.Instance;
     }
 
     /// <summary>
-    /// Vykoná základné vyhľadávanie s LINQ optimization
+    /// Performs basic search with LINQ optimization
     /// </summary>
     public async Task<SearchResultCollection> SearchAsync(SearchCommand command, CancellationToken cancellationToken = default)
     {
@@ -51,7 +55,7 @@ internal sealed class SearchService : ISearchService
 
         try
         {
-            // Validácia search textu
+            // Search text validation
             if (string.IsNullOrWhiteSpace(command.SearchText))
             {
                 var error = "Search text cannot be empty";
@@ -60,11 +64,21 @@ internal sealed class SearchService : ISearchService
                 return SearchResultCollection.CreateFailure(new[] { error }, stopwatch.Elapsed);
             }
 
-            // Konverzia na list pre performance
-            var dataList = command.Data.ToList();
-            _logger.LogInformation("Processing {RowCount} rows for search operation {OperationId}", dataList.Count, operationId);
+            // Apply search scope - get appropriate data based on scope
+            IEnumerable<IReadOnlyDictionary<string, object?>> dataToSearch = command.Scope switch
+            {
+                SearchScope.FilteredData => await _filterService.GetFilteredDataAsync(),
+                SearchScope.VisibleData => command.Data, // TODO: Implement visible data logic when UI layer exists
+                SearchScope.SelectedData => command.Data, // TODO: Implement selected data logic when UI layer exists
+                _ => command.Data // AllData
+            };
 
-            // Získame target columns
+            // Convert to list for performance
+            var dataList = dataToSearch.ToList();
+            _logger.LogInformation("Processing {RowCount} rows for search operation {OperationId} with scope {Scope}",
+                dataList.Count, operationId, command.Scope);
+
+            // Get target columns
             var searchColumns = command.TargetColumns ?? GetSearchableColumns(dataList).ToArray();
             if (searchColumns.Length == 0)
             {
@@ -74,7 +88,7 @@ internal sealed class SearchService : ISearchService
                 return SearchResultCollection.CreateFailure(new[] { error }, stopwatch.Elapsed);
             }
 
-            // Výber search stratégie
+            // Select search strategy
             var useParallel = command.EnableParallelProcessing && dataList.Count > ParallelProcessingThreshold;
 
             // LINQ search execution
@@ -182,7 +196,7 @@ internal sealed class SearchService : ISearchService
     }
 
     /// <summary>
-    /// Vykoná pokročilé vyhľadávanie s regex, fuzzy matching a smart ranking
+    /// Performs advanced search with regex, fuzzy matching and smart ranking
     /// </summary>
     public async Task<SearchResultCollection> AdvancedSearchAsync(AdvancedSearchCommand command, CancellationToken cancellationToken = default)
     {
@@ -203,7 +217,7 @@ internal sealed class SearchService : ISearchService
 
         try
         {
-            // Validácia
+            // Validation
             var validationResult = await ValidateSearchCriteriaAsync(command.SearchCriteria, cancellationToken);
             if (!validationResult.IsSuccess)
             {
@@ -213,8 +227,20 @@ internal sealed class SearchService : ISearchService
                 return SearchResultCollection.CreateFailure(new[] { validationResult.ErrorMessage ?? "Validation failed" }, stopwatch.Elapsed);
             }
 
-            var dataList = command.Data.ToList();
+            // Apply search scope - get appropriate data based on scope
+            IEnumerable<IReadOnlyDictionary<string, object?>> dataToSearch = command.SearchCriteria.Scope switch
+            {
+                SearchScope.FilteredData => await _filterService.GetFilteredDataAsync(),
+                SearchScope.VisibleData => command.Data, // TODO: Implement visible data logic when UI layer exists
+                SearchScope.SelectedData => command.Data, // TODO: Implement selected data logic when UI layer exists
+                _ => command.Data // AllData
+            };
+
+            var dataList = dataToSearch.ToList();
             var searchColumns = command.SearchCriteria.TargetColumns ?? GetSearchableColumns(dataList).ToArray();
+
+            _logger.LogInformation("Advanced search scope {Scope} resulted in {RowCount} rows to search",
+                command.SearchCriteria.Scope, dataList.Count);
 
             if (searchColumns.Length == 0)
             {
@@ -226,7 +252,7 @@ internal sealed class SearchService : ISearchService
             var useParallel = command.EnableParallelProcessing && dataList.Count > ParallelProcessingThreshold;
             var results = new List<SearchResult>();
 
-            // LINQ search execution podľa mode
+            // LINQ search execution according to mode
             switch (command.SearchCriteria.Mode)
             {
                 case SearchMode.Regex:
@@ -306,7 +332,7 @@ internal sealed class SearchService : ISearchService
     }
 
     /// <summary>
-    /// Vykoná smart search s automatickou optimalizáciou
+    /// Performs smart search with automatic optimization
     /// </summary>
     public async Task<SearchResultCollection> SmartSearchAsync(SmartSearchCommand command, CancellationToken cancellationToken = default)
     {
@@ -318,18 +344,18 @@ internal sealed class SearchService : ISearchService
 
         try
         {
-            // Automaticky vyber najlepšiu stratégiu
+            // Automatically select best strategy
             var dataList = command.Data.ToList();
             var searchColumns = command.TargetColumns ?? GetSearchableColumns(dataList).ToArray();
 
-            // Analyzuj search text a odporuč mode
+            // Analyze search text and recommend mode
             var recommendedModes = GetRecommendedSearchModes(dataList, command.SearchText);
             var selectedMode = recommendedModes.FirstOrDefault();
 
             _logger.LogInformation("Smart search selected mode: {SelectedMode} for '{SearchText}'",
                 selectedMode, command.SearchText);
 
-            // Vytvor advanced search criteria s optimálnymi nastaveniami
+            // Create advanced search criteria with optimal settings
             var criteria = new AdvancedSearchCriteria
             {
                 SearchText = command.SearchText,
@@ -362,7 +388,7 @@ internal sealed class SearchService : ISearchService
     }
 
     /// <summary>
-    /// Quick search pre okamžité výsledky (synchronous)
+    /// Quick search for immediate results (synchronous)
     /// </summary>
     public SearchResultCollection QuickSearch(
         IEnumerable<IReadOnlyDictionary<string, object?>> data,
@@ -391,13 +417,13 @@ internal sealed class SearchService : ISearchService
     }
 
     /// <summary>
-    /// Validuje search kritériá
+    /// Validates search criteria
     /// </summary>
     public async Task<Result> ValidateSearchCriteriaAsync(
         AdvancedSearchCriteria searchCriteria,
         CancellationToken cancellationToken = default)
     {
-        await Task.CompletedTask; // Pre async kompatibilitu
+        await Task.CompletedTask; // For async compatibility
 
         if (string.IsNullOrWhiteSpace(searchCriteria.SearchText))
             return Result.Failure("Search text cannot be empty");
@@ -424,7 +450,7 @@ internal sealed class SearchService : ISearchService
     }
 
     /// <summary>
-    /// Získa zoznam stĺpcov, v ktorých možno vyhľadávať
+    /// Gets list of columns that can be searched
     /// </summary>
     public IReadOnlyList<string> GetSearchableColumns(IEnumerable<IReadOnlyDictionary<string, object?>> data)
     {
@@ -436,7 +462,7 @@ internal sealed class SearchService : ISearchService
     }
 
     /// <summary>
-    /// Odporúči vhodné search modes pre dáta
+    /// Recommends suitable search modes for data
     /// </summary>
     public IReadOnlyList<SearchMode> GetRecommendedSearchModes(
         IEnumerable<IReadOnlyDictionary<string, object?>> data,
@@ -444,19 +470,19 @@ internal sealed class SearchService : ISearchService
     {
         var modes = new List<SearchMode>();
 
-        // Detekcia regex patternov
+        // Detect regex patterns
         if (searchText.Contains(".*") || searchText.Contains("\\d") || searchText.Contains("[") || searchText.Contains("^") || searchText.Contains("$"))
         {
             modes.Add(SearchMode.Regex);
         }
 
-        // Detekcia exact match (quoted string)
+        // Detect exact match (quoted string)
         if (searchText.StartsWith("\"") && searchText.EndsWith("\""))
         {
             modes.Add(SearchMode.Exact);
         }
 
-        // Detekcia wildcard patterns
+        // Detect wildcard patterns
         if (searchText.EndsWith("*") && !searchText.StartsWith("*"))
         {
             modes.Add(SearchMode.StartsWith);
@@ -865,7 +891,7 @@ internal sealed class SearchService : ISearchService
     #region Search Navigation Methods
 
     /// <summary>
-    /// Zvýrazní search matches v data grid
+    /// Highlights search matches in data grid
     /// </summary>
     public async Task<Result> HighlightSearchMatchesAsync(
         SearchResultCollection searchResults,
@@ -903,7 +929,7 @@ internal sealed class SearchService : ISearchService
     }
 
     /// <summary>
-    /// Vymaže search highlights
+    /// Clears search highlights
     /// </summary>
     public async Task<Result> ClearSearchHighlightsAsync(CancellationToken cancellationToken = default)
     {
@@ -938,7 +964,7 @@ internal sealed class SearchService : ISearchService
     }
 
     /// <summary>
-    /// Prejde na ďalší search match
+    /// Goes to next search match
     /// </summary>
     public async Task<Result> GoToNextMatchAsync(
         SearchResultCollection searchResults,
@@ -986,7 +1012,7 @@ internal sealed class SearchService : ISearchService
     }
 
     /// <summary>
-    /// Prejde na predchádzajúci search match
+    /// Goes to previous search match
     /// </summary>
     public async Task<Result> GoToPreviousMatchAsync(
         SearchResultCollection searchResults,

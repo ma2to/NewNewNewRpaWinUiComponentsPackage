@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Import.Interfaces;
@@ -11,10 +11,10 @@ using System.Data;
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Import.Services;
 
 /// <summary>
-/// Interná implementácia import služby s komplexnou funkcionalitou
-/// Podporuje len DataTable a Dictionary formáty podľa KRITICKÉHO obmedzenia
-/// Thread-safe bez mutable fields pre jednotlivé operácie
-/// Používa interný IRowStore pre dávkové operácie a perzistenciu
+/// Internal implementation of import service with comprehensive functionality
+/// Supports only DataTable and Dictionary formats per CRITICAL constraint
+/// Thread-safe without mutable fields for individual operations
+/// Uses internal IRowStore for batch operations and persistence
 /// </summary>
 internal sealed class ImportService : IImportService
 {
@@ -26,8 +26,8 @@ internal sealed class ImportService : IImportService
     private readonly AdvancedDataGridOptions _options;
 
     /// <summary>
-    /// Konštruktor ImportService
-    /// Inicializuje všetky závislosti a null pattern pre operation logger
+    /// ImportService constructor
+    /// Initializes all dependencies and null pattern for operation logger
     /// </summary>
     public ImportService(
         ILogger<ImportService> logger,
@@ -43,14 +43,14 @@ internal sealed class ImportService : IImportService
         _rowStore = rowStore ?? throw new ArgumentNullException(nameof(rowStore));
         _options = options ?? throw new ArgumentNullException(nameof(options));
 
-        // Ak nie je poskytnutý operation logger, použijeme null pattern (žiadne logovanie)
+        // If operation logger is not provided, use null pattern (no logging)
         _operationLogger = operationLogger ?? NullOperationLogger<ImportService>.Instance;
     }
 
     /// <summary>
-    /// Importuje dáta s komplexnou validáciou a thread-safe spracovaním
-    /// KRITICKÉ: Podporuje len DataTable a Dictionary - NIE JSON/Excel/CSV
-    /// Volá AreAllNonEmptyRowsValidAsync po dokončení importu
+    /// Imports data with comprehensive validation and thread-safe processing
+    /// CRITICAL: Supports only DataTable and Dictionary - NO JSON/Excel/CSV
+    /// Calls AreAllNonEmptyRowsValidAsync after import completion
     /// </summary>
     public async Task<InternalImportResult> ImportAsync(InternalImportDataCommand command, CancellationToken cancellationToken = default)
     {
@@ -60,7 +60,7 @@ internal sealed class ImportService : IImportService
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var operationId = Guid.NewGuid();
 
-        // Začíname import operáciu - vytvoríme operation scope pre automatické tracking
+        // Starting import operation - create operation scope for automatic tracking
         using var scope = _operationLogger.LogOperationStart("ImportAsync", new
         {
             OperationId = operationId,
@@ -69,19 +69,19 @@ internal sealed class ImportService : IImportService
             CorrelationId = command.CorrelationId
         });
 
-        // Špecializované import logovanie - start
+        // Specialized import logging - start
         var dataSource = command.DataTableData != null ? "DataTable" : command.DictionaryData != null ? "Dictionary" : "Unknown";
         var rowCount = command.DataTableData?.Rows.Count ?? command.DictionaryData?.Count ?? 0;
         _importLogger.LogImportStart(operationId, dataSource, rowCount, command.Mode.ToString());
 
         try
         {
-            // Validujeme import konfiguráciu
+            // Validate import configuration
             _logger.LogInformation("Validating import configuration for operation {OperationId}", operationId);
             var validationResult = await ValidateImportDataAsync(command, cancellationToken);
             if (!validationResult.IsValid)
             {
-                // Validácia zlyhala - zalogujeme chyby a vrátime failure
+                // Validation failed - log errors and return failure
                 _logger.LogWarning("Import validation failed for operation {OperationId}: {Errors}",
                     operationId, string.Join(", ", validationResult.ValidationErrors));
                 scope.MarkFailure(new InvalidOperationException($"Import validation failed: {string.Join(", ", validationResult.ValidationErrors)}"));
@@ -90,18 +90,18 @@ internal sealed class ImportService : IImportService
 
             _logger.LogInformation("Validation successful, starting data processing for operation {OperationId}", operationId);
 
-            // Spracujeme import dáta podľa typu - PODPORUJEME len DataTable a Dictionary
+            // Process import data by type - SUPPORT only DataTable and Dictionary
             var processedRows = await ProcessImportDataAsync(command, operationId, cancellationToken);
             _logger.LogInformation("Processed {RowCount} rows in {Duration}ms for operation {OperationId}",
                 processedRows.Count, stopwatch.ElapsedMilliseconds, operationId);
 
-            // Uložíme importované dáta do row store
+            // Store imported data into row store
             _logger.LogInformation("Storing {RowCount} rows with mode {Mode} for operation {OperationId}",
                 processedRows.Count, command.Mode, operationId);
             var storeResult = await StoreImportedDataAsync(processedRows, command.Mode, operationId, cancellationToken);
             if (!storeResult.IsSuccess)
             {
-                // Ukladanie zlyhalo - zalogujeme chybu
+                // Storage failed - log error
                 _logger.LogError("Storing imported data failed for operation {OperationId}: {Error}",
                     operationId, storeResult.ErrorMessage);
                 scope.MarkFailure(new InvalidOperationException($"Storage failed: {storeResult.ErrorMessage}"));
@@ -110,7 +110,7 @@ internal sealed class ImportService : IImportService
 
             _logger.LogInformation("Data successfully stored for operation {OperationId}", operationId);
 
-            // CRITICAL: Voláme AreAllNonEmptyRowsValidAsync po dokončení importu (iba ak je EnableBatchValidation = true)
+            // CRITICAL: Voláme AreAllNonEmptyRowsValidAsync po dokončení importu (iba if EnableBatchValidation = true)
             bool validationPassed = true;
             int validRows = processedRows.Count;
             int errorCount = 0;
@@ -126,7 +126,7 @@ internal sealed class ImportService : IImportService
 
                 if (!postImportValidation.IsSuccess)
                 {
-                    // Post-import validácia našla problémy - zalogujeme warning
+                    // Post-import validation found issues - log warning
                     _logger.LogWarning("Post-import validation found issues for operation {OperationId}: {Error}",
                         operationId, postImportValidation.ErrorMessage);
                     scope.MarkWarning($"Post-import validation found issues: {postImportValidation.ErrorMessage}");
@@ -146,7 +146,7 @@ internal sealed class ImportService : IImportService
                 _logger.LogInformation("Batch validation disabled, skipping automatic post-import validation for operation {OperationId}", operationId);
             }
 
-            // Zalogujeme metriky importu
+            // Log import metrics
             _operationLogger.LogImportOperation(
                 importType: command.DataTableData != null ? "DataTable" : "Dictionary",
                 totalRows: processedRows.Count,
@@ -156,26 +156,26 @@ internal sealed class ImportService : IImportService
             _logger.LogInformation("Import operation {OperationId} completed successfully in {Duration}ms, imported {RowCount} rows",
                 operationId, stopwatch.ElapsedMilliseconds, processedRows.Count);
 
-            // Špecializované logovanie - completion & performance metrics
+            // Specialized logging - completion & performance metrics
             var rowsPerSecond = processedRows.Count / stopwatch.Elapsed.TotalSeconds;
             _importLogger.LogImportCompletion(operationId, true, processedRows.Count, stopwatch.Elapsed);
             _importLogger.LogPerformanceMetrics(operationId, rowsPerSecond, 0L, 0L);
 
-            // Označíme scope ako úspešný
+            // Mark scope as successful
             scope.MarkSuccess(new { ImportedRows = processedRows.Count, Duration = stopwatch.Elapsed });
 
             return InternalImportResult.CreateSuccess(processedRows.Count, processedRows.Count, stopwatch.Elapsed, command.Mode, command.CorrelationId, validationPassed);
         }
         catch (OperationCanceledException ex)
         {
-            // Operácia bola zrušená používateľom
+            // Operation was cancelled by user
             _logger.LogWarning("Import operation {OperationId} was cancelled by user", operationId);
             scope.MarkFailure(ex);
             return InternalImportResult.Failure(new[] { "Operation was cancelled" }, stopwatch.Elapsed, command.Mode, command.CorrelationId);
         }
         catch (Exception ex)
         {
-            // Neočakávaná chyba počas importu
+            // Unexpected error during import
             _logger.LogError(ex, "Import operation {OperationId} failed with unexpected error: {Message}", operationId, ex.Message);
             _importLogger.LogCriticalError(operationId, ex, "ImportAsync failed");
             scope.MarkFailure(ex);
@@ -184,7 +184,7 @@ internal sealed class ImportService : IImportService
     }
 
     /// <summary>
-    /// Validuje konfiguráciu a obmedzenia import dát
+    /// Validates import data configuration and constraints
     /// </summary>
     public async Task<InternalImportValidationResult> ValidateImportDataAsync(InternalImportDataCommand command, CancellationToken cancellationToken = default)
     {
@@ -218,7 +218,7 @@ internal sealed class ImportService : IImportService
     }
 
     /// <summary>
-    /// Získa podporované import režimy pre daný dátový typ
+    /// Gets supported import modes for given data type
     /// </summary>
     public IReadOnlyList<ImportMode> GetSupportedImportModes(Type dataType, object? targetSchema = null)
     {
@@ -241,7 +241,7 @@ internal sealed class ImportService : IImportService
     }
 
     /// <summary>
-    /// Odhadne požiadavky pre import na plánovacie účely
+    /// Estimates import requirements for planning purposes
     /// </summary>
     public async Task<(TimeSpan EstimatedDuration, long EstimatedMemoryUsage)> EstimateImportRequirementsAsync(InternalImportDataCommand command)
     {
@@ -272,7 +272,7 @@ internal sealed class ImportService : IImportService
     }
 
     /// <summary>
-    /// Spracuje import dáta podľa typu - thread-safe len s lokálnym stavom
+    /// Processes import data by type - thread-safe with local state only
     /// </summary>
     private async Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> ProcessImportDataAsync(
         InternalImportDataCommand command,
@@ -337,8 +337,8 @@ internal sealed class ImportService : IImportService
     }
 
     /// <summary>
-    /// Uloží importované dáta pomocou row store - thread-safe operácia
-    /// Používa interné IRowStore dávkové metódy pre optimálny výkon
+    /// Stores imported data using row store - thread-safe operation
+    /// Uses internal IRowStore batch methods for optimal performance
     /// </summary>
     private async Task<Result> StoreImportedDataAsync(
         IReadOnlyList<IReadOnlyDictionary<string, object?>> rows,
@@ -384,7 +384,7 @@ internal sealed class ImportService : IImportService
     }
 
     /// <summary>
-    /// Skontroluje či typ je platný Dictionary typ (Dictionary&lt;string, object?&gt;)
+    /// Checks if type is a valid Dictionary type (Dictionary&lt;string, object?&gt;)
     /// </summary>
     private static bool IsValidDictionaryType(Type type)
     {

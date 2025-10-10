@@ -1,14 +1,14 @@
-namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.Utilities;
+﻿namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.Utilities;
 
 /// <summary>
-/// Pure functional sorting algorithms pre maximum performance a testability
+/// Pure functional sorting algorithms for maximum performance a testability
 /// Stateless algorithms bez side effects
-/// Thread-safe pre concurrent execution
+/// Thread-safe for concurrent execution
 /// </summary>
 internal static class SortAlgorithms
 {
     /// <summary>
-    /// Extrahuje sortovateľnú hodnotu s inteligentnou type conversion
+    /// Extracts a sortable value from the row with intelligent type conversion.
     /// </summary>
     public static object? GetSortValue(IReadOnlyDictionary<string, object?> row, string columnName)
     {
@@ -54,7 +54,7 @@ internal static class SortAlgorithms
     }
 
     /// <summary>
-    /// Porovná sort key arrays s support pre direction
+    /// Compares sort key arrays with support for ascending/descending directions.
     /// </summary>
     public static int CompareSortKeys(
         IReadOnlyList<object?> keys1,
@@ -80,7 +80,7 @@ internal static class SortAlgorithms
     }
 
     /// <summary>
-    /// Zistí či je stĺpec sortovateľný
+    /// Determines whether a column contains sortable data by sampling values.
     /// </summary>
     public static bool IsColumnSortable(IEnumerable<IReadOnlyDictionary<string, object?>> data, string columnName)
     {
@@ -102,7 +102,7 @@ internal static class SortAlgorithms
     }
 
     /// <summary>
-    /// Detekuje optimálny sort data type
+    /// Detects the optimal sort data type by analyzing sample column values.
     /// </summary>
     public static Type? DetectSortDataType(IEnumerable<IReadOnlyDictionary<string, object?>> data, string columnName)
     {

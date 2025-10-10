@@ -1,28 +1,28 @@
-namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Models;
+﻿namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Models;
 
 /// <summary>
-/// Výsledok inicializácie komponentu
-/// Immutable result object s success/failure stavom
+/// Result of component initialization operation
+/// Immutable result object with success/failure state
 /// </summary>
 internal sealed record InitializationResult
 {
-    /// <summary>Indikátor úspešnej inicializácie</summary>
+    /// <summary>Indicates whether initialization completed successfully</summary>
     internal bool IsSuccess { get; init; }
 
-    /// <summary>Správa o výsledku inicializácie</summary>
+    /// <summary>Descriptive message about the initialization outcome</summary>
     internal string Message { get; init; } = string.Empty;
 
-    /// <summary>Chybová správa (ak inicializácia zlyhala)</summary>
+    /// <summary>Error message if initialization failed, null if successful</summary>
     internal string? ErrorMessage { get; init; }
 
-    /// <summary>Trvanie inicializácie</summary>
+    /// <summary>Total time taken for the initialization process</summary>
     internal TimeSpan? Duration { get; init; }
 
-    /// <summary>Exception ktorá spôsobila zlyhanie (ak existuje)</summary>
+    /// <summary>Exception that caused the initialization failure, if any</summary>
     internal Exception? Exception { get; init; }
 
     /// <summary>
-    /// Factory metóda pre úspešnú inicializáciu
+    /// Creates a successful initialization result
     /// </summary>
     internal static InitializationResult Success(string message, TimeSpan? duration = null) =>
         new()
@@ -33,7 +33,7 @@ internal sealed record InitializationResult
         };
 
     /// <summary>
-    /// Factory metóda pre zlyhanie inicializácie
+    /// Creates a failed initialization result
     /// </summary>
     internal static InitializationResult Failure(string errorMessage, Exception? exception = null) =>
         new()
@@ -45,7 +45,7 @@ internal sealed record InitializationResult
         };
 
     /// <summary>
-    /// Factory metóda pre už inicializovaný komponent
+    /// Creates a result for when component is already initialized
     /// </summary>
     internal static InitializationResult AlreadyInitialized() =>
         new()

@@ -36,7 +36,7 @@ internal sealed class DataGridValidation : IDataGridValidation
         }
     }
 
-    public async Task<Api.Models.PublicValidationResultWithStatistics> ValidateAllWithStatisticsAsync(bool onlyFiltered = false, CancellationToken cancellationToken = default)
+    public async Task<PublicValidationResultWithStatistics> ValidateAllWithStatisticsAsync(bool onlyFiltered = false, CancellationToken cancellationToken = default)
     {
         try
         {

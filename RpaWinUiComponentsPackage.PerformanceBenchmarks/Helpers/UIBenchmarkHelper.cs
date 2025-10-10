@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.UI.Dispatching;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 using System.Runtime.InteropServices;
 
 namespace RpaWinUiComponentsPackage.PerformanceBenchmarks.Helpers;

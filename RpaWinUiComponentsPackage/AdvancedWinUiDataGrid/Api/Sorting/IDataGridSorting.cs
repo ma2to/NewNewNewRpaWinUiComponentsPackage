@@ -57,5 +57,5 @@ public interface IDataGridSorting
     /// </summary>
     /// <param name="columnName">Column name</param>
     /// <returns>Sort direction for the column</returns>
-    Api.Models.PublicSortDirection GetColumnSortDirection(string columnName);
+    PublicSortDirection GetColumnSortDirection(string columnName);
 }

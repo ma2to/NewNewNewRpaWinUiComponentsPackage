@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.CopyPaste.Interfaces;
@@ -12,10 +12,10 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.CopyPaste.Ser
 
 /// <summary>
 /// Interná implementácia copy-paste služby s komplexnou funkcionalitou
-/// Singleton služba pre globálne zdieľanú clipboard sémantiku
+/// Singleton služba for globálne zdieľanú clipboard sémantiku
 /// CRITICAL: Paste operácie musia volať AreAllNonEmptyRowsValidAsync po dokončení
 /// Thread-safe bez per-operation mutable fields
-/// Používa volatile clipboard field s lock pre thread-safe prístup
+/// Používa volatile clipboard field s lock for thread-safe prístup
 /// </summary>
 internal sealed class CopyPasteService : ICopyPasteService
 {
@@ -30,7 +30,7 @@ internal sealed class CopyPasteService : ICopyPasteService
     /// <summary>
     /// Konštruktor CopyPasteService
     /// Inicializuje všetky závislosti vrátane validation service
-    /// Nastavuje null pattern pre optional operation logger
+    /// Nastavuje null pattern for optional operation logger
     /// </summary>
     public CopyPasteService(
         ILogger<CopyPasteService> logger,
@@ -51,7 +51,7 @@ internal sealed class CopyPasteService : ICopyPasteService
     /// <summary>
     /// Kopíruje dáta do interného clipboardu s thread-safe operáciou
     /// Globálne zdieľaná clipboard sémantika (Singleton service)
-    /// Používa clipboardLock pre thread-safe prístup k volatile clipboard field
+    /// Používa clipboardLock for thread-safe prístup k volatile clipboard field
     /// </summary>
     public async Task<CopyPasteResult> CopyToClipboardAsync(CopyDataCommand command, CancellationToken cancellationToken = default)
     {
@@ -61,7 +61,7 @@ internal sealed class CopyPasteService : ICopyPasteService
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var operationId = Guid.NewGuid();
 
-        // Začíname copy operáciu - vytvoríme operation scope pre automatické tracking
+        // Začíname copy operáciu - vytvoríme operation scope for automatické tracking
         using var scope = _operationLogger.LogOperationStart("CopyToClipboardAsync", new
         {
             OperationId = operationId,
@@ -85,7 +85,7 @@ internal sealed class CopyPasteService : ICopyPasteService
                 return CopyPasteResult.Failure("No data selected for copy", stopwatch.Elapsed, command.CorrelationId);
             }
 
-            // Formátujeme dáta pre clipboard
+            // Formátujeme dáta for clipboard
             _logger.LogInformation("Formatting data for clipboard with format {Format} for operation {OperationId}",
                 command.Format, operationId);
 
@@ -147,7 +147,7 @@ internal sealed class CopyPasteService : ICopyPasteService
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var operationId = Guid.NewGuid();
 
-        // Začíname paste operáciu - vytvoríme operation scope pre automatické tracking
+        // Začíname paste operáciu - vytvoríme operation scope for automatické tracking
         using var scope = _operationLogger.LogOperationStart("PasteFromClipboardAsync", new
         {
             OperationId = operationId,
@@ -199,7 +199,7 @@ internal sealed class CopyPasteService : ICopyPasteService
 
             _logger.LogInformation("Data successfully pasted for operation {OperationId}", operationId);
 
-            // CRITICAL: Zavoláme AreAllNonEmptyRowsValidAsync po paste completion (iba ak je EnableBatchValidation = true)
+            // CRITICAL: Zavoláme AreAllNonEmptyRowsValidAsync po paste completion (iba if EnableBatchValidation = true)
             if (command.ValidateAfterPaste && _options.EnableBatchValidation)
             {
                 _logger.LogInformation("Starting automatic post-paste batch validation for operation {OperationId}", operationId);
@@ -291,7 +291,7 @@ internal sealed class CopyPasteService : ICopyPasteService
     }
 
     /// <summary>
-    /// Pripravuje dáta pre clipboard na základe copy príkazu
+    /// Pripravuje dáta for clipboard na základe copy príkazu
     /// </summary>
     private async Task<object> PrepareCopyDataAsync(
         CopyDataCommand command,
@@ -306,7 +306,7 @@ internal sealed class CopyPasteService : ICopyPasteService
     }
 
     /// <summary>
-    /// Pripravuje jednotlivé dáta buniek pre clipboard
+    /// Pripravuje jednotlivé dáta buniek for clipboard
     /// </summary>
     private async Task<List<CellCopyData>> PrepareCellDataAsync(
         IReadOnlyList<CellAddress> selectedItems,
@@ -340,7 +340,7 @@ internal sealed class CopyPasteService : ICopyPasteService
     }
 
     /// <summary>
-    /// Pripravuje dáta riadkov pre clipboard
+    /// Pripravuje dáta riadkov for clipboard
     /// </summary>
     private async Task<List<IReadOnlyDictionary<string, object?>>> PrepareRowDataAsync(
         IReadOnlyList<CellAddress> selectedItems,
@@ -371,7 +371,7 @@ internal sealed class CopyPasteService : ICopyPasteService
     }
 
     /// <summary>
-    /// Pripravuje dáta stĺpcov pre clipboard
+    /// Pripravuje dáta stĺpcov for clipboard
     /// </summary>
     private async Task<Dictionary<string, List<object?>>> PrepareColumnDataAsync(
         IReadOnlyList<CellAddress> selectedItems,
@@ -403,7 +403,7 @@ internal sealed class CopyPasteService : ICopyPasteService
     }
 
     /// <summary>
-    /// Spracováva clipboard dáta pre paste operáciu
+    /// Spracováva clipboard dáta for paste operáciu
     /// </summary>
     private async Task<List<IReadOnlyDictionary<string, object?>>> ProcessPasteDataAsync(
         object clipboardData,
@@ -1198,7 +1198,7 @@ internal sealed class CopyPasteService : ICopyPasteService
 }
 
 /// <summary>
-/// Interná dátová štruktúra pre operácie kopírovania buniek
+/// Interná dátová štruktúra for operácie kopírovania buniek
 /// </summary>
 internal class CellCopyData
 {

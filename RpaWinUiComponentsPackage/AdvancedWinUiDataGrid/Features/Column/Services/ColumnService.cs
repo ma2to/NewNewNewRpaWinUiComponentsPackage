@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Column.Interfaces;
@@ -48,7 +48,7 @@ internal sealed class ColumnService : IColumnService
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var operationId = Guid.NewGuid();
 
-        // Začíname add column operáciu - vytvoríme operation scope pre automatické tracking
+        // Začíname add column operáciu - vytvoríme operation scope for automatické tracking
         using var scope = _operationLogger.LogOperationStart("AddColumnAsync", new
         {
             OperationId = operationId,
@@ -129,7 +129,7 @@ internal sealed class ColumnService : IColumnService
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var operationId = Guid.NewGuid();
 
-        // Začíname remove column operáciu - vytvoríme operation scope pre automatické tracking
+        // Začíname remove column operáciu - vytvoríme operation scope for automatické tracking
         using var scope = _operationLogger.LogOperationStart("RemoveColumnAsync", new
         {
             OperationId = operationId,

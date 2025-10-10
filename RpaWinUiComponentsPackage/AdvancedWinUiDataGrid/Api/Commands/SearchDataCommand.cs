@@ -79,7 +79,7 @@ public record PublicSearchProgress(
 }
 
 /// <summary>
-/// Enhanced search result with comprehensive match information
+/// Enhanced search match with comprehensive match information (represents a single match)
 /// </summary>
 /// <param name="RowIndex">Row index where match was found</param>
 /// <param name="ColumnName">Column name where match was found</param>
@@ -89,7 +89,7 @@ public record PublicSearchProgress(
 /// <param name="MatchScore">Match quality score (0.0-1.0)</param>
 /// <param name="RelevanceScore">Relevance score for ranking (0.0-1.0)</param>
 /// <param name="CellAddress">Cell address (e.g., "A1")</param>
-public record PublicSearchResult(
+public record PublicSearchMatch(
     int RowIndex,
     string ColumnName,
     object? Value,
@@ -100,7 +100,7 @@ public record PublicSearchResult(
     string? CellAddress = null
 )
 {
-    public PublicSearchResult() : this(0, "", null, null, false, 1.0, 1.0, null) { }
+    public PublicSearchMatch() : this(0, "", null, null, false, 1.0, 1.0, null) { }
 }
 
 /// <summary>
@@ -221,7 +221,7 @@ public record SmartSearchDataCommand(
 /// Result of search operation with statistics
 /// </summary>
 /// <param name="IsSuccess">Whether operation succeeded</param>
-/// <param name="Results">Found search results</param>
+/// <param name="Results">Found search matches</param>
 /// <param name="TotalMatchesFound">Total number of matches found</param>
 /// <param name="TotalRowsSearched">Total number of rows searched</param>
 /// <param name="Duration">Total operation duration</param>
@@ -230,7 +230,7 @@ public record SmartSearchDataCommand(
 /// <param name="ErrorMessages">Error messages if operation failed</param>
 public record SearchDataResult(
     bool IsSuccess,
-    IReadOnlyList<PublicSearchResult> Results,
+    IReadOnlyList<PublicSearchMatch> Results,
     int TotalMatchesFound,
     int TotalRowsSearched,
     TimeSpan Duration,
@@ -239,5 +239,5 @@ public record SearchDataResult(
     IReadOnlyList<string>? ErrorMessages = null
 )
 {
-    public SearchDataResult() : this(false, Array.Empty<PublicSearchResult>(), 0, 0, TimeSpan.Zero, PublicSearchMode.Contains, false, null) { }
+    public SearchDataResult() : this(false, Array.Empty<PublicSearchMatch>(), 0, 0, TimeSpan.Zero, PublicSearchMode.Contains, false, null) { }
 }

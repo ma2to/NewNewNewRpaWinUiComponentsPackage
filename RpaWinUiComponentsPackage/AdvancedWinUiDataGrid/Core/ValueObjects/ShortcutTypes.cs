@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Windows.Input;
 using System.Threading;
@@ -83,7 +83,7 @@ internal sealed record ShortcutProgress
 
 /// <summary>
 /// ENTERPRISE: Shortcut execution context with DI support
-/// HYBRID DI: Poskytuje services pre custom shortcut functions
+/// HYBRID DI: Poskytuje services for custom shortcut functions
 /// </summary>
 internal sealed record ShortcutExecutionContext
 {
@@ -113,7 +113,7 @@ internal sealed record KeyCombination
     internal string Description { get; init; } = string.Empty;
     internal bool IsValid => PrimaryKey != Key.None;
 
-    // Factory methods pre common combinations
+    // Factory methods for common combinations
     internal static KeyCombination Create(Key key, ModifierKeys modifiers = ModifierKeys.None) =>
         new()
         {

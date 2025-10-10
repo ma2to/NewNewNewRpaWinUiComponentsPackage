@@ -1,6 +1,5 @@
 using BenchmarkDotNet.Attributes;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Models;
 using RpaWinUiComponentsPackage.PerformanceBenchmarks.Helpers;
 using System.Data;
 

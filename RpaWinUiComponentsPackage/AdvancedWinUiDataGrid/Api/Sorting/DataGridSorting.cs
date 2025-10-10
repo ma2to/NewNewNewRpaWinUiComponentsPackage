@@ -94,7 +94,7 @@ internal sealed class DataGridSorting : IDataGridSorting
 
             var internalResult = await _sortService.ToggleSortDirectionAsync(columnName, cancellationToken);
 
-            // Convert Api.Models.PublicSortDirection to PublicSortDirection (different types with same values)
+            // Convert PublicSortDirection to PublicSortDirection (different types with same values)
             var apiDirection = internalResult.Value.ToPublic();
             var publicDirection = (PublicSortDirection)(int)apiDirection;
 
@@ -125,7 +125,7 @@ internal sealed class DataGridSorting : IDataGridSorting
         }
     }
 
-    public Api.Models.PublicSortDirection GetColumnSortDirection(string columnName)
+    public PublicSortDirection GetColumnSortDirection(string columnName)
     {
         try
         {

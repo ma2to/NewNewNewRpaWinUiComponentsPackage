@@ -1,4 +1,4 @@
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
+﻿using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Search.Commands;
@@ -7,30 +7,30 @@ using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Search.Models;
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Search.Interfaces;
 
 /// <summary>
-/// Interface pre search službu s comprehensive searching capabilities
-/// Kombinuje základné, pokročilé a smart search funkcie
+/// Interface for search service with comprehensive searching capabilities
+/// Combines basic, advanced and smart search functions
 /// </summary>
 internal interface ISearchService
 {
     // COMMAND PATTERN API
 
     /// <summary>
-    /// Vykoná základné vyhľadávanie (command pattern)
+    /// Performs basic search (command pattern)
     /// </summary>
     Task<SearchResultCollection> SearchAsync(SearchCommand command, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Vykoná pokročilé vyhľadávanie s komplexnými kritériami (command pattern)
+    /// Performs advanced search with complex criteria (command pattern)
     /// </summary>
     Task<SearchResultCollection> AdvancedSearchAsync(AdvancedSearchCommand command, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Vykoná smart search s automatickou optimalizáciou (command pattern)
+    /// Performs smart search with automatic optimization (command pattern)
     /// </summary>
     Task<SearchResultCollection> SmartSearchAsync(SmartSearchCommand command, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Quick search pre okamžité výsledky (synchronous)
+    /// Quick search for immediate results (synchronous)
     /// </summary>
     SearchResultCollection QuickSearch(
         IEnumerable<IReadOnlyDictionary<string, object?>> data,
@@ -40,39 +40,39 @@ internal interface ISearchService
     // UTILITY API
 
     /// <summary>
-    /// Validuje search kritériá
+    /// Validates search criteria
     /// </summary>
     Task<Result> ValidateSearchCriteriaAsync(
         AdvancedSearchCriteria searchCriteria,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Získa zoznam stĺpcov, v ktorých možno vyhľadávať
+    /// Gets list of columns that can be searched
     /// </summary>
     IReadOnlyList<string> GetSearchableColumns(
         IEnumerable<IReadOnlyDictionary<string, object?>> data);
 
     /// <summary>
-    /// Odporúči vhodné search modes pre dáta
+    /// Recommends suitable search modes for data
     /// </summary>
     IReadOnlyList<SearchMode> GetRecommendedSearchModes(
         IEnumerable<IReadOnlyDictionary<string, object?>> data,
         string searchText);
 
     /// <summary>
-    /// Zvýrazní search matches v data grid
+    /// Highlights search matches in data grid
     /// </summary>
     Task<Result> HighlightSearchMatchesAsync(
         SearchResultCollection searchResults,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Vymaže search highlights
+    /// Clears search highlights
     /// </summary>
     Task<Result> ClearSearchHighlightsAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Prejde na ďalší search match
+    /// Goes to next search match
     /// </summary>
     Task<Result> GoToNextMatchAsync(
         SearchResultCollection searchResults,
@@ -80,7 +80,7 @@ internal interface ISearchService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Prejde na predchádzajúci search match
+    /// Goes to previous search match
     /// </summary>
     Task<Result> GoToPreviousMatchAsync(
         SearchResultCollection searchResults,

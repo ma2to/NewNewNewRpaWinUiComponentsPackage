@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Selection.Interfaces;
@@ -31,7 +31,7 @@ internal sealed class SelectionService : ISelectionService
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _rowStore = rowStore;
 
-        // Použijeme null pattern ak logger nie je poskytnutý
+        // Use null pattern if logger is not provided
         _operationLogger = operationLogger ?? NullOperationLogger<SelectionService>.Instance;
     }
 
@@ -101,7 +101,7 @@ internal sealed class SelectionService : ISelectionService
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var operationId = Guid.NewGuid();
 
-        // Začíname select cells operáciu - vytvoríme operation scope pre automatické tracking
+        // Starting select cells operation - create operation scope for automatic tracking
         using var scope = _operationLogger.LogOperationStart("SelectCellsAsync", new
         {
             OperationId = operationId,
@@ -114,7 +114,7 @@ internal sealed class SelectionService : ISelectionService
 
         try
         {
-            // Validujeme selection command
+            // Validate selection command
             var validationResult = await ValidateSelectionCommandAsync(command, operationId, cancellationToken);
             if (!validationResult.IsSuccess)
             {
@@ -125,7 +125,7 @@ internal sealed class SelectionService : ISelectionService
                 return SelectionResult.Failed(validationResult.ErrorMessage ?? "Selection validation failed", stopwatch.Elapsed);
             }
 
-            // Spracujeme selekciu podľa mode
+            // Process selection according to mode
             var selectedCells = await ProcessSelectionAsync(command, operationId, cancellationToken);
 
             _logger.LogInformation("Select cells operation {OperationId} completed successfully in {Duration}ms, selected {CellCount} cells",

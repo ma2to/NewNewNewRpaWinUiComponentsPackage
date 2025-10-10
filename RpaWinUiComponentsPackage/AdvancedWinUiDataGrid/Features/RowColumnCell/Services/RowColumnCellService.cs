@@ -224,7 +224,7 @@ internal sealed class RowColumnCellService : IRowColumnCellService
         }
     }
 
-    public async Task<int> BatchUpdateCellsAsync(IEnumerable<Api.Models.PublicCellUpdate> cellUpdates, CancellationToken cancellationToken = default)
+    public async Task<int> BatchUpdateCellsAsync(IEnumerable<PublicCellUpdate> cellUpdates, CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
         try

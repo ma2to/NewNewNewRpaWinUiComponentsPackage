@@ -19,7 +19,20 @@
       "Bash(do echo \"=== $file ===\")",
       "Bash(head:*)",
       "Bash(dotnet run:*)",
-      "Bash(awk:*)"
+      "Bash(awk:*)",
+      "Bash(Select-String -Pattern \"error|warning|Error|Warning\")",
+      "Bash(Select-Object -First 50)",
+      "Bash(find:*)",
+      "Bash(Select-String -Pattern \"error|warning|Error|Warning|Build succeeded|Build FAILED\")",
+      "Bash(Select-String -Pattern \"Page|MarkupCompile|XAML|\\.xaml\")",
+      "Bash(Select-Object -First 100)",
+      "Bash(\"C:\\Users\\patro\\.nuget\\packages\\microsoft.windowsappsdk.winui\\1.8.250906003\\tools\\net472\\XamlCompiler.exe\" \"obj\\Debug\\net8.0-windows10.0.19041.0\\win-x64\\input.json\" \"obj\\Debug\\net8.0-windows10.0.19041.0\\win-x64\\output.json\")",
+      "Bash(powershell.exe:*)",
+      "Bash(do sed -i -f \"../translate.sed\" \"$file\")",
+      "Bash(echo \"Processed: $file\")",
+      "Bash(while read file)",
+      "Bash(do if ! grep -q \"ILogger\\|_logger\" \"$file\")",
+      "Bash(then echo \"$file\")"
     ],
     "deny": [],
     "ask": []

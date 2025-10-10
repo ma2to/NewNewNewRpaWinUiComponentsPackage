@@ -1,4 +1,4 @@
-using System.Data;
+﻿using System.Data;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
@@ -29,8 +29,8 @@ using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.Nul
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
 
 /// <summary>
-/// Verejná implementácia IAdvancedDataGridFacade
-/// Orchestruje všetky operácie komponentov cez interné služby
+/// Public implementation of IAdvancedDataGridFacade
+/// Orchestrates all component operations via internal services
 /// </summary>
 public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
 {
@@ -45,8 +45,8 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
     private bool _disposed;
 
     /// <summary>
-    /// Konštruktor AdvancedDataGridFacade
-    /// Inicializuje závislosti a získava operation logger cez DI
+    /// AdvancedDataGridFacade constructor
+    /// Initializes dependencies and obtains operation logger via DI
     /// </summary>
     public AdvancedDataGridFacade(
         IServiceProvider serviceProvider,
@@ -57,17 +57,17 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
         _logger = serviceProvider.GetRequiredService<ILogger<AdvancedDataGridFacade>>();
         _dispatcher = serviceProvider.GetService<DispatcherQueue>();
 
-        // Získame operation logger cez DI, alebo použijeme null pattern
+        // Obtain operation logger via DI, or use null pattern
         var operationLogger = serviceProvider.GetService<IOperationLogger<AdvancedDataGridFacade>>();
         _operationLogger = operationLogger ?? NullOperationLogger<AdvancedDataGridFacade>.Instance;
 
-        // Získame UI notification service (dostupný ak je DispatcherQueue poskytnutý)
+        // Obtain UI notification service (available if DispatcherQueue provided)
         _uiNotificationService = serviceProvider.GetService<UIAdapters.WinUI.UiNotificationService>();
 
-        // Získame GridViewModelAdapter (dostupný ak je DispatcherQueue poskytnutý)
+        // Obtain GridViewModelAdapter (available if DispatcherQueue provided)
         _gridViewModelAdapter = serviceProvider.GetService<UIAdapters.WinUI.GridViewModelAdapter>();
 
-        // Získame ThemeService (vždy dostupný)
+        // Obtain ThemeService (always available)
         _themeService = serviceProvider.GetRequiredService<Features.Color.ThemeService>();
 
         _logger.LogInformation("AdvancedDataGrid facade initialized with operation mode {OperationMode}", _options.OperationMode);
@@ -97,7 +97,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
     #region Import/Export Operations
 
     /// <summary>
-    /// Importuje dáta pomocou command pattern s LINQ optimalizáciou a validačným pipeline
+    /// Imports data using command pattern with LINQ optimization and validation pipeline
     /// </summary>
     public async Task<ImportResult> ImportAsync(ImportDataCommand command, CancellationToken cancellationToken = default)
     {
@@ -107,7 +107,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var operationId = Guid.NewGuid();
 
-        // Začíname import operáciu - vytvoríme operation scope pre automatické tracking
+        // Starting import operation - create operation scope for automatic tracking
         using var logScope = _operationLogger.LogOperationStart("ImportAsync", new
         {
             OperationId = operationId,
@@ -119,17 +119,17 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
 
         try
         {
-            // Vytvoríme operation scope pre scoped services
+            // Create operation scope for scoped services
             using var scope = ServiceRegistration.CreateOperationScope(_serviceProvider);
             var importService = scope.ServiceProvider.GetRequiredService<IImportService>();
 
-            // Mapujeme public command na internal command
+            // Map public command to internal command
             var internalCommand = command.ToInternal();
 
-            // Vykonáme interný import
+            // Execute internal import
             var internalResult = await importService.ImportAsync(internalCommand, cancellationToken);
 
-            // Mapujeme interný result na public PublicResult
+            // Map internal result to public PublicResult
             var result = internalResult.ToPublic();
 
             // Automatický UI refresh v Interactive mode
@@ -151,7 +151,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
     }
 
     /// <summary>
-    /// Exportuje dáta pomocou command pattern s komplexným filtrovaním
+    /// Exports data using command pattern with complex filtering
     /// </summary>
     public async Task<ExportResult> ExportAsync(ExportDataCommand command, CancellationToken cancellationToken = default)
     {
@@ -161,7 +161,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var operationId = Guid.NewGuid();
 
-        // Začíname export operáciu - vytvoríme operation scope pre automatické tracking
+        // Starting export operation - create operation scope for automatic tracking
         using var logScope = _operationLogger.LogOperationStart("ExportAsync", new
         {
             OperationId = operationId,
@@ -173,17 +173,17 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
 
         try
         {
-            // Vytvoríme operation scope pre scoped services
+            // Create operation scope for scoped services
             using var scope = ServiceRegistration.CreateOperationScope(_serviceProvider);
             var exportService = scope.ServiceProvider.GetRequiredService<IExportService>();
 
-            // Mapujeme public command na internal command
+            // Map public command to internal command
             var internalCommand = command.ToInternal();
 
-            // Vykonáme interný export
+            // Execute internal export
             var internalResult = await exportService.ExportAsync(internalCommand, cancellationToken);
 
-            // Mapujeme interný result na public PublicResult (s exportovanými dátami)
+            // Map internal result to public PublicResult (with exported data)
             var result = internalResult.ToPublic(internalResult.ExportedData);
 
             // Automatický UI refresh v Interactive mode
@@ -209,8 +209,8 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
     #region Validation Operations
 
     /// <summary>
-    /// Validuje všetky neprázdne riadky s dávkovým, thread-safe spracovaním
-    /// Implementácia podľa dokumentácie: AreAllNonEmptyRowsValidAsync s dávkovým, thread-safe, stream supportom
+    /// Validates all non-empty rows with batch, thread-safe processing
+    /// Implementation according to documentation: AreAllNonEmptyRowsValidAsync with batch, thread-safe, stream support
     /// </summary>
     public async Task<PublicResult<bool>> ValidateAllAsync(bool onlyFiltered = false, CancellationToken cancellationToken = default)
     {
@@ -227,7 +227,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
             var internalResult = await validationService.AreAllNonEmptyRowsValidAsync(onlyFiltered, cancellationToken);
             var result = internalResult.ToPublic();
 
-            // Automatický UI refresh v Interactive mode
+            // Automatic UI refresh in Interactive mode
             await TriggerUIRefreshIfNeededAsync("Validation", 0);
 
             return result;
@@ -337,7 +337,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
                 TotalExecutionTime = stats.TotalExecutionTime
             }).ToList();
 
-            // Automatický UI refresh v Interactive mode
+            // Automatic UI refresh in Interactive mode
             await TriggerUIRefreshIfNeededAsync("Validation", 0);
 
             _logger.LogInformation(
@@ -373,7 +373,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
     }
 
     /// <summary>
-    /// Obnoví výsledky validácie do UI (no-op v headless režime)
+    /// Refreshes validation results to UI (no-op in headless mode)
     /// </summary>
     public void RefreshValidationResultsToUI()
     {
@@ -418,7 +418,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
         _logger.LogInformation("Manual UI refresh requested: OperationType={OperationType}, AffectedRows={AffectedRows}",
             operationType, affectedRows);
 
-        // Funguje v Interactive aj Headless mode (ak je DispatcherQueue poskytnutý)
+        // Funguje v Interactive aj Headless mode (if DispatcherQueue poskytnutý)
         await _uiNotificationService.NotifyDataRefreshAsync(affectedRows, operationType);
     }
 
@@ -687,7 +687,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
     #region Copy/Paste Operations
 
     /// <summary>
-    /// Nastaví obsah schránky pre copy/paste operácie
+    /// Sets clipboard content for copy/paste operations
     /// </summary>
     public void SetClipboard(object payload)
     {
@@ -699,7 +699,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
     }
 
     /// <summary>
-    /// Získa obsah schránky pre copy/paste operácie
+    /// Gets clipboard content for copy/paste operations
     /// </summary>
     public object? GetClipboard()
     {
@@ -710,7 +710,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
     }
 
     /// <summary>
-    /// Skopíruje vybrané dáta do schránky
+    /// Copies selected data to clipboard
     /// </summary>
     public async Task<CopyPasteResult> CopyAsync(CopyDataCommand command, CancellationToken cancellationToken = default)
     {
@@ -732,7 +732,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
     }
 
     /// <summary>
-    /// Vloží dáta zo schránky
+    /// Pastes data from clipboard
     /// </summary>
     public async Task<CopyPasteResult> PasteAsync(PasteDataCommand command, CancellationToken cancellationToken = default)
     {
@@ -944,7 +944,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
     #region Data Access APIs
 
     /// <summary>
-    /// Získa aktuálne dáta gridu ako read-only dictionary kolekciu
+    /// Gets current grid data as read-only dictionary collection
     /// </summary>
     public IReadOnlyList<IReadOnlyDictionary<string, object?>> GetCurrentData()
     {
@@ -964,7 +964,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
     }
 
     /// <summary>
-    /// Získa aktuálne dáta gridu ako DataTable
+    /// Gets current grid data as DataTable
     /// </summary>
     public async Task<DataTable> GetCurrentDataAsDataTableAsync(CancellationToken cancellationToken = default)
     {
@@ -994,7 +994,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
     #region Column Management APIs
 
     /// <summary>
-    /// Získa definície stĺpcov
+    /// Gets column definitions
     /// </summary>
     public IReadOnlyList<PublicColumnDefinition> GetColumnDefinitions()
     {
@@ -1006,7 +1006,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
     }
 
     /// <summary>
-    /// Pridá novú definíciu stĺpca
+    /// Adds new column definition
     /// </summary>
     public bool AddColumn(PublicColumnDefinition columnDefinition)
     {
@@ -1018,7 +1018,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
     }
 
     /// <summary>
-    /// Odstráni stĺpec podľa názvu
+    /// Removes column by name
     /// </summary>
     public bool RemoveColumn(string columnName)
     {
@@ -1030,7 +1030,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
     }
 
     /// <summary>
-    /// Aktualizuje existujúcu definíciu stĺpca
+    /// Updates existing column definition
     /// </summary>
     public bool UpdateColumn(PublicColumnDefinition columnDefinition)
     {
@@ -1046,7 +1046,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
     #region Validation Management APIs
 
     /// <summary>
-    /// Pridá validačné pravidlo
+    /// Adds validation rule
     /// </summary>
     public async Task<PublicResult> AddValidationRuleAsync(IValidationRule rule)
     {
@@ -1067,7 +1067,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
     }
 
     /// <summary>
-    /// Odstráni validačné pravidlá podľa názvov stĺpcov
+    /// Removes validation rules by column names
     /// </summary>
     public async Task<PublicResult> RemoveValidationRulesAsync(params string[] columnNames)
     {
@@ -1088,7 +1088,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
     }
 
     /// <summary>
-    /// Odstráni validačné pravidlo podľa názvu
+    /// Removes validation rule by name
     /// </summary>
     public async Task<PublicResult> RemoveValidationRuleAsync(string ruleName)
     {
@@ -1109,7 +1109,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
     }
 
     /// <summary>
-    /// Vymaže všetky validačné pravidlá
+    /// Clears all validation rules
     /// </summary>
     public async Task<PublicResult> ClearAllValidationRulesAsync()
     {
@@ -1173,7 +1173,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
     }
 
     /// <summary>
-    /// Sortuje dáta podľa jedného stĺpca pomocou command pattern
+    /// Sorts data by single column using command pattern
     /// </summary>
     public async Task<SortDataResult> SortAsync(SortDataCommand command, CancellationToken cancellationToken = default)
     {
@@ -1198,13 +1198,13 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
             using var scope = ServiceRegistration.CreateOperationScope(_serviceProvider);
             var sortService = scope.ServiceProvider.GetRequiredService<Features.Sort.Interfaces.ISortService>();
 
-            // Mapujeme public command na internal
+            // Map public command to internal
             var internalCommand = command.ToInternal();
 
-            // Vykonáme sort
+            // Execute sort
             var internalResult = await sortService.SortAsync(internalCommand, cancellationToken);
 
-            // Mapujeme result na public
+            // Map result to public
             var result = internalResult.ToPublic();
 
             logScope.MarkSuccess(new { Duration = stopwatch.Elapsed, Success = result.IsSuccess });
@@ -1222,7 +1222,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
     }
 
     /// <summary>
-    /// Sortuje dáta podľa viacerých stĺpcov pomocou command pattern
+    /// Sorts data by multiple columns using command pattern
     /// </summary>
     public async Task<SortDataResult> MultiSortAsync(MultiSortDataCommand command, CancellationToken cancellationToken = default)
     {
@@ -1246,13 +1246,13 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
             using var scope = ServiceRegistration.CreateOperationScope(_serviceProvider);
             var sortService = scope.ServiceProvider.GetRequiredService<Features.Sort.Interfaces.ISortService>();
 
-            // Mapujeme public command na internal
+            // Map public command to internal
             var internalCommand = command.ToInternal();
 
-            // Vykonáme multi-sort
+            // Execute multi-sort
             var internalResult = await sortService.MultiSortAsync(internalCommand, cancellationToken);
 
-            // Mapujeme result na public
+            // Map result to public
             var result = internalResult.ToPublic();
 
             logScope.MarkSuccess(new { Duration = stopwatch.Elapsed, Success = result.IsSuccess });
@@ -1270,7 +1270,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
     }
 
     /// <summary>
-    /// Quick synchronous sort pre okamžité výsledky
+    /// Quick synchronous sort for immediate results
     /// </summary>
     public SortDataResult QuickSort(IEnumerable<IReadOnlyDictionary<string, object?>> data, string columnName, PublicSortDirection direction = PublicSortDirection.Ascending)
     {
@@ -1283,13 +1283,13 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
             using var scope = ServiceRegistration.CreateOperationScope(_serviceProvider);
             var sortService = scope.ServiceProvider.GetRequiredService<Features.Sort.Interfaces.ISortService>();
 
-            // Mapujeme public direction na internal
+            // Map public direction to internal
             var internalDirection = direction.ToInternal();
 
-            // Vykonáme quick sort
+            // Execute quick sort
             var internalResult = sortService.QuickSort(data, columnName, internalDirection);
 
-            // Mapujeme result na public
+            // Map result to public
             var result = internalResult.ToPublic();
 
             _logger.LogInformation("QuickSort completed in {Duration}ms for column {ColumnName}",
@@ -1305,7 +1305,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
     }
 
     /// <summary>
-    /// Získa zoznam sortovateľných stĺpcov
+    /// Gets list of sortable columns
     /// </summary>
     public IReadOnlyList<string> GetSortableColumns(IEnumerable<IReadOnlyDictionary<string, object?>> data)
     {
@@ -1334,7 +1334,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
             using var scope = ServiceRegistration.CreateOperationScope(_serviceProvider);
             var sortService = scope.ServiceProvider.GetRequiredService<Features.Sort.Interfaces.ISortService>();
 
-            // Mapujeme public direction na internal
+            // Map public direction to internal
             var internalDirection = direction.ToInternal();
             var success = await sortService.SortByColumnAsync(columnName, (Core.ValueObjects.SortDirection)internalDirection, CancellationToken.None);
             return success ? PublicResult.Success() : PublicResult.Failure("Sort failed");
@@ -1368,7 +1368,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
     #region Search Operations
 
     /// <summary>
-    /// Vykoná základné vyhľadávanie pomocou command pattern
+    /// Executes basic search using command pattern
     /// </summary>
     public async Task<SearchDataResult> SearchAsync(SearchDataCommand command, CancellationToken cancellationToken = default)
     {
@@ -1393,13 +1393,13 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
             using var scope = ServiceRegistration.CreateOperationScope(_serviceProvider);
             var searchService = scope.ServiceProvider.GetRequiredService<Features.Search.Interfaces.ISearchService>();
 
-            // Mapujeme public command na internal
+            // Map public command to internal
             var internalCommand = command.ToInternal();
 
-            // Vykonáme search
+            // Execute search
             var internalResult = await searchService.SearchAsync(internalCommand, cancellationToken);
 
-            // Mapujeme result na public
+            // Map result to public
             var result = internalResult.ToPublic();
 
             logScope.MarkSuccess(new { Duration = stopwatch.Elapsed, Success = result.IsSuccess });
@@ -1412,12 +1412,12 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
         {
             _logger.LogError(ex, "Search operation {OperationId} failed", operationId);
             logScope.MarkFailure(ex);
-            return new SearchDataResult(false, Array.Empty<PublicSearchResult>(), 0, 0, stopwatch.Elapsed, PublicSearchMode.Contains, false, new[] { $"Search failed: {ex.Message}" });
+            return new SearchDataResult(false, Array.Empty<PublicSearchMatch>(), 0, 0, stopwatch.Elapsed, PublicSearchMode.Contains, false, new[] { $"Search failed: {ex.Message}" });
         }
     }
 
     /// <summary>
-    /// Vykoná pokročilé vyhľadávanie s regex, fuzzy matching a smart ranking
+    /// Executes advanced search with regex, fuzzy matching and smart ranking
     /// </summary>
     public async Task<SearchDataResult> AdvancedSearchAsync(AdvancedSearchDataCommand command, CancellationToken cancellationToken = default)
     {
@@ -1441,13 +1441,13 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
             using var scope = ServiceRegistration.CreateOperationScope(_serviceProvider);
             var searchService = scope.ServiceProvider.GetRequiredService<Features.Search.Interfaces.ISearchService>();
 
-            // Mapujeme public command na internal
+            // Map public command to internal
             var internalCommand = command.ToInternal();
 
-            // Vykonáme advanced search
+            // Execute advanced search
             var internalResult = await searchService.AdvancedSearchAsync(internalCommand, cancellationToken);
 
-            // Mapujeme result na public
+            // Map result to public
             var result = internalResult.ToPublic();
 
             logScope.MarkSuccess(new { Duration = stopwatch.Elapsed, Success = result.IsSuccess });
@@ -1460,12 +1460,12 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
         {
             _logger.LogError(ex, "Advanced search operation {OperationId} failed", operationId);
             logScope.MarkFailure(ex);
-            return new SearchDataResult(false, Array.Empty<PublicSearchResult>(), 0, 0, stopwatch.Elapsed, command.SearchCriteria.Mode, false, new[] { $"Advanced search failed: {ex.Message}" });
+            return new SearchDataResult(false, Array.Empty<PublicSearchMatch>(), 0, 0, stopwatch.Elapsed, command.SearchCriteria.Mode, false, new[] { $"Advanced search failed: {ex.Message}" });
         }
     }
 
     /// <summary>
-    /// Vykoná smart search s automatickou optimalizáciou
+    /// Executes smart search with automatic optimization
     /// </summary>
     public async Task<SearchDataResult> SmartSearchAsync(SmartSearchDataCommand command, CancellationToken cancellationToken = default)
     {
@@ -1489,13 +1489,13 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
             using var scope = ServiceRegistration.CreateOperationScope(_serviceProvider);
             var searchService = scope.ServiceProvider.GetRequiredService<Features.Search.Interfaces.ISearchService>();
 
-            // Mapujeme public command na internal
+            // Map public command to internal
             var internalCommand = command.ToInternal();
 
-            // Vykonáme smart search
+            // Execute smart search
             var internalResult = await searchService.SmartSearchAsync(internalCommand, cancellationToken);
 
-            // Mapujeme result na public
+            // Map result to public
             var result = internalResult.ToPublic();
 
             logScope.MarkSuccess(new { Duration = stopwatch.Elapsed, Success = result.IsSuccess });
@@ -1508,12 +1508,12 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
         {
             _logger.LogError(ex, "Smart search operation {OperationId} failed", operationId);
             logScope.MarkFailure(ex);
-            return new SearchDataResult(false, Array.Empty<PublicSearchResult>(), 0, 0, stopwatch.Elapsed, PublicSearchMode.Contains, false, new[] { $"Smart search failed: {ex.Message}" });
+            return new SearchDataResult(false, Array.Empty<PublicSearchMatch>(), 0, 0, stopwatch.Elapsed, PublicSearchMode.Contains, false, new[] { $"Smart search failed: {ex.Message}" });
         }
     }
 
     /// <summary>
-    /// Quick synchronous search pre okamžité výsledky
+    /// Quick synchronous search for immediate results
     /// </summary>
     public SearchDataResult QuickSearch(IEnumerable<IReadOnlyDictionary<string, object?>> data, string searchText, bool caseSensitive = false)
     {
@@ -1526,10 +1526,10 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
             using var scope = ServiceRegistration.CreateOperationScope(_serviceProvider);
             var searchService = scope.ServiceProvider.GetRequiredService<Features.Search.Interfaces.ISearchService>();
 
-            // Vykonáme quick search
+            // Execute quick search
             var internalResult = searchService.QuickSearch(data, searchText, caseSensitive);
 
-            // Mapujeme result na public
+            // Map result to public
             var result = internalResult.ToPublic();
 
             _logger.LogInformation("QuickSearch completed in {Duration}ms for text '{SearchText}': found {MatchCount} matches",
@@ -1540,12 +1540,12 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
         catch (Exception ex)
         {
             _logger.LogError(ex, "QuickSearch failed for text '{SearchText}'", searchText);
-            return new SearchDataResult(false, Array.Empty<PublicSearchResult>(), 0, 0, stopwatch.Elapsed, PublicSearchMode.Contains, false, new[] { $"QuickSearch failed: {ex.Message}" });
+            return new SearchDataResult(false, Array.Empty<PublicSearchMatch>(), 0, 0, stopwatch.Elapsed, PublicSearchMode.Contains, false, new[] { $"QuickSearch failed: {ex.Message}" });
         }
     }
 
     /// <summary>
-    /// Validuje search kritériá
+    /// Validates search criteria
     /// </summary>
     public async Task<PublicResult> ValidateSearchCriteriaAsync(PublicAdvancedSearchCriteria searchCriteria)
     {
@@ -1556,10 +1556,10 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
             using var scope = ServiceRegistration.CreateOperationScope(_serviceProvider);
             var searchService = scope.ServiceProvider.GetRequiredService<Features.Search.Interfaces.ISearchService>();
 
-            // Mapujeme public criteria na internal
+            // Map public criteria to internal
             var internalCriteria = searchCriteria.ToInternal();
 
-            // Validácia
+            // Validation
             var internalResult = await searchService.ValidateSearchCriteriaAsync(internalCriteria);
             return internalResult.ToPublic();
         }
@@ -1571,7 +1571,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
     }
 
     /// <summary>
-    /// Získa zoznam searchable stĺpcov
+    /// Gets list of searchable columns
     /// </summary>
     public IReadOnlyList<string> GetSearchableColumns(IEnumerable<IReadOnlyDictionary<string, object?>> data)
     {
@@ -2284,7 +2284,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
 
             // For simplified implementation, we'll skip full registration
             // This would need full KeyCombination parsing in production
-            _logger.LogInformation("Shortcut registration: {Name} - {Key}", shortcut.Name, shortcut.KeyCombination);
+            _logger.LogInformation("Shortcut registration: {Name} - {Key}", shortcut.Name, shortcut.ShortcutKey);
             return await Task.FromResult(true);
         }
         catch (Exception ex)
@@ -2294,7 +2294,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
         }
     }
 
-    public IReadOnlyList<PublicShortcutDefinition> GetRegisteredShortcuts()
+    public IReadOnlyList<PublicShortcutInfo> GetRegisteredShortcuts()
     {
         ThrowIfDisposed();
 
@@ -2304,7 +2304,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
             var shortcutService = scope.ServiceProvider.GetRequiredService<Features.Shortcuts.Interfaces.IShortcutService>();
 
             var shortcuts = shortcutService.GetRegisteredShortcuts();
-            return shortcuts.Select(s => new PublicShortcutDefinition
+            return shortcuts.Select(s => new PublicShortcutInfo
             {
                 Name = s.Name,
                 Description = s.Description,
@@ -2315,7 +2315,7 @@ public sealed class AdvancedDataGridFacade : IAdvancedDataGridFacade
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get registered shortcuts: {Message}", ex.Message);
-            return Array.Empty<PublicShortcutDefinition>();
+            return Array.Empty<PublicShortcutInfo>();
         }
     }
 

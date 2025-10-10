@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Filter.Interfaces;
@@ -12,8 +12,8 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Filter.Servic
 /// <summary>
 /// Interná implementácia filter služby s komplexnou funkcionalitou
 /// Thread-safe bez per-operation mutable fields
-/// Podporuje multiple filtre s ConcurrentBag pre thread-safe operácie
-/// Loguje všetky filter operácie s operation scope pre tracking
+/// Podporuje multiple filtre s ConcurrentBag for thread-safe operácie
+/// Loguje všetky filter operácie s operation scope for tracking
 /// </summary>
 internal sealed class FilterService : IFilterService
 {
@@ -25,8 +25,8 @@ internal sealed class FilterService : IFilterService
 
     /// <summary>
     /// Konštruktor FilterService
-    /// Inicializuje všetky závislosti a nastavuje null pattern pre optional operation logger
-    /// Vytvára prázdnu ConcurrentBag pre thread-safe ukladanie aktívnych filtrov
+    /// Inicializuje všetky závislosti a nastavuje null pattern for optional operation logger
+    /// Vytvára prázdnu ConcurrentBag for thread-safe ukladanie aktívnych filtrov
     /// </summary>
     public FilterService(
         ILogger<FilterService> logger,
@@ -45,7 +45,7 @@ internal sealed class FilterService : IFilterService
 
     /// <summary>
     /// Aplikuje filter na špecifický stĺpec s daným operátorom a hodnotou
-    /// Ak už filter pre tento stĺpec existuje, nahradí ho novým
+    /// Ak už filter for tento stĺpec existuje, nahradí ho novým
     /// Vracia počet matchujúcich riadkov po aplikovaní filtra
     /// Loguje operáciu s operation scope a filter metrics
     /// </summary>
@@ -57,7 +57,7 @@ internal sealed class FilterService : IFilterService
         var operationId = Guid.NewGuid();
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-        // Začíname apply filter operáciu - vytvoríme operation scope pre automatické tracking
+        // Začíname apply filter operáciu - vytvoríme operation scope for automatické tracking
         using var scope = _operationLogger.LogOperationStart("ApplyFilterAsync", new
         {
             OperationId = operationId,
@@ -72,7 +72,7 @@ internal sealed class FilterService : IFilterService
 
         try
         {
-            // Odstránime existujúce filtre pre rovnaký stĺpec aby sme ich nahradili
+            // Odstránime existujúce filtre for rovnaký stĺpec aby sme ich nahradili
             var existingFilters = _activeFilters.Where(f => f.ColumnName.Equals(columnName, StringComparison.OrdinalIgnoreCase)).ToArray();
 
             if (existingFilters.Length > 0)
@@ -147,7 +147,7 @@ internal sealed class FilterService : IFilterService
         var operationId = Guid.NewGuid();
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-        // Začíname clear filters operáciu - vytvoríme operation scope pre automatické tracking
+        // Začíname clear filters operáciu - vytvoríme operation scope for automatické tracking
         using var scope = _operationLogger.LogOperationStart("ClearFiltersAsync", new
         {
             OperationId = operationId,
@@ -196,7 +196,7 @@ internal sealed class FilterService : IFilterService
 
     /// <summary>
     /// Získa zoznam všetkých aktívnych filtrov
-    /// Vracia immutable array kópiu pre thread-safe čítanie
+    /// Vracia immutable array kópiu for thread-safe čítanie
     /// </summary>
     public IReadOnlyList<FilterCriteria> GetActiveFilters()
     {
@@ -214,7 +214,7 @@ internal sealed class FilterService : IFilterService
     /// <summary>
     /// Aplikuje všetky aktívne filtre na dáta a vracia počet matchujúcich riadkov
     /// Thread-safe bez per-operation mutable fields
-    /// Používa batch spracovanie pre optimálny výkon
+    /// Používa batch spracovanie for optimálny výkon
     /// </summary>
     private async Task<int> ApplyFiltersToDataAsync(Guid operationId)
     {
@@ -240,7 +240,7 @@ internal sealed class FilterService : IFilterService
         _logger.LogInformation("Loaded {TotalRows} rows from store, starting batch filtering for operation {OperationId}",
             totalRows, operationId);
 
-        // Spracujeme dáta v dávkach pre lepší výkon
+        // Spracujeme dáta v dávkach for lepší výkon
         var batchSize = _options.BatchSize;
         var batchCount = 0;
 
@@ -284,7 +284,7 @@ internal sealed class FilterService : IFilterService
 
     /// <summary>
     /// Kontroluje či riadok matchuje špecifický filter
-    /// Komplexná business logika pre všetky filter operátory
+    /// Komplexná business logika for všetky filter operátory
     /// Podporuje Equals, Contains, GreaterThan, IsNull a všetky ďalšie operátory
     /// </summary>
     private bool RowMatchesFilter(IReadOnlyDictionary<string, object?> row, FilterCriteria filter)
@@ -526,7 +526,7 @@ internal sealed class FilterService : IFilterService
 
     /// <summary>
     /// Kontroluje či je hodnota považovaná za prázdnu
-    /// Prázdna je null, whitespace string alebo prázdna collection
+    /// Prázdna je null, whitespace string or prázdna collection
     /// </summary>
     private bool IsValueEmpty(object? value)
     {
@@ -542,7 +542,7 @@ internal sealed class FilterService : IFilterService
 
     /// <summary>
     /// Získa filtrované dáta na základe aktívnych filtrov
-    /// Používané Export službou pre onlyFiltered funkcionalitu
+    /// Používané Export službou for onlyFiltered funkcionalitu
     /// Vracia iba riadky ktoré matchujú všetky aktívne filtre
     /// </summary>
     public async Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> GetFilteredDataAsync()

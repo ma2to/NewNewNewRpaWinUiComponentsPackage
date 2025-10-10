@@ -5,7 +5,7 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Search.Models
 
 /// <summary>
 /// ENTERPRISE: Search operation result with comprehensive statistics
-/// CONSISTENT: Rovnaká štruktúra ako FilterResult a ValidationResult
+/// CONSISTENT: Same structure as FilterResult and ValidationResult
 /// </summary>
 internal sealed record SearchResultCollection
 {

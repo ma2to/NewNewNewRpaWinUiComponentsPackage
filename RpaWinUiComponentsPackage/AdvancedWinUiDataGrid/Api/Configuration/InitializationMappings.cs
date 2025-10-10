@@ -1,18 +1,18 @@
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Configuration;
+﻿using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Configuration;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Commands;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Models;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Configuration;
 
 /// <summary>
-/// Mapping extensions medzi public a internal Initialization models
+/// Mapping extensions between public and internal Initialization models
 /// </summary>
 internal static class InitializationMappings
 {
     // PUBLIC -> INTERNAL
 
     /// <summary>
-    /// Konvertuje public InitializationConfiguration na internal
+    /// Converts public InitializationConfiguration to internal
     /// </summary>
     internal static InitializationConfiguration ToInternal(this PublicInitializationConfiguration publicConfig)
     {
@@ -28,7 +28,7 @@ internal static class InitializationMappings
     // INTERNAL -> PUBLIC
 
     /// <summary>
-    /// Konvertuje internal InitializationResult na public
+    /// Converts internal InitializationResult to public
     /// </summary>
     internal static PublicInitializationResult ToPublic(this InitializationResult internalResult)
     {
@@ -42,7 +42,7 @@ internal static class InitializationMappings
     }
 
     /// <summary>
-    /// Konvertuje internal InitializationProgress na public
+    /// Converts internal InitializationProgress to public
     /// </summary>
     internal static PublicInitializationProgress ToPublic(this InitializationProgress internalProgress)
     {
@@ -59,7 +59,7 @@ internal static class InitializationMappings
     }
 
     /// <summary>
-    /// Konvertuje internal InitializationStatus na public
+    /// Converts internal InitializationStatus to public
     /// </summary>
     internal static PublicInitializationStatus ToPublic(this InitializationStatus internalStatus)
     {
@@ -75,7 +75,7 @@ internal static class InitializationMappings
     }
 
     /// <summary>
-    /// Vytvorí progress wrapper pre mapovanie internal -> public progress events
+    /// Creates progress wrapper for mapping internal -> public progress events
     /// </summary>
     internal static IProgress<InitializationProgress> CreateProgressWrapper(
         IProgress<PublicInitializationProgress>? publicProgress)

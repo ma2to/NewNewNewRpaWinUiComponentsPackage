@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -30,7 +30,7 @@ internal sealed class RowNumberService : IRowNumberService
         _rowStore = rowStore ?? throw new ArgumentNullException(nameof(rowStore));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
-        // Použijeme null pattern ak logger nie je poskytnutý
+        // Use null pattern if logger is not provided
         _operationLogger = operationLogger ?? NullOperationLogger<RowNumberService>.Instance;
 
         _logger.LogInformation("RowNumberService initialized");
@@ -46,7 +46,7 @@ internal sealed class RowNumberService : IRowNumberService
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var operationId = Guid.NewGuid();
 
-        // Začíname regenerate row numbers operáciu - vytvoríme operation scope pre automatické tracking
+        // Starting regenerate row numbers operation - create operation scope for automatic tracking
         using var scope = _operationLogger.LogOperationStart("RegenerateRowNumbersAsync", new
         {
             OperationId = operationId
@@ -54,7 +54,7 @@ internal sealed class RowNumberService : IRowNumberService
 
         _logger.LogInformation("Starting row number regeneration for operation {OperationId}", operationId);
 
-        // Zabezpečíme že len jedna regenerácia beží naraz
+        // Ensure only one regeneration runs at a time
         await _regenerationLock.WaitAsync(cancellationToken);
         try
         {
@@ -76,7 +76,7 @@ internal sealed class RowNumberService : IRowNumberService
             _logger.LogInformation("Loaded {RowCount} rows for number regeneration for operation {OperationId}",
                 allRows.Count, operationId);
 
-            // Zoradíme podľa CreatedAt (fallback) alebo existujúceho RowNumber
+            // Sort by CreatedAt (fallback) or existing RowNumber
             _logger.LogInformation("Sorting rows by CreatedAt for operation {OperationId}", operationId);
 
             var sortedRows = allRows
@@ -85,7 +85,7 @@ internal sealed class RowNumberService : IRowNumberService
                 .ThenBy(x => x.Index)
                 .ToList();
 
-            // Priraďujeme sekvenčné row numbers (1-based)
+            // Assign sequential row numbers (1-based)
             _logger.LogInformation("Assigning new sequential row numbers (1-based) for operation {OperationId}", operationId);
 
             var updatedRows = sortedRows.Select((item, newRowNumber) =>
@@ -95,7 +95,7 @@ internal sealed class RowNumberService : IRowNumberService
                 return (IReadOnlyDictionary<string, object?>)mutableRow;
             }).ToList();
 
-            // Nahradíme všetky riadky s aktualizovanými row numbers
+            // Replace all rows with updated row numbers
             _logger.LogInformation("Saving {RowCount} rows with new row numbers for operation {OperationId}",
                 updatedRows.Count, operationId);
 

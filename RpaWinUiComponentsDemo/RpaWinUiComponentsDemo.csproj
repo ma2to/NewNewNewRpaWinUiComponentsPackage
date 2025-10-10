@@ -56,13 +56,13 @@
   <ItemGroup>
     <!-- CRITICAL: Project reference for development testing -->
     <!-- Testing latest modular structure with clean API -->
-    <!--<ProjectReference Include="..\RpaWinUiComponentsPackage\RpaWinUiComponentsPackage.csproj" />-->
-    
+
     <!-- External logging implementation for testing -->
     <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.9" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.9" />
     <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.9" />
-    <PackageReference Include="RpaWinUiComponentsPackage" Version="2.2.5" />
+    <PackageReference Include="RpaWinUiComponentsPackage" Version="2.2.6" />
+    <!--<PackageReference Include="RpaWinUiComponentsPackage" Version="2.2.6" />-->
 
     
     <!-- REMOVED: Package reference to avoid circular dependency -->

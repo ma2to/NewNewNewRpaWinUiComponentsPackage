@@ -39,6 +39,11 @@ public sealed class PublicSearchResult
     /// Time taken for search operation
     /// </summary>
     public TimeSpan SearchDuration { get; init; }
+
+    /// <summary>
+    /// Scope of the search operation
+    /// </summary>
+    public PublicSearchScope Scope { get; init; } = PublicSearchScope.AllData;
 }
 
 /// <summary>

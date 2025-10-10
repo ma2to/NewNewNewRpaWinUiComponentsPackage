@@ -1,29 +1,29 @@
-namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Models;
+﻿namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Models;
 
 /// <summary>
-/// Reprezentuje aktuálny status inicializácie komponentu
-/// Thread-safe immutable record pre runtime inspection
+/// Represents the current initialization status of the component
+/// Thread-safe immutable record for runtime inspection
 /// </summary>
 internal sealed record InitializationStatus
 {
-    /// <summary>Indikátor či je komponenta inicializovaná</summary>
+    /// <summary>Indicates whether the component is fully initialized</summary>
     internal bool IsInitialized { get; init; }
 
-    /// <summary>Indikátor headless režimu</summary>
+    /// <summary>Indicates if the component is running in headless mode (no UI dependencies)</summary>
     internal bool IsHeadlessMode { get; init; }
 
-    /// <summary>Aktuálna fáza inicializácie</summary>
+    /// <summary>Current initialization phase being executed</summary>
     internal InitializationPhase CurrentPhase { get; init; }
 
-    /// <summary>Čas kedy bola inicializácia spustená</summary>
+    /// <summary>Timestamp when initialization was started</summary>
     internal DateTime? InitializationStartTime { get; init; }
 
-    /// <summary>Čas kedy bola inicializácia dokončená</summary>
+    /// <summary>Timestamp when initialization completed successfully</summary>
     internal DateTime? InitializationCompletedTime { get; init; }
 
-    /// <summary>Trvanie inicializácie</summary>
+    /// <summary>Total duration of the initialization process</summary>
     internal TimeSpan? InitializationDuration { get; init; }
 
-    /// <summary>Posledná chybová správa (ak existuje)</summary>
+    /// <summary>Last error message encountered during initialization, if any</summary>
     internal string? LastError { get; init; }
 }

@@ -1,36 +1,36 @@
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Configuration;
+﻿using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Configuration;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Models;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Commands;
 
 /// <summary>
-/// Command pre inicializáciu Advanced Data Grid komponentu
-/// Immutable record s factory methods pre rôzne scenáre
-/// Podporuje UI aj Headless režim
+/// Command for initializing the Advanced Data Grid component
+/// Immutable record with factory methods for different scenarios
+/// Supports both UI and Headless modes
 /// </summary>
 internal sealed record InitializeComponentCommand
 {
-    /// <summary>Konfigurácia inicializácie</summary>
+    /// <summary>Configuration settings for the initialization process</summary>
     internal InitializationConfiguration Configuration { get; init; } = new();
 
-    /// <summary>Indikátor headless režimu (bez UI dependencies)</summary>
+    /// <summary>Indicates if initialization should run in headless mode without UI dependencies</summary>
     internal bool IsHeadlessMode { get; init; } = false;
 
-    /// <summary>Či sa má validovať konfigurácia pred inicializáciou</summary>
+    /// <summary>Whether to validate configuration before starting initialization</summary>
     internal bool ValidateConfiguration { get; init; } = true;
 
-    /// <summary>Timeout pre inicializáciu</summary>
+    /// <summary>Maximum time allowed for initialization to complete</summary>
     internal TimeSpan InitializationTimeout { get; init; } = TimeSpan.FromMinutes(5);
 
-    /// <summary>Progress reporter pre sledovanie pokroku</summary>
+    /// <summary>Progress reporter for tracking initialization progress</summary>
     internal IProgress<InitializationProgress>? ProgressReporter { get; init; }
 
-    /// <summary>Cancellation token pre zrušenie operácie</summary>
+    /// <summary>Cancellation token for aborting the initialization operation</summary>
     internal CancellationToken CancellationToken { get; init; } = default;
 
     /// <summary>
-    /// Factory metóda pre UI režim
-    /// Inicializuje komponent s UI dependencies
+    /// Creates initialization command for UI mode
+    /// Initializes component with full UI dependencies
     /// </summary>
     internal static InitializeComponentCommand ForUI(
         InitializationConfiguration? config = null,
@@ -45,8 +45,8 @@ internal sealed record InitializeComponentCommand
         };
 
     /// <summary>
-    /// Factory metóda pre Headless režim
-    /// Optimalizované pre server/background scenáre bez UI
+    /// Creates initialization command for Headless mode
+    /// Optimized for server/background scenarios without UI
     /// </summary>
     internal static InitializeComponentCommand ForHeadless(
         InitializationConfiguration? config = null,

@@ -12,7 +12,7 @@ internal static class ShortcutMappings
     /// <summary>
     /// Convert public PublicShortcutDefinition (from Api.Models) to internal RegisterShortcutCommand
     /// </summary>
-    public static RegisterShortcutCommand ToInternal(this Api.Models.PublicShortcutDefinition publicShortcut)
+    public static RegisterShortcutCommand ToInternal(this PublicShortcutDefinition publicShortcut)
     {
         var keyCombination = ParseKeyCombination(publicShortcut.ShortcutKey);
 
@@ -28,9 +28,9 @@ internal static class ShortcutMappings
     }
 
     /// <summary>
-    /// Convert public PublicShortcutDefinition (from Commands) to internal RegisterShortcutCommand
+    /// Convert public PublicShortcutInfo (from Commands) to internal RegisterShortcutCommand
     /// </summary>
-    public static RegisterShortcutCommand ToInternal(this PublicShortcutDefinition publicShortcut)
+    public static RegisterShortcutCommand ToInternal(this PublicShortcutInfo publicShortcut)
     {
         var keyCombination = ParseKeyCombination(publicShortcut.KeyCombination);
 
@@ -46,11 +46,11 @@ internal static class ShortcutMappings
     }
 
     /// <summary>
-    /// Convert internal ShortcutDefinition to public PublicShortcutDefinition
+    /// Convert internal ShortcutDefinition to public PublicShortcutInfo
     /// </summary>
-    public static PublicShortcutDefinition ToPublic(this ShortcutDefinition internalShortcut)
+    public static PublicShortcutInfo ToPublic(this ShortcutDefinition internalShortcut)
     {
-        return new PublicShortcutDefinition
+        return new PublicShortcutInfo
         {
             KeyCombination = internalShortcut.KeyCombination.DisplayName,
             Name = internalShortcut.Name,

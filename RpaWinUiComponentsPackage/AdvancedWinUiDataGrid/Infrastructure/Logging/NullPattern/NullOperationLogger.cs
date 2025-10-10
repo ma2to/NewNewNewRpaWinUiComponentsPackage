@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading.Tasks;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.Interfaces;
 
@@ -11,14 +11,14 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging
 internal sealed class NullOperationLogger<T> : IOperationLogger<T>
 {
     /// <summary>
-    /// Singleton instance pre minimálne alokácie
+    /// Singleton instance for minimálne alokácie
     /// </summary>
     public static readonly NullOperationLogger<T> Instance = new();
 
-    // Súkromný konštruktor pre singleton pattern
+    // Súkromný konštruktor for singleton pattern
     private NullOperationLogger() { }
 
-    // Všetky metódy vracajú null scope alebo nerobia nič
+    // Všetky metódy vracajú null scope or nerobia nič
     public IOperationScope LogOperationStart(string operationName, object? context = null)
         => NullOperationScope.Instance;
 

@@ -1,36 +1,36 @@
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Commands;
+﻿using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Commands;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Models;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Interfaces;
 
 /// <summary>
-/// Interface pre správu životného cyklu komponentu
-/// Orchestruje startup aj shutdown sekvencie
-/// Thread-safe s podporou progress reporting
+/// Interface for component lifecycle management
+/// Orchestrates startup and shutdown sequences
+/// Thread-safe with progress reporting support
 /// </summary>
 internal interface IComponentLifecycleManager
 {
     /// <summary>
-    /// Inicializuje komponenty podľa zadaného command
-    /// Spustí kompletnú startup sekvenciu s progress tracking
+    /// Initializes components according to the specified command
+    /// Launches complete startup sequence with progress tracking
     /// </summary>
     Task<InitializationResult> InitializeAsync(
         InitializeComponentCommand command,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Graceful shutdown s cleanup všetkých resource
-    /// Flushing pending operations a unregister global handlers
+    /// Graceful shutdown with cleanup of all resources
+    /// Flushing pending operations and unregister global handlers
     /// </summary>
     Task<bool> ShutdownAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Získa aktuálny status inicializácie
+    /// Gets the current initialization status
     /// </summary>
     InitializationStatus GetStatus();
 
     /// <summary>
-    /// Indikátor či je komponenta inicializovaná
+    /// Indicator whether the component is initialized
     /// </summary>
     bool IsInitialized { get; }
 }

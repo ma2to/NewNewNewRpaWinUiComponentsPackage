@@ -68,5 +68,5 @@ internal interface IRowColumnCellService
     /// <summary>
     /// Batch update cells
     /// </summary>
-    Task<int> BatchUpdateCellsAsync(IEnumerable<Api.Models.PublicCellUpdate> cellUpdates, CancellationToken cancellationToken = default);
+    Task<int> BatchUpdateCellsAsync(IEnumerable<PublicCellUpdate> cellUpdates, CancellationToken cancellationToken = default);
 }

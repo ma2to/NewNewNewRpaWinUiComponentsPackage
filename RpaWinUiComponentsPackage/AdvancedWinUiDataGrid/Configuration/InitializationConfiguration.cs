@@ -1,12 +1,12 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Configuration;
 
 /// <summary>
-/// Hlavná konfigurácia pre inicializáciu Advanced Data Grid komponentu
-/// Hierarchická konfiguračná štruktúra pre všetky aspekty inicializácie
-/// Immutable record s factory methods pre bežné scenáre
+/// Hlavná konfigurácia for inicializáciu Advanced Data Grid komponentu
+/// Hierarchická konfiguračná štruktúra for všetky aspekty inicializácie
+/// Immutable record s factory methods for bežné scenáre
 /// </summary>
 internal sealed record InitializationConfiguration
 {
@@ -44,7 +44,7 @@ internal sealed record InitializationConfiguration
     /// <summary>Povoliť performance optimalizácie</summary>
     internal bool EnablePerformanceOptimizations { get; init; } = true;
 
-    /// <summary>Timeout pre inicializáciu</summary>
+    /// <summary>Timeout for inicializáciu</summary>
     internal TimeSpan InitializationTimeout { get; init; } = TimeSpan.FromMinutes(5);
 
     /// <summary>Minimálny log level</summary>
@@ -56,8 +56,8 @@ internal sealed record InitializationConfiguration
     internal static InitializationConfiguration Default => new();
 
     /// <summary>
-    /// Konfigurácia optimalizovaná pre vysoký výkon
-    /// Vhodné pre veľké datasety a production scenáre
+    /// Konfigurácia optimalizovaná for vysoký výkon
+    /// Vhodné for veľké datasety a production scenáre
     /// </summary>
     internal static InitializationConfiguration HighPerformance => new()
     {
@@ -67,14 +67,14 @@ internal sealed record InitializationConfiguration
             EnableLazyLoading = true,
             EnableMemoryOptimization = true,
             EnableAsyncOperations = true,
-            VirtualizationThreshold = 500, // Nižší threshold pre lepší výkon
+            VirtualizationThreshold = 500, // Nižší threshold for lepší výkon
             MaxConcurrentOperations = Environment.ProcessorCount * 2
         },
         EnablePerformanceOptimizations = true
     };
 
     /// <summary>
-    /// Konfigurácia optimalizovaná pre server režim (headless)
+    /// Konfigurácia optimalizovaná for server režim (headless)
     /// Vypína UI-heavy operácie a zvyšuje concurrency
     /// </summary>
     internal static InitializationConfiguration ServerMode => new()

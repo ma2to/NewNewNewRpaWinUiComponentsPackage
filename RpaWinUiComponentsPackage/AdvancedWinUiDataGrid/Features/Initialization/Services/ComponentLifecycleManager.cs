@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
@@ -12,9 +12,9 @@ using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.Nul
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Services;
 
 /// <summary>
-/// Komplexný service pre správu životného cyklu komponentu
-/// Thread-safe orchestration startup a shutdown sekvencií
-/// Podporuje progress reporting a timeout handling
+/// Comprehensive service for component lifecycle management
+/// Thread-safe orchestration of startup and shutdown sequences
+/// Supports progress reporting and timeout handling
 /// </summary>
 internal sealed class ComponentLifecycleManager : IComponentLifecycleManager
 {
@@ -38,7 +38,7 @@ internal sealed class ComponentLifecycleManager : IComponentLifecycleManager
     }
 
     /// <summary>
-    /// Indikátor či je komponenta inicializovaná
+    /// Indicator whether the component is initialized
     /// </summary>
     public bool IsInitialized
     {
@@ -52,8 +52,8 @@ internal sealed class ComponentLifecycleManager : IComponentLifecycleManager
     }
 
     /// <summary>
-    /// Komplexná inicializačná sekvencia s progress tracking
-    /// 8-fázový startup proces s validation a error handling
+    /// Comprehensive initialization sequence with progress tracking
+    /// 8-phase startup process with validation and error handling
     /// </summary>
     public async Task<InitializationResult> InitializeAsync(
         InitializeComponentCommand command,
@@ -71,7 +71,7 @@ internal sealed class ComponentLifecycleManager : IComponentLifecycleManager
 
         var stopwatch = Stopwatch.StartNew();
         _initializationStartTime = DateTime.UtcNow;
-        var totalSteps = command.IsHeadlessMode ? 7 : 8; // Theme initialization len pre UI
+        var totalSteps = command.IsHeadlessMode ? 7 : 8; // Theme initialization only for UI
         var currentStep = 0;
 
         using var scope = _operationLogger.LogOperationStart("ComponentInitialization", new
@@ -186,7 +186,7 @@ internal sealed class ComponentLifecycleManager : IComponentLifecycleManager
     }
 
     /// <summary>
-    /// Graceful shutdown s cleanup všetkých resources
+    /// Graceful shutdown with cleanup of all resources
     /// </summary>
     public async Task<bool> ShutdownAsync(CancellationToken cancellationToken = default)
     {
@@ -237,7 +237,7 @@ internal sealed class ComponentLifecycleManager : IComponentLifecycleManager
     }
 
     /// <summary>
-    /// Získa aktuálny status inicializácie
+    /// Gets the current initialization status
     /// </summary>
     public InitializationStatus GetStatus()
     {
@@ -281,8 +281,8 @@ internal sealed class ComponentLifecycleManager : IComponentLifecycleManager
     {
         _logger.LogInformation("Registering services - mode={Mode}", command.IsHeadlessMode ? "Headless" : "UI");
 
-        // Services sú už registrované cez ServiceRegistration.cs
-        // Tu len validujeme že sú dostupné
+        // Services are already registered via ServiceRegistration.cs
+        // Here we only validate that they are available
         await Task.CompletedTask;
         cancellationToken.ThrowIfCancellationRequested();
     }
@@ -314,8 +314,8 @@ internal sealed class ComponentLifecycleManager : IComponentLifecycleManager
     {
         _logger.LogInformation("Loading configuration");
 
-        // Configuration je už loaded cez command
-        // Tu môžeme pridať validation alebo transformation logic
+        // Configuration is already loaded via command
+        // Here we can add validation or transformation logic
 
         await Task.CompletedTask;
         cancellationToken.ThrowIfCancellationRequested();
@@ -326,7 +326,7 @@ internal sealed class ComponentLifecycleManager : IComponentLifecycleManager
         _logger.LogInformation("Initializing core components");
 
         // Initialize core business components
-        // Pre teraz placeholder - rozšírime keď budú services implementované
+        // For now placeholder - we will expand when services are implemented
 
         await Task.CompletedTask;
         cancellationToken.ThrowIfCancellationRequested();
@@ -351,7 +351,7 @@ internal sealed class ComponentLifecycleManager : IComponentLifecycleManager
     {
         _logger.LogInformation("Initializing theme system");
 
-        // Setup theme/color system (implementujeme neskôr)
+        // Setup theme/color system (will be implemented later)
 
         await Task.CompletedTask;
         cancellationToken.ThrowIfCancellationRequested();

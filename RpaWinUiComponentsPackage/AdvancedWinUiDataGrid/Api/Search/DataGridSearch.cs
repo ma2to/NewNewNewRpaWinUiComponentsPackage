@@ -2,6 +2,8 @@ using Microsoft.Extensions.Logging;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Mappings;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Search;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Search.Interfaces;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Search.Commands;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Persistence.Interfaces;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Search;
 
@@ -13,31 +15,58 @@ internal sealed class DataGridSearch : IDataGridSearch
 {
     private readonly ILogger<DataGridSearch>? _logger;
     private readonly ISearchService _searchService;
+    private readonly IRowStore _rowStore;
 
     public DataGridSearch(
         ISearchService searchService,
+        IRowStore rowStore,
         ILogger<DataGridSearch>? logger = null)
     {
         _searchService = searchService ?? throw new ArgumentNullException(nameof(searchService));
+        _rowStore = rowStore ?? throw new ArgumentNullException(nameof(rowStore));
         _logger = logger;
     }
 
-    public async Task<Api.Models.PublicSearchResult> SearchAsync(string searchText, bool caseSensitive = false, bool wholeWord = false, string[]? columnNames = null, CancellationToken cancellationToken = default)
+    public async Task<PublicSearchResult> SearchAsync(string searchText, bool caseSensitive = false, bool wholeWord = false, string[]? columnNames = null, PublicSearchScope searchScope = PublicSearchScope.AllData, CancellationToken cancellationToken = default)
     {
         try
         {
-            _logger?.LogInformation("Searching for '{SearchText}' via Search module (caseSensitive: {CaseSensitive}, wholeWord: {WholeWord})", searchText, caseSensitive, wholeWord);
+            _logger?.LogInformation("Searching for '{SearchText}' via Search module (caseSensitive: {CaseSensitive}, wholeWord: {WholeWord}, scope: {Scope})",
+                searchText, caseSensitive, wholeWord, searchScope);
 
-            // TODO: Need to create SearchCommand and convert result
-            await Task.CompletedTask;
-            return new Api.Models.PublicSearchResult
+            // Get all data from row store
+            var allData = await _rowStore.GetAllRowsAsync(cancellationToken);
+
+            // Create search command with scope
+            var searchCommand = new SearchCommand
             {
-                MatchCount = 0,
-                MatchedRowIndices = Array.Empty<int>(),
+                Data = allData,
+                SearchText = searchText,
+                TargetColumns = columnNames,
+                CaseSensitive = caseSensitive,
+                Scope = searchScope.ToInternal(),
+                CancellationToken = cancellationToken
+            };
+
+            // Execute search
+            var internalResult = await _searchService.SearchAsync(searchCommand, cancellationToken);
+
+            // Map to public result
+            return new PublicSearchResult
+            {
+                MatchCount = internalResult.TotalMatchesFound,
+                MatchedRowIndices = internalResult.Results.Select(r => r.RowIndex).Distinct().ToList(),
+                MatchedCells = internalResult.Results.Select(r => new PublicCellPosition
+                {
+                    RowIndex = r.RowIndex,
+                    ColumnName = r.ColumnName,
+                    CellValue = r.Value
+                }).ToList(),
                 SearchText = searchText,
                 CaseSensitive = caseSensitive,
                 WholeWord = wholeWord,
-                SearchDuration = TimeSpan.Zero
+                SearchDuration = internalResult.SearchTime,
+                Scope = searchScope
             };
         }
         catch (Exception ex)

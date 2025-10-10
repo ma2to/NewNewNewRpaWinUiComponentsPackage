@@ -5,7 +5,7 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Search.Comman
 
 /// <summary>
 /// COMMAND PATTERN: Basic search command with LINQ optimization
-/// CONSISTENT: Rovnaká štruktúra ako ImportDataCommand a ValidateDataCommand
+/// CONSISTENT: Same structure as ImportDataCommand and ValidateDataCommand
 /// </summary>
 internal sealed record SearchCommand
 {

@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Validation.Interfaces;
@@ -10,10 +10,10 @@ using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.Nul
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Validation.Services;
 
 /// <summary>
-/// Interná implementácia validation služby s komplexnou funkcionalitou
-/// CRITICAL: Implementuje AreAllNonEmptyRowsValidAsync s batch, thread-safe a stream podporou
-/// Musí byť volaná Import & Paste & Export operáciami
-/// Thread-safe bez per-operation mutable fields
+/// Internal implementation of validation service with comprehensive functionality
+/// CRITICAL: Implements AreAllNonEmptyRowsValidAsync with batch, thread-safe and stream support
+/// Must be called by Import & Paste & Export operations
+/// Thread-safe without per-operation mutable fields
 /// </summary>
 internal sealed class ValidationService : IValidationService
 {
@@ -25,8 +25,8 @@ internal sealed class ValidationService : IValidationService
     private readonly ConcurrentBag<IValidationRule> _validationRules;
 
     /// <summary>
-    /// Konštruktor ValidationService
-    /// Inicializuje všetky závislosti a nastavuje null pattern pre optional operation logger
+    /// ValidationService constructor
+    /// Initializes all dependencies and sets null pattern for optional operation logger
     /// </summary>
     public ValidationService(
         ILogger<ValidationService> logger,
@@ -41,38 +41,38 @@ internal sealed class ValidationService : IValidationService
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _validationRules = new ConcurrentBag<IValidationRule>();
 
-        // Ak nie je poskytnutý operation logger, použijeme null pattern (žiadne logovanie)
+        // If operation logger is not provided, use null pattern (no logging)
         _operationLogger = operationLogger ?? NullOperationLogger<ValidationService>.Instance;
     }
 
     /// <summary>
-    /// CRITICAL: Validuje všetky neprázdne riadky s batch, thread-safe a stream podporou
-    /// Musí byť volaná Import & Paste & Export operáciami
-    /// Podporuje filtrovanú validáciu pre export scenáre
-    /// Používa IRowStore validation state management pre perzistenciu
+    /// CRITICAL: Validates all non-empty rows with batch, thread-safe and stream support
+    /// Must be called by Import & Paste & Export operations
+    /// Supports filtered validation for export scenarios
+    /// Uses IRowStore validation state management for persistence
     /// </summary>
     public async Task<Result<bool>> AreAllNonEmptyRowsValidAsync(bool onlyFiltered = false, CancellationToken cancellationToken = default)
     {
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var operationId = Guid.NewGuid();
 
-        // Začíname validáciu - vytvoríme operation scope pre automatické tracking
+        // Starting validation - create operation scope for automatic tracking
         using var scope = _operationLogger.LogOperationStart("AreAllNonEmptyRowsValidAsync", new
         {
             OperationId = operationId,
             OnlyFiltered = onlyFiltered
         });
 
-        // Získame počet riadkov pre špecializované logovanie
+        // Get row count for specialized logging
         var totalRowCount = (int)await _rowStore.GetRowCountAsync(cancellationToken);
         var ruleCount = _validationRules.Count;
 
-        // Špecializované validation logovanie - start
+        // Specialized validation logging - start
         _validationLogger.LogValidationStart(operationId, totalRowCount, ruleCount, onlyFiltered, false);
 
         try
         {
-            // Kontrolujeme či máme cachedovaný validation state ktorý môžeme použiť
+            // Check if we have cached validation state that we can use
             _logger.LogInformation("Checking cached validation state for operation {OperationId}", operationId);
             var hasValidationState = await _rowStore.HasValidationStateForScopeAsync(onlyFiltered, cancellationToken);
             if (hasValidationState)
@@ -88,20 +88,20 @@ internal sealed class ValidationService : IValidationService
             _logger.LogInformation("Cache not found, starting new validation");
             _validationLogger.LogValidationCache(operationId, "miss", onlyFiltered ? "filtered" : "all");
 
-            // Získame validation rules
+            // Get validation rules
             var activeRules = _validationRules.ToArray();
             _logger.LogInformation("Loaded {RuleCount} validation rules", activeRules.Length);
 
             if (activeRules.Length == 0)
             {
-                // Žiadne validation rules - všetky riadky považujeme za validné
+                // No validation rules - treat all rows as valid
                 _logger.LogInformation("No validation rules configured for operation {OperationId}, treating all rows as valid", operationId);
                 await _rowStore.WriteValidationResultsAsync(Array.Empty<ValidationError>(), cancellationToken);
                 scope.MarkSuccess(new { IsValid = true, NoRules = true });
                 return Result<bool>.Success(true);
             }
 
-            // Získame dáta na validáciu (filtrované alebo všetky) pomocou StreamRowsAsync pre efektívnu pamäť
+            // Get data for validation (filtered or all) using StreamRowsAsync for efficient memory
             _logger.LogInformation("Loading data for validation with batch size {BatchSize}", _options.BatchSize);
             var nonEmptyRows = new List<IReadOnlyDictionary<string, object?>>();
             var batchIndex = 0;
@@ -118,14 +118,14 @@ internal sealed class ValidationService : IValidationService
 
             if (nonEmptyRows.Count == 0)
             {
-                // Žiadne neprázdne riadky - všetko je validné
+                // No non-empty rows - everything is valid
                 _logger.LogInformation("No non-empty rows found for validation in operation {OperationId}", operationId);
                 await _rowStore.WriteValidationResultsAsync(Array.Empty<ValidationError>(), cancellationToken);
                 scope.MarkSuccess(new { IsValid = true, NoRows = true });
                 return Result<bool>.Success(true);
             }
 
-            // Validujeme v dávkach s thread-safe spracovaním
+            // Validate in batches with thread-safe processing
             _logger.LogInformation("Starting validation of {RowCount} rows with {RuleCount} rules",
                 nonEmptyRows.Count, activeRules.Length);
 
@@ -134,7 +134,7 @@ internal sealed class ValidationService : IValidationService
             var isValid = validationResult.IsSuccess && validationResult.Value == 0;
             var errorCount = validationResult.IsSuccess ? validationResult.Value : 0;
 
-            // Zalogujeme metriky validácie
+            // Log validation metrics
             _operationLogger.LogValidationOperation(
                 validationType: "ComprehensiveValidation",
                 totalRows: nonEmptyRows.Count,
@@ -142,7 +142,7 @@ internal sealed class ValidationService : IValidationService
                 ruleCount: activeRules.Length,
                 duration: stopwatch.Elapsed);
 
-            // Špecializované logovanie - completion & performance
+            // Specialized logging - completion & performance
             var errorsByType = new Dictionary<ValidationSeverity, int>
             {
                 { ValidationSeverity.Error, errorCount },
@@ -176,7 +176,7 @@ internal sealed class ValidationService : IValidationService
                     operationId, stopwatch.ElapsedMilliseconds, nonEmptyRows.Count, errorCount);
             }
 
-            // Označíme scope ako úspešný (aj keď sú validation errors, operácia sama prebehla úspešne)
+            // Mark scope as successful (even if there are validation errors, the operation itself succeeded)
             scope.MarkSuccess(new
             {
                 IsValid = isValid,
@@ -190,14 +190,14 @@ internal sealed class ValidationService : IValidationService
         }
         catch (OperationCanceledException ex)
         {
-            // Validácia bola zrušená používateľom
+            // Validation was cancelled by user
             _logger.LogInformation("Validation operation {OperationId} was cancelled by user", operationId);
             scope.MarkFailure(ex);
             return Result<bool>.Failure("Validation was cancelled");
         }
         catch (Exception ex)
         {
-            // Neočakávaná chyba v validácii - CRITICAL level
+            // Unexpected error in validation - CRITICAL level
             _logger.LogCritical(ex, "CRITICAL ERROR: Validation operation {OperationId} failed with unexpected error: {Message}. Stack trace: {StackTrace}",
                 operationId, ex.Message, ex.StackTrace);
             scope.MarkFailure(ex);
@@ -206,9 +206,9 @@ internal sealed class ValidationService : IValidationService
     }
 
     /// <summary>
-    /// Pridáva validation rule do aktívnej kolekcie pravidiel
-    /// Thread-safe operácia používajúca ConcurrentBag pre bezpečné pridávanie
-    /// Vracia Result indikujúci úspech alebo zlyhanie operácie
+    /// Adds validation rule to the active collection of rules
+    /// Thread-safe operation using ConcurrentBag for safe addition
+    /// Returns Result indicating success or failure of the operation
     /// </summary>
     public async Task<Result> AddValidationRuleAsync(IValidationRule rule, CancellationToken cancellationToken = default)
     {
@@ -232,9 +232,9 @@ internal sealed class ValidationService : IValidationService
     }
 
     /// <summary>
-    /// Validuje riadky v dávkach s komplexným reportovaním výsledkov
-    /// Thread-safe s podporou stream spracovania a progress reportingu
-    /// Vracia BatchValidationResult s počtom úspešných a neúspešných validácií
+    /// Validates rows in batches with comprehensive result reporting
+    /// Thread-safe with stream processing and progress reporting support
+    /// Returns BatchValidationResult with count of successful and failed validations
     /// </summary>
     public async Task<BatchValidationResult> ValidateRowsBatchAsync(
         IEnumerable<IReadOnlyDictionary<string, object?>> rows,
@@ -276,8 +276,8 @@ internal sealed class ValidationService : IValidationService
 
 
     /// <summary>
-    /// Filtruje prázdne riadky (riadky so všetkými null/prázdnymi hodnotami)
-    /// Vracia iba riadky ktoré majú aspoň jednu neprázdnu hodnotu
+    /// Filters empty rows (rows with all null/empty values)
+    /// Returns only rows that have at least one non-empty value
     /// </summary>
     private List<IReadOnlyDictionary<string, object?>> FilterNonEmptyRows(
         IReadOnlyList<IReadOnlyDictionary<string, object?>> rows,
@@ -312,9 +312,9 @@ internal sealed class ValidationService : IValidationService
     }
 
     /// <summary>
-    /// Validuje riadky v dávkach s thread-safe spracovaním
-    /// Zapisuje validation výsledky do IRowStore pre perzistenciu
-    /// Vracia Result s počtom chýb alebo úspech
+    /// Validates rows in batches with thread-safe processing
+    /// Writes validation results to IRowStore for persistence
+    /// Returns Result with error count or success
     /// </summary>
     private async Task<Result<int>> ValidateRowsBatchedAsync(
         IReadOnlyList<IReadOnlyDictionary<string, object?>> rows,
@@ -391,8 +391,8 @@ internal sealed class ValidationService : IValidationService
     }
 
     /// <summary>
-    /// Validuje dávku riadkov paralelne pre optimálny výkon
-    /// Používa ConcurrentBag pre thread-safe zber chýb a varovaní
+    /// Validates batch of rows in parallel for optimal performance
+    /// Uses ConcurrentBag for thread-safe collection of errors and warnings
     /// </summary>
     private async Task<(int errorCount, int warningCount, List<ValidationError> errors, List<ValidationWarning> warnings)> ValidateBatchInParallelAsync(
         IReadOnlyList<IReadOnlyDictionary<string, object?>> batchRows,
@@ -471,8 +471,8 @@ internal sealed class ValidationService : IValidationService
     }
 
     /// <summary>
-    /// Kontroluje či je hodnota považovaná za prázdnu
-    /// Prázdna je null alebo whitespace string
+    /// Checks if value is considered empty
+    /// Empty is null or whitespace string
     /// </summary>
     private static bool IsEmptyValue(object value)
     {
@@ -485,16 +485,16 @@ internal sealed class ValidationService : IValidationService
     }
 
     /// <summary>
-    /// Odstraňuje validation rules podľa column names
-    /// Nájde všetky rules ktoré majú dependent columns v zadaných stĺpcoch a odstráni ich
-    /// Loguje operáciu s operation scope pre tracking
+    /// Removes validation rules by column names
+    /// Finds all rules that have dependent columns in the specified columns and removes them
+    /// Logs operation with operation scope for tracking
     /// </summary>
     public async Task<Result> RemoveValidationRulesAsync(string[] columnNames, CancellationToken cancellationToken = default)
     {
         var stopwatch = Stopwatch.StartNew();
         var operationId = Guid.NewGuid();
 
-        // Začíname remove validation rules operáciu
+        // Starting remove validation rules operation
         using var scope = _operationLogger.LogOperationStart("RemoveValidationRulesAsync", new
         {
             OperationId = operationId,
@@ -507,7 +507,7 @@ internal sealed class ValidationService : IValidationService
 
         try
         {
-            // Nájdeme rules ktoré majú dependent columns v zadaných stĺpcoch
+            // Find rules that have dependent columns in the specified columns
             var rulesToRemove = _validationRules.Where(rule =>
                 rule.DependentColumns.Any(col => columnNames.Contains(col, StringComparer.OrdinalIgnoreCase))).ToList();
 
@@ -546,15 +546,15 @@ internal sealed class ValidationService : IValidationService
     }
 
     /// <summary>
-    /// Odstraňuje validation rule podľa názvu
-    /// ConcurrentBag nepodporuje priame odstránenie, preto sa použije recreate prístup
+    /// Removes validation rule by name
+    /// ConcurrentBag does not support direct removal, so recreate approach is used
     /// </summary>
     public async Task<Result> RemoveValidationRuleAsync(string ruleName, CancellationToken cancellationToken = default)
     {
         var stopwatch = Stopwatch.StartNew();
         var operationId = Guid.NewGuid();
 
-        // Začíname remove validation rule operáciu
+        // Starting remove validation rule operation
         using var scope = _operationLogger.LogOperationStart("RemoveValidationRuleAsync", new
         {
             OperationId = operationId,
@@ -591,15 +591,15 @@ internal sealed class ValidationService : IValidationService
     }
 
     /// <summary>
-    /// Vymaže všetky validation rules
-    /// Používa TryTake v cykle pre vymazanie všetkých položiek z ConcurrentBag
+    /// Clears all validation rules
+    /// Uses TryTake in loop to remove all items from ConcurrentBag
     /// </summary>
     public async Task<Result> ClearAllValidationRulesAsync(CancellationToken cancellationToken = default)
     {
         var stopwatch = Stopwatch.StartNew();
         var operationId = Guid.NewGuid();
 
-        // Začíname clear all validation rules operáciu
+        // Starting clear all validation rules operation
         using var scope = _operationLogger.LogOperationStart("ClearAllValidationRulesAsync", new
         {
             OperationId = operationId,
@@ -639,8 +639,8 @@ internal sealed class ValidationService : IValidationService
     }
 
     /// <summary>
-    /// Validuje jednotlivý riadok voči všetkým aplikovateľným pravidlám
-    /// Vracia prvý výsledok ktorý zlyhá alebo Success ak všetky pravidlá prešli
+    /// Validates single row against all applicable rules
+    /// Returns first result that fails or Success if all rules passed
     /// </summary>
     public async Task<ValidationResult> ValidateRowAsync(
         IReadOnlyDictionary<string, object?> row,
@@ -650,7 +650,7 @@ internal sealed class ValidationService : IValidationService
         var stopwatch = Stopwatch.StartNew();
         var operationId = Guid.NewGuid();
 
-        // Začíname validáciu jednotlivého riadku
+        // Starting single row validation
         _logger.LogInformation("Starting validation of row {RowIndex} for operation {OperationId}",
             context.RowIndex, operationId);
 
@@ -686,8 +686,8 @@ internal sealed class ValidationService : IValidationService
     }
 
     /// <summary>
-    /// Získa všetky aktuálne nakonfigurované validation rules
-    /// Vracia immutable array kópiu pravidiel pre thread-safe čítanie
+    /// Gets all currently configured validation rules
+    /// Returns immutable array copy of rules for thread-safe reading
     /// </summary>
     public IReadOnlyList<IValidationRule> GetValidationRules()
     {
@@ -695,8 +695,8 @@ internal sealed class ValidationService : IValidationService
     }
 
     /// <summary>
-    /// Získa validation rules pre špecifické stĺpce
-    /// Filtruje rules ktoré majú dependent columns v zadaných column names
+    /// Gets validation rules for specific columns
+    /// Filters rules that have dependent columns in the specified column names
     /// </summary>
     public IReadOnlyList<IValidationRule> GetValidationRulesForColumns(params string[] columnNames)
     {

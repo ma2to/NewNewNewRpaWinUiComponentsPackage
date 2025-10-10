@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.Utilities;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
@@ -12,8 +12,8 @@ using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.Nul
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Sort.Services;
 
 /// <summary>
-/// Interná implementácia sort služby s LINQ optimalizáciami
-/// Thread-safe s podporou parallel processing
+/// Internal implementation of sort service with LINQ optimizations
+/// Thread-safe with parallel processing support
 /// </summary>
 internal sealed class SortService : ISortService
 {
@@ -34,7 +34,7 @@ internal sealed class SortService : ISortService
     }
 
     /// <summary>
-    /// Vykoná jednokolónkové triedenie s LINQ optimization
+    /// Performs single-column sorting with LINQ optimization
     /// </summary>
     public async Task<SortResult> SortAsync(SortCommand command, CancellationToken cancellationToken = default)
     {
@@ -54,7 +54,7 @@ internal sealed class SortService : ISortService
 
         try
         {
-            // Validácia sortability
+            // Sortability validation
             var isSortable = SortAlgorithms.IsColumnSortable(command.Data, command.ColumnName);
             if (!isSortable)
             {
@@ -65,17 +65,17 @@ internal sealed class SortService : ISortService
                 return SortResult.CreateFailure(new[] { error }, stopwatch.Elapsed);
             }
 
-            // Konverzia na list pre performance
+            // Convert to list for performance
             var dataList = command.Data.ToList();
             _logger.LogInformation("Processing {RowCount} rows for sort operation {OperationId}",
                 dataList.Count, operationId);
 
-            // Type detection pre optimalizáciu
+            // Type detection for optimization
             var detectedType = SortAlgorithms.DetectSortDataType(dataList, command.ColumnName);
             _logger.LogInformation("Detected sort type: {DetectedType} for column {ColumnName}",
                 detectedType?.Name ?? "Unknown", command.ColumnName);
 
-            // Výber sort stratégie
+            // Select sort strategy
             var useParallel = command.EnableParallelProcessing && dataList.Count > ParallelProcessingThreshold;
 
             // LINQ sort execution
@@ -136,7 +136,7 @@ internal sealed class SortService : ISortService
     }
 
     /// <summary>
-    /// Vykoná multi-column triedenie s ThenBy chains
+    /// Performs multi-column sorting with ThenBy chains
     /// </summary>
     public async Task<SortResult> MultiSortAsync(MultiSortCommand command, CancellationToken cancellationToken = default)
     {
@@ -246,7 +246,7 @@ internal sealed class SortService : ISortService
     }
 
     /// <summary>
-    /// Získa zoznam sortovateľných stĺpcov
+    /// Gets list of sortable columns
     /// </summary>
     public IReadOnlyList<string> GetSortableColumns(IEnumerable<IReadOnlyDictionary<string, object?>> data)
     {
@@ -271,7 +271,7 @@ internal sealed class SortService : ISortService
     }
 
     /// <summary>
-    /// Odporúči optimálny performance mode na základe charakteristík dát
+    /// Recommends optimal performance mode based on data characteristics
     /// </summary>
     public CoreTypes.SortPerformanceMode GetRecommendedPerformanceMode(
         IEnumerable<IReadOnlyDictionary<string, object?>> data,
@@ -307,7 +307,7 @@ internal sealed class SortService : ISortService
     // LEGACY API IMPLEMENTATION (backward compatibility)
 
     /// <summary>
-    /// Legacy sort by column - používa row store
+    /// Legacy sort by column - uses row store
     /// </summary>
     public async Task<bool> SortByColumnAsync(string columnName, CoreTypes.SortDirection direction, CancellationToken cancellationToken = default)
     {
@@ -340,7 +340,7 @@ internal sealed class SortService : ISortService
     }
 
     /// <summary>
-    /// Vyčistí aktuálne sort nastavenia
+    /// Clears current sort settings
     /// </summary>
     public async Task<bool> ClearSortAsync(CancellationToken cancellationToken = default)
     {
@@ -350,17 +350,17 @@ internal sealed class SortService : ISortService
     }
 
     /// <summary>
-    /// Získa aktuálne sort nastavenia
+    /// Gets current sort settings
     /// </summary>
     public IReadOnlyList<(string ColumnName, CoreTypes.SortDirection Direction)> GetCurrentSort() => _currentSort.AsReadOnly();
 
     /// <summary>
-    /// Indikátor či sú dáta sortované
+    /// Indicator whether data is sorted
     /// </summary>
     public bool IsSorted() => _currentSort.Any();
 
     /// <summary>
-    /// Vykoná advanced sort s business rules a custom sort keys
+    /// Performs advanced sort with business rules and custom sort keys
     /// </summary>
     public async Task<SortResult> AdvancedSortAsync(AdvancedSortCommand command, CancellationToken cancellationToken = default)
     {
@@ -382,14 +382,14 @@ internal sealed class SortService : ISortService
             var dataList = command.Data.ToList();
             var config = command.SortConfiguration;
 
-            // Validácia konfigurácie
+            // Validate configuration
             if (!config.SortColumns.Any())
             {
                 _logger.LogWarning("No sort columns in advanced configuration for operation {OperationId}", operationId);
                 return SortResult.CreateSuccess(dataList, Array.Empty<CoreTypes.SortColumnConfiguration>(), stopwatch.Elapsed);
             }
 
-            // Ak je custom sort key, použijeme ho
+            // If custom sort key is present, use it
             if (config.CustomSortKey != null && command.Context != null)
             {
                 _logger.LogInformation("Using custom sort key for operation {OperationId}", operationId);
@@ -413,7 +413,7 @@ internal sealed class SortService : ISortService
                     config.PerformanceMode, config.EnableParallelProcessing, config.Stability == CoreTypes.SortStability.Stable);
             }
 
-            // Použijeme MultiSortAsync pre štandardný advanced sort
+            // Use MultiSortAsync for standard advanced sort
             var multiSortCommand = MultiSortCommand.Create(dataList, config.SortColumns);
             multiSortCommand = multiSortCommand with
             {
@@ -448,7 +448,7 @@ internal sealed class SortService : ISortService
     }
 
     /// <summary>
-    /// Quick sort pre okamžité výsledky (synchronous)
+    /// Quick sort for immediate results (synchronous)
     /// </summary>
     public SortResult QuickSort(IEnumerable<IReadOnlyDictionary<string, object?>> data, string columnName, CoreTypes.SortDirection direction = CoreTypes.SortDirection.Ascending)
     {
@@ -460,7 +460,7 @@ internal sealed class SortService : ISortService
             _logger.LogInformation("QuickSort: column={ColumnName}, direction={Direction}, rows={RowCount}",
                 columnName, direction, dataList.Count);
 
-            // Validácia sortability
+            // Sortability validation
             var isSortable = SortAlgorithms.IsColumnSortable(dataList, columnName);
             if (!isSortable)
             {
@@ -469,7 +469,7 @@ internal sealed class SortService : ISortService
                 return SortResult.CreateFailure(new[] { error }, stopwatch.Elapsed);
             }
 
-            // Jednoduché synchronné triedenie
+            // Simple synchronous sorting
             var sortedData = direction == CoreTypes.SortDirection.Ascending
                 ? dataList.OrderBy(row => SortAlgorithms.GetSortValue(row, columnName)).ToList()
                 : dataList.OrderByDescending(row => SortAlgorithms.GetSortValue(row, columnName)).ToList();
@@ -494,7 +494,7 @@ internal sealed class SortService : ISortService
     }
 
     /// <summary>
-    /// Validuje sort konfiguráciu
+    /// Validates sort configuration
     /// </summary>
     public async Task<Common.Models.Result> ValidateSortConfigurationAsync(CoreTypes.AdvancedSortConfiguration sortConfiguration, CancellationToken cancellationToken = default)
     {
@@ -502,19 +502,19 @@ internal sealed class SortService : ISortService
         {
             _logger.LogInformation("Validating sort configuration: {ConfigName}", sortConfiguration.ConfigurationName);
 
-            // Kontrola sort columns
+            // Check sort columns
             if (sortConfiguration.SortColumns == null || !sortConfiguration.SortColumns.Any())
             {
                 return Common.Models.Result.Failure("Sort configuration must contain at least one sort column");
             }
 
-            // Kontrola max sort columns
+            // Check max sort columns
             if (sortConfiguration.SortColumns.Count > sortConfiguration.MaxSortColumns)
             {
                 return Common.Models.Result.Failure($"Sort configuration contains {sortConfiguration.SortColumns.Count} columns, but maximum is {sortConfiguration.MaxSortColumns}");
             }
 
-            // Kontrola duplicitných priorít
+            // Check for duplicate priorities
             var duplicatePriorities = sortConfiguration.SortColumns
                 .GroupBy(s => s.Priority)
                 .Where(g => g.Count() > 1)
@@ -526,7 +526,7 @@ internal sealed class SortService : ISortService
                 return Common.Models.Result.Failure($"Duplicate sort priorities found: {string.Join(", ", duplicatePriorities)}");
             }
 
-            // Kontrola column names
+            // Check column names
             var emptyColumnNames = sortConfiguration.SortColumns
                 .Where(s => string.IsNullOrWhiteSpace(s.ColumnName))
                 .ToList();

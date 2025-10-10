@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
@@ -8,7 +8,7 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging
 
 /// <summary>
 /// Real implementation of operation scope with comprehensive tracking
-/// Implementuje RAII pattern pre automatické meranie času a disposal tracking
+/// Implementuje RAII pattern for automatické meranie času a disposal tracking
 /// </summary>
 internal sealed class OperationScope : IOperationScope
 {
@@ -27,7 +27,7 @@ internal sealed class OperationScope : IOperationScope
         _operationName = operationName ?? throw new ArgumentNullException(nameof(operationName));
         _context = context;
 
-        // Generujeme krátke correlation ID pre tracking
+        // Generujeme krátke correlation ID for tracking
         _correlationId = Guid.NewGuid().ToString("N")[..8];
         _stopwatch = Stopwatch.StartNew();
 

@@ -51,9 +51,9 @@ public sealed record ShortcutDataResult
 }
 
 /// <summary>
-/// Public shortcut definition
+/// Public shortcut information (read-only DTO)
 /// </summary>
-public sealed record PublicShortcutDefinition
+public sealed record PublicShortcutInfo
 {
     /// <summary>
     /// Shortcut name

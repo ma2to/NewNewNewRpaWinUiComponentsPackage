@@ -1,18 +1,18 @@
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
+﻿using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Search.Commands;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Search.Models;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Search;
 
 /// <summary>
-/// Mapping extensions pre konverziu medzi public a internal search types
+/// Mapping extensions for conversion between public and internal search types
 /// </summary>
 internal static class SearchMappings
 {
     #region Public → Internal
 
     /// <summary>
-    /// Konvertuje public search scope na internal
+    /// Converts public search scope to internal
     /// </summary>
     internal static SearchScope ToInternal(this PublicSearchScope scope) => scope switch
     {
@@ -24,7 +24,7 @@ internal static class SearchMappings
     };
 
     /// <summary>
-    /// Konvertuje public search mode na internal
+    /// Converts public search mode to internal
     /// </summary>
     internal static SearchMode ToInternal(this PublicSearchMode mode) => mode switch
     {
@@ -38,7 +38,7 @@ internal static class SearchMappings
     };
 
     /// <summary>
-    /// Konvertuje public search ranking na internal
+    /// Converts public search ranking to internal
     /// </summary>
     internal static SearchRanking ToInternal(this PublicSearchRanking ranking) => ranking switch
     {
@@ -50,7 +50,7 @@ internal static class SearchMappings
     };
 
     /// <summary>
-    /// Konvertuje public advanced search criteria na internal
+    /// Converts public advanced search criteria to internal
     /// </summary>
     internal static AdvancedSearchCriteria ToInternal(this PublicAdvancedSearchCriteria criteria) =>
         new()
@@ -71,7 +71,7 @@ internal static class SearchMappings
         };
 
     /// <summary>
-    /// Konvertuje public search command na internal
+    /// Converts public search command to internal
     /// </summary>
     internal static SearchCommand ToInternal(this SearchDataCommand command) =>
         new()
@@ -86,7 +86,7 @@ internal static class SearchMappings
         };
 
     /// <summary>
-    /// Konvertuje public advanced search command na internal
+    /// Converts public advanced search command to internal
     /// </summary>
     internal static AdvancedSearchCommand ToInternal(this AdvancedSearchDataCommand command) =>
         new()
@@ -99,7 +99,7 @@ internal static class SearchMappings
         };
 
     /// <summary>
-    /// Konvertuje public smart search command na internal
+    /// Converts public smart search command to internal
     /// </summary>
     internal static SmartSearchCommand ToInternal(this SmartSearchDataCommand command) =>
         new()
@@ -117,7 +117,7 @@ internal static class SearchMappings
     #region Internal → Public
 
     /// <summary>
-    /// Konvertuje internal search scope na public
+    /// Converts internal search scope to public
     /// </summary>
     internal static PublicSearchScope ToPublic(this SearchScope scope) => scope switch
     {
@@ -129,7 +129,7 @@ internal static class SearchMappings
     };
 
     /// <summary>
-    /// Konvertuje internal search mode na public
+    /// Converts internal search mode to public
     /// </summary>
     internal static PublicSearchMode ToPublic(this SearchMode mode) => mode switch
     {
@@ -143,7 +143,7 @@ internal static class SearchMappings
     };
 
     /// <summary>
-    /// Konvertuje internal search ranking na public
+    /// Converts internal search ranking to public
     /// </summary>
     internal static PublicSearchRanking ToPublic(this SearchRanking ranking) => ranking switch
     {
@@ -155,7 +155,7 @@ internal static class SearchMappings
     };
 
     /// <summary>
-    /// Konvertuje internal search progress na public
+    /// Converts internal search progress to public
     /// </summary>
     internal static PublicSearchProgress ToPublic(this SearchProgress progress) =>
         new(
@@ -168,9 +168,9 @@ internal static class SearchMappings
         );
 
     /// <summary>
-    /// Konvertuje internal search result na public
+    /// Converts internal search result to public
     /// </summary>
-    internal static PublicSearchResult ToPublic(this SearchResult result) =>
+    internal static PublicSearchMatch ToPublic(this SearchResult result) =>
         new(
             RowIndex: result.RowIndex,
             ColumnName: result.ColumnName,
@@ -183,7 +183,7 @@ internal static class SearchMappings
         );
 
     /// <summary>
-    /// Konvertuje internal search result collection na public
+    /// Converts internal search result collection to public
     /// </summary>
     internal static SearchDataResult ToPublic(this SearchResultCollection result) =>
         new(
@@ -202,7 +202,7 @@ internal static class SearchMappings
     #region Progress Wrapper
 
     /// <summary>
-    /// Vytvorí progress wrapper pre konverziu medzi public a internal progress
+    /// Creates progress wrapper for conversion between public and internal progress
     /// </summary>
     internal static IProgress<SearchProgress> CreateProgressWrapper(IProgress<PublicSearchProgress> publicProgress)
     {

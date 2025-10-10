@@ -1,4 +1,4 @@
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
+﻿using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Sort.Commands;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Sort.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
@@ -6,7 +6,7 @@ using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Sorting;
 
 /// <summary>
-/// Mapping extensions pre konverziu medzi public a internal sort types
+/// Mapping extensions for konverziu medzi public a internal sort types
 /// </summary>
 internal static class SortMappings
 {
@@ -15,11 +15,11 @@ internal static class SortMappings
     /// <summary>
     /// Konvertuje public sort direction (Api.Models) na internal Core.ValueObjects.SortDirection
     /// </summary>
-    internal static Core.ValueObjects.SortDirection ToInternal(this Api.Models.PublicSortDirection direction) => direction switch
+    internal static Core.ValueObjects.SortDirection ToInternal(this PublicSortDirection direction) => direction switch
     {
-        Api.Models.PublicSortDirection.None => Core.ValueObjects.SortDirection.None,
-        Api.Models.PublicSortDirection.Ascending => Core.ValueObjects.SortDirection.Ascending,
-        Api.Models.PublicSortDirection.Descending => Core.ValueObjects.SortDirection.Descending,
+        PublicSortDirection.None => Core.ValueObjects.SortDirection.None,
+        PublicSortDirection.Ascending => Core.ValueObjects.SortDirection.Ascending,
+        PublicSortDirection.Descending => Core.ValueObjects.SortDirection.Descending,
         _ => Core.ValueObjects.SortDirection.Ascending
     };
 
@@ -87,12 +87,12 @@ internal static class SortMappings
     /// <summary>
     /// Konvertuje internal Core.ValueObjects.SortDirection na public (Api.Models namespace)
     /// </summary>
-    internal static Api.Models.PublicSortDirection ToPublic(this Core.ValueObjects.SortDirection direction) => direction switch
+    internal static PublicSortDirection ToPublic(this Core.ValueObjects.SortDirection direction) => direction switch
     {
-        Core.ValueObjects.SortDirection.None => Api.Models.PublicSortDirection.None,
-        Core.ValueObjects.SortDirection.Ascending => Api.Models.PublicSortDirection.Ascending,
-        Core.ValueObjects.SortDirection.Descending => Api.Models.PublicSortDirection.Descending,
-        _ => Api.Models.PublicSortDirection.Ascending
+        Core.ValueObjects.SortDirection.None => PublicSortDirection.None,
+        Core.ValueObjects.SortDirection.Ascending => PublicSortDirection.Ascending,
+        Core.ValueObjects.SortDirection.Descending => PublicSortDirection.Descending,
+        _ => PublicSortDirection.Ascending
     };
 
     /// <summary>
@@ -135,7 +135,7 @@ internal static class SortMappings
     /// <summary>
     /// Konvertuje internal SortColumnConfiguration na public PublicSortDescriptor
     /// </summary>
-    internal static Api.Models.PublicSortDescriptor ToPublic(this SortColumnConfiguration config) =>
+    internal static PublicSortDescriptor ToPublic(this SortColumnConfiguration config) =>
         new()
         {
             ColumnName = config.ColumnName,
@@ -146,7 +146,7 @@ internal static class SortMappings
     /// <summary>
     /// Konvertuje public PublicSortDescriptor na internal SortColumnConfiguration
     /// </summary>
-    internal static SortColumnConfiguration ToInternal(this Api.Models.PublicSortDescriptor descriptor) =>
+    internal static SortColumnConfiguration ToInternal(this PublicSortDescriptor descriptor) =>
         SortColumnConfiguration.Create(
             descriptor.ColumnName,
             descriptor.Direction.ToInternal(),

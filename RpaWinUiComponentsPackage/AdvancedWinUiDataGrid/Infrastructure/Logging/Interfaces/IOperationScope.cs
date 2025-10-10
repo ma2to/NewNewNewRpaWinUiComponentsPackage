@@ -1,60 +1,60 @@
-using System;
+﻿using System;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.Interfaces;
 
 /// <summary>
 /// Operation scope with automatic timing and disposal tracking
-/// Implementuje RAII pattern pre automatické meranie času operácií
+/// Implements RAII pattern for automatic operation time measurement
 /// </summary>
 internal interface IOperationScope : IDisposable
 {
     /// <summary>
-    /// Názov operácie
+    /// Operation name
     /// </summary>
     string OperationName { get; }
 
     /// <summary>
-    /// Čas začiatku operácie
+    /// Operation start time
     /// </summary>
     DateTime StartTime { get; }
 
     /// <summary>
-    /// Uplynulý čas od začiatku operácie
+    /// Elapsed time since operation start
     /// </summary>
     TimeSpan Elapsed { get; }
 
     /// <summary>
-    /// Indikátor či operácia bola dokončená (success/failure/warning)
+    /// Indicator whether operation was completed (success/failure/warning)
     /// </summary>
     bool IsCompleted { get; }
 
     /// <summary>
-    /// Correlation ID pre tracking operácie naprieč systémom
+    /// Correlation ID for tracking operation across the system
     /// </summary>
     string? CorrelationId { get; }
 
     /// <summary>
-    /// Označí operáciu ako úspešnú s voliteľným výsledkom
+    /// Marks operation as successful with optional result
     /// </summary>
     void MarkSuccess(object? result = null);
 
     /// <summary>
-    /// Označí operáciu ako neúspešnú s exception
+    /// Marks operation as failed with exception
     /// </summary>
     void MarkFailure(Exception exception);
 
     /// <summary>
-    /// Pridá warning k operácii (operácia môže pokračovať ale s upozornením)
+    /// Adds warning to operation (operation can continue but with warning)
     /// </summary>
     void MarkWarning(string warning);
 
     /// <summary>
-    /// Aktualizuje context operácie (pridá ďalšie informácie)
+    /// Updates operation context (adds additional information)
     /// </summary>
     void UpdateContext(object additionalContext);
 
     /// <summary>
-    /// Nastaví výsledok operácie bez jej ukončenia
+    /// Sets operation result without completing it
     /// </summary>
     void SetResult(object result);
 }

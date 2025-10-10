@@ -1,4 +1,4 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Services;
@@ -6,17 +6,17 @@ using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Se
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization;
 
 /// <summary>
-/// Registrácia služieb pre Initialization feature
+/// Service registration for Initialization feature
 /// Provides ComponentLifecycleManager as singleton
 /// </summary>
 internal static class Registration
 {
     /// <summary>
-    /// Registruje všetky služby pre Initialization feature
+    /// Registers all services required for the Initialization feature
     /// </summary>
     internal static IServiceCollection Register(IServiceCollection services, AdvancedDataGridOptions options)
     {
-        // ComponentLifecycleManager je singleton - jeden lifecycle manager pre celý component
+        // ComponentLifecycleManager is singleton - one lifecycle manager for the entire component
         services.AddSingleton<IComponentLifecycleManager, ComponentLifecycleManager>();
 
         return services;

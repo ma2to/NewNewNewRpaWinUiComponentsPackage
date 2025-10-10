@@ -22,7 +22,7 @@ internal sealed class DataGridShortcuts : IDataGridShortcuts
         _logger = logger;
     }
 
-    public async Task<PublicResult> RegisterShortcutAsync(Api.Models.PublicShortcutDefinition shortcut, CancellationToken cancellationToken = default)
+    public async Task<PublicResult> RegisterShortcutAsync(PublicShortcutDefinition shortcut, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -60,7 +60,7 @@ internal sealed class DataGridShortcuts : IDataGridShortcuts
         }
     }
 
-    public IReadOnlyList<PublicShortcutDefinition> GetAllShortcuts()
+    public IReadOnlyList<PublicShortcutInfo> GetAllShortcuts()
     {
         try
         {

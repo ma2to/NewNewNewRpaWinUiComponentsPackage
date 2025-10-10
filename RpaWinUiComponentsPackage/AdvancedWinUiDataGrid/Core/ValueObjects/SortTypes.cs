@@ -1,9 +1,9 @@
-namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
+﻿namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
 
 #region Enums
 
 /// <summary>
-/// Smer triedenia pre sort operácie
+/// Sort direction for sorting operations.
 /// </summary>
 internal enum SortDirection
 {
@@ -13,23 +13,23 @@ internal enum SortDirection
 }
 
 /// <summary>
-/// Režimy výkonu pre sort operácie
+/// Performance modes for sort operations.
 /// </summary>
 internal enum SortPerformanceMode
 {
-    Auto,           // Automatický výber podľa veľkosti dát
-    Sequential,     // Jednovláknové triedenie
-    Parallel,       // Viacvláknové triedenie
-    Optimized       // Pokročilé optimalizácie s cachingom
+    Auto,           // Automatic selection based on data size
+    Sequential,     // Single-threaded sorting
+    Parallel,       // Multi-threaded sorting
+    Optimized       // Advanced optimizations with caching
 }
 
 /// <summary>
-/// Stabilita triedenia
+/// Sort stability mode.
 /// </summary>
 internal enum SortStability
 {
-    Stable,         // Zachováva relatívne poradie rovnakých elementov
-    Unstable        // Povoluje zmenu poradia rovnakých elementov kvôli výkonu
+    Stable,         // Preserves relative order of equal elements
+    Unstable        // Allows reordering of equal elements for performance
 }
 
 #endregion
@@ -37,8 +37,8 @@ internal enum SortStability
 #region Progress & Context Types
 
 /// <summary>
-/// Sort operation progress reporting
-/// Konzistentná štruktúra s ValidationProgress a ExportProgress
+/// Sort operation progress reporting.
+/// Consistent structure with ValidationProgress and ExportProgress.
 /// </summary>
 internal sealed record SortProgress
 {
@@ -50,7 +50,7 @@ internal sealed record SortProgress
     internal string? CurrentColumn { get; init; }
     internal SortDirection CurrentDirection { get; init; } = SortDirection.None;
 
-    /// <summary>Odhadovaný zostávajúci čas na základe aktuálneho progresu</summary>
+    /// <summary>Estimated time remaining based on current progress rate.</summary>
     internal TimeSpan? EstimatedTimeRemaining => ProcessedRows > 0 && TotalRows > ProcessedRows
         ? TimeSpan.FromTicks(ElapsedTime.Ticks * (TotalRows - ProcessedRows) / ProcessedRows)
         : null;
@@ -69,8 +69,8 @@ internal sealed record SortProgress
 }
 
 /// <summary>
-/// Sort execution context s DI support
-/// Hybrid DI: Poskytuje services pre custom sort functions
+/// Sort execution context with dependency injection support.
+/// Hybrid DI: Provides services for custom sort functions.
 /// </summary>
 internal sealed record SortContext
 {
@@ -86,8 +86,8 @@ internal sealed record SortContext
 #region Configuration
 
 /// <summary>
-/// Konfigurácia jedného stĺpca pre triedenie
-/// Immutable record s factory methods
+/// Configuration for sorting a single column.
+/// Immutable record with factory methods.
 /// </summary>
 internal sealed record SortColumnConfiguration
 {
@@ -101,7 +101,7 @@ internal sealed record SortColumnConfiguration
     internal Func<object?, object?, int>? CustomComparer { get; init; }
 
     /// <summary>
-    /// Vytvorí základnú sort konfiguráciu
+    /// Creates a basic sort configuration.
     /// </summary>
     internal static SortColumnConfiguration Create(
         string columnName,
@@ -116,7 +116,7 @@ internal sealed record SortColumnConfiguration
         };
 
     /// <summary>
-    /// Vytvorí konfiguráciu s custom comparer
+    /// Creates a sort configuration with custom comparer function.
     /// </summary>
     internal static SortColumnConfiguration WithCustomComparer(
         string columnName,
@@ -134,8 +134,8 @@ internal sealed record SortColumnConfiguration
 }
 
 /// <summary>
-/// Advanced sort configuration s business rule support
-/// Podporuje multi-column sorting s performance optimization
+/// Advanced sort configuration with business rule support.
+/// Supports multi-column sorting with performance optimization.
 /// </summary>
 internal sealed record AdvancedSortConfiguration
 {
@@ -150,7 +150,7 @@ internal sealed record AdvancedSortConfiguration
     internal Func<IReadOnlyDictionary<string, object?>, SortContext, object?>? CustomSortKey { get; init; }
 
     /// <summary>
-    /// Vytvorí employee hierarchy sort configuration
+    /// Creates employee hierarchy sort configuration (Department > Position > Salary).
     /// </summary>
     internal static AdvancedSortConfiguration CreateEmployeeHierarchy(
         string departmentColumn = "Department",
@@ -170,7 +170,7 @@ internal sealed record AdvancedSortConfiguration
         };
 
     /// <summary>
-    /// Vytvorí customer priority sort configuration
+    /// Creates customer priority sort configuration (Tier > Value > Join Date).
     /// </summary>
     internal static AdvancedSortConfiguration CreateCustomerPriority(
         string tierColumn = "CustomerTier",
@@ -195,8 +195,8 @@ internal sealed record AdvancedSortConfiguration
 #region Statistics
 
 /// <summary>
-/// Sort execution statistics
-/// Performance monitoring a optimization metrics
+/// Sort execution statistics.
+/// Performance monitoring and optimization metrics.
 /// </summary>
 internal sealed record SortStatistics
 {

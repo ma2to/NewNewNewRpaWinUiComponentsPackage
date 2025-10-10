@@ -22,7 +22,7 @@ public interface IDataGridValidation
     /// <param name="onlyFiltered">Whether to validate only filtered rows</param>
     /// <param name="cancellationToken">Cancellation token for operation</param>
     /// <returns>Validation result with detailed rule statistics and performance metrics</returns>
-    Task<Api.Models.PublicValidationResultWithStatistics> ValidateAllWithStatisticsAsync(bool onlyFiltered = false, CancellationToken cancellationToken = default);
+    Task<PublicValidationResultWithStatistics> ValidateAllWithStatisticsAsync(bool onlyFiltered = false, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Checks if all non-empty rows are valid (quick check without detailed statistics).
