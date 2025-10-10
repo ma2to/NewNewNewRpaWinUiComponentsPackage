@@ -128,11 +128,11 @@ internal sealed class CellEditService : ICellEditService
             // Update the row in store
             await _rowStore.UpdateRowAsync(rowIndex, updatedRow, cancellationToken);
 
-            // Perform real-time validation for this cell (only if EnableRealTimeValidation = true)
+            // Perform real-time validation for this cell (only if ShouldRunAutomaticValidation returns true)
             ValidationResult validationResult;
             string? validationAlerts = null;
 
-            if (_options.EnableRealTimeValidation)
+            if (_validationService.ShouldRunAutomaticValidation("UpdateCellAsync"))
             {
                 _logger.LogDebug("Performing automatic real-time validation for row {RowIndex}, column {ColumnName}", rowIndex, columnName);
 
@@ -170,7 +170,8 @@ internal sealed class CellEditService : ICellEditService
             }
             else
             {
-                _logger.LogDebug("Real-time validation disabled, skipping validation for row {RowIndex}, column {ColumnName}", rowIndex, columnName);
+                _logger.LogDebug("Automatic real-time validation skipped for row {RowIndex}, column {ColumnName} " +
+                    "(ValidationAutomationMode or EnableRealTimeValidation is disabled)", rowIndex, columnName);
 
                 // Create a default success validation result when validation is disabled
                 validationResult = new ValidationResult

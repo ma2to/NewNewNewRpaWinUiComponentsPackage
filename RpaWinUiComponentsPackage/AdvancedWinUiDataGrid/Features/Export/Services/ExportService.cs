@@ -122,15 +122,16 @@ internal sealed class ExportService : IExportService
 
             _logger.LogInformation("Validation successful for operation {OperationId}", operationId);
 
-            // CRITICAL: Voláme AreAllNonEmptyRowsValidAsync pred exportom (iba if EnableBatchValidation = true)
-            if (_options.EnableBatchValidation)
+            // CRITICAL: Automatic pre-export validation (only if ShouldRunAutomaticValidation returns true)
+            // Note: In Automatic mode, validation should already be done. This is just a verification.
+            if (_validationService.ShouldRunAutomaticValidation("ExportAsync"))
             {
                 _logger.LogInformation("Starting automatic pre-export batch validation for operation {OperationId}", operationId);
 
                 var preExportValidation = await _validationService.AreAllNonEmptyRowsValidAsync(command.ExportOnlyFiltered, cancellationToken);
                 if (!preExportValidation.IsSuccess)
                 {
-                    // Pre-export validácia našla problémy - zalogujeme warning (nie je kritické, môžeme exportovať)
+                    // Pre-export validation found issues - log warning (not critical, we can still export)
                     _logger.LogWarning("Pre-export validation found issues for operation {OperationId}: {Error}",
                         operationId, preExportValidation.ErrorMessage);
                     scope.MarkWarning($"Pre-export validation found issues: {preExportValidation.ErrorMessage}");
@@ -142,7 +143,8 @@ internal sealed class ExportService : IExportService
             }
             else
             {
-                _logger.LogInformation("Batch validation disabled, skipping automatic pre-export validation for operation {OperationId}", operationId);
+                _logger.LogInformation("Automatic pre-export validation skipped for operation {OperationId} " +
+                    "(ValidationAutomationMode or EnableBatchValidation is disabled)", operationId);
             }
 
             // Získame filtrované dáta podľa export kritérií

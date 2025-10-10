@@ -118,6 +118,14 @@ internal interface IValidationService
     ValidationMode DetermineValidationMode(string operationName);
 
     /// <summary>
+    /// Determines if automatic validation should run for a specific operation
+    /// Implements ValidationAutomationMode logic
+    /// </summary>
+    /// <param name="operationName">Name of the operation</param>
+    /// <returns>True if automatic validation should run, false otherwise</returns>
+    bool ShouldRunAutomaticValidation(string operationName);
+
+    /// <summary>
     /// Gets validation alerts message for a specific row
     /// </summary>
     /// <param name="rowIndex">Row index</param>

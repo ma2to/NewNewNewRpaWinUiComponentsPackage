@@ -199,8 +199,8 @@ internal sealed class CopyPasteService : ICopyPasteService
 
             _logger.LogInformation("Data successfully pasted for operation {OperationId}", operationId);
 
-            // CRITICAL: Zavoláme AreAllNonEmptyRowsValidAsync po paste completion (iba if EnableBatchValidation = true)
-            if (command.ValidateAfterPaste && _options.EnableBatchValidation)
+            // CRITICAL: Automatic post-paste validation (only if ShouldRunAutomaticValidation returns true)
+            if (command.ValidateAfterPaste && _validationService.ShouldRunAutomaticValidation("PasteAsync"))
             {
                 _logger.LogInformation("Starting automatic post-paste batch validation for operation {OperationId}", operationId);
 
@@ -217,9 +217,11 @@ internal sealed class CopyPasteService : ICopyPasteService
                     _logger.LogInformation("Post-paste validation successful for operation {OperationId}", operationId);
                 }
             }
-            else if (!_options.EnableBatchValidation)
+            else
             {
-                _logger.LogInformation("Batch validation disabled, skipping automatic post-paste validation for operation {OperationId}", operationId);
+                _logger.LogInformation("Automatic post-paste validation skipped for operation {OperationId} " +
+                    "(ValidateAfterPaste={ValidateAfterPaste}, ValidationAutomationMode or EnableBatchValidation is disabled)",
+                    operationId, command.ValidateAfterPaste);
             }
 
             var dataSize = pasteData.Sum(row => row.Values.Sum(v => v?.ToString()?.Length ?? 0));

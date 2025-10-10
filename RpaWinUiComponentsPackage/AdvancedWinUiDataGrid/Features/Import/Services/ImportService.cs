@@ -110,12 +110,12 @@ internal sealed class ImportService : IImportService
 
             _logger.LogInformation("Data successfully stored for operation {OperationId}", operationId);
 
-            // CRITICAL: Voláme AreAllNonEmptyRowsValidAsync po dokončení importu (iba if EnableBatchValidation = true)
+            // CRITICAL: Automatic post-import validation (only if ShouldRunAutomaticValidation returns true)
             bool validationPassed = true;
             int validRows = processedRows.Count;
             int errorCount = 0;
 
-            if (_options.EnableBatchValidation)
+            if (_validationService.ShouldRunAutomaticValidation("ImportAsync"))
             {
                 _logger.LogInformation("Starting automatic post-import batch validation for operation {OperationId}", operationId);
                 _importLogger.LogValidationStart(operationId, 0);
@@ -143,7 +143,8 @@ internal sealed class ImportService : IImportService
             }
             else
             {
-                _logger.LogInformation("Batch validation disabled, skipping automatic post-import validation for operation {OperationId}", operationId);
+                _logger.LogInformation("Automatic post-import validation skipped for operation {OperationId} " +
+                    "(ValidationAutomationMode or EnableBatchValidation is disabled)", operationId);
             }
 
             // Log import metrics

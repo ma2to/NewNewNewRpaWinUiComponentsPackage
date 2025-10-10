@@ -807,6 +807,76 @@ internal sealed class ValidationService : IValidationService
     }
 
     /// <summary>
+    /// Determines if automatic validation should run for a specific operation
+    /// CRITICAL: Implements ValidationAutomationMode logic
+    /// Returns true only if:
+    /// 1. Validation feature is enabled
+    /// 2. ValidationAutomationMode is Automatic
+    /// 3. Operation-specific flag is enabled (EnableBatchValidation or EnableRealTimeValidation)
+    /// 4. There are validation rules configured
+    /// </summary>
+    public bool ShouldRunAutomaticValidation(string operationName)
+    {
+        // Feature disabled - never validate
+        if (!_options.IsFeatureEnabled(GridFeature.Validation))
+        {
+            _logger.LogDebug("Validation feature is disabled, skipping automatic validation for operation {Operation}", operationName);
+            return false;
+        }
+
+        // No rules configured - skip validation
+        if (_validationRules.Count == 0)
+        {
+            _logger.LogDebug("No validation rules configured, skipping automatic validation for operation {Operation}", operationName);
+            return false;
+        }
+
+        // Manual mode - never run automatically
+        if (_options.ValidationAutomationMode == ValidationAutomationMode.Manual)
+        {
+            _logger.LogDebug("ValidationAutomationMode is Manual, skipping automatic validation for operation {Operation}", operationName);
+            return false;
+        }
+
+        // Automatic mode - check operation-specific flags
+        var shouldRun = operationName switch
+        {
+            // Batch operations - check EnableBatchValidation
+            "ImportAsync" => _options.EnableBatchValidation,
+            "PasteAsync" => _options.EnableBatchValidation,
+            "SmartAddRowsAsync" => _options.EnableBatchValidation,
+            "SmartDeleteRowsAsync" => _options.EnableBatchValidation,
+
+            // Real-time operations - check EnableRealTimeValidation
+            "UpdateCellAsync" => _options.EnableRealTimeValidation,
+            "UpdateRowAsync" => _options.EnableRealTimeValidation,
+            "BeginEditAsync" => _options.EnableRealTimeValidation,
+            "CommitEditAsync" => _options.EnableRealTimeValidation,
+
+            // Export - check EnableBatchValidation (pre-export validation)
+            "ExportAsync" => _options.EnableBatchValidation,
+
+            // Unknown operation - default to false for safety
+            _ => false
+        };
+
+        if (shouldRun)
+        {
+            _logger.LogDebug("Automatic validation ENABLED for operation {Operation} " +
+                "(AutomationMode={Mode}, BatchEnabled={Batch}, RealTimeEnabled={RealTime})",
+                operationName, _options.ValidationAutomationMode, _options.EnableBatchValidation, _options.EnableRealTimeValidation);
+        }
+        else
+        {
+            _logger.LogDebug("Automatic validation DISABLED for operation {Operation} " +
+                "(AutomationMode={Mode}, BatchEnabled={Batch}, RealTimeEnabled={RealTime})",
+                operationName, _options.ValidationAutomationMode, _options.EnableBatchValidation, _options.EnableRealTimeValidation);
+        }
+
+        return shouldRun;
+    }
+
+    /// <summary>
     /// Gets validation alerts message for a specific row
     /// Format: "Error: msg1; Warning: msg2"
     /// </summary>

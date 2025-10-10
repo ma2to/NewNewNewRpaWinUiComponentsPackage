@@ -49,8 +49,17 @@ public class AdvancedDataGridOptions
     /// Gets or sets whether real-time validation is enabled during cell editing
     /// When true: validation happens automatically during cell editing
     /// When false: real-time validation is disabled
+    /// Note: This setting is only effective when ValidationAutomationMode = Automatic
     /// </summary>
     public bool EnableRealTimeValidation { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets the validation automation mode
+    /// Automatic (default): Validates automatically on import/paste/edit/row changes
+    /// Manual: Validates only via explicit ValidateAllAsync() or similar calls
+    /// Note: When set to Manual, EnableBatchValidation and EnableRealTimeValidation are ignored
+    /// </summary>
+    public ValidationAutomationMode ValidationAutomationMode { get; set; } = ValidationAutomationMode.Automatic;
 
     /// <summary>
     /// Gets or sets the validation strategy
@@ -295,6 +304,7 @@ public class AdvancedDataGridOptions
             ValidationAlertsColumnMinWidth = this.ValidationAlertsColumnMinWidth,
             EnableBatchValidation = this.EnableBatchValidation,
             EnableRealTimeValidation = this.EnableRealTimeValidation,
+            ValidationAutomationMode = this.ValidationAutomationMode,
             ValidationStrategy = this.ValidationStrategy,
             EnabledFeatures = new HashSet<GridFeature>(this.EnabledFeatures),
             DefaultOperationTimeout = this.DefaultOperationTimeout,

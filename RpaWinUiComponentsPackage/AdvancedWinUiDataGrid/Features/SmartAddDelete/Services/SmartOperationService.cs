@@ -10,6 +10,7 @@ using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.SmartAddDelete.Commands;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.SmartAddDelete.Interfaces;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Validation.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.NullPattern;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Persistence.Interfaces;
@@ -19,21 +20,25 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.SmartAddDelet
 /// <summary>
 /// Internal implementation of smart row add/delete operations
 /// Thread-safe with logging support and minimum rows enforcement
+/// CRITICAL: Validates automatically after add/delete operations if enabled
 /// </summary>
 internal sealed class SmartOperationService : ISmartOperationService
 {
     private readonly ILogger<SmartOperationService> _logger;
     private readonly IOperationLogger<SmartOperationService> _operationLogger;
     private readonly IRowStore _rowStore;
+    private readonly IValidationService _validationService;
     private RowManagementStatistics _statistics = new();
 
     public SmartOperationService(
         ILogger<SmartOperationService> logger,
         IRowStore rowStore,
+        IValidationService validationService,
         IOperationLogger<SmartOperationService>? operationLogger = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _rowStore = rowStore ?? throw new ArgumentNullException(nameof(rowStore));
+        _validationService = validationService ?? throw new ArgumentNullException(nameof(validationService));
         _operationLogger = operationLogger ?? NullOperationLogger<SmartOperationService>.Instance;
     }
 
@@ -102,6 +107,29 @@ internal sealed class SmartOperationService : ISmartOperationService
 
             _logger.LogInformation("Smart add rows operation {OperationId} completed in {Duration}ms: added {DataRows} data rows + {EmptyRows} empty rows = {FinalCount} total",
                 operationId, stopwatch.ElapsedMilliseconds, totalDataRows, emptyRowsToAdd, finalRowCount);
+
+            // CRITICAL: Automatic post-operation validation (only if ShouldRunAutomaticValidation returns true)
+            if (_validationService.ShouldRunAutomaticValidation("SmartAddRowsAsync"))
+            {
+                _logger.LogInformation("Starting automatic post-SmartAdd batch validation for operation {OperationId}", operationId);
+
+                var postAddValidation = await _validationService.AreAllNonEmptyRowsValidAsync(false, cancellationToken);
+                if (!postAddValidation.IsSuccess)
+                {
+                    _logger.LogWarning("Post-SmartAdd validation found issues for operation {OperationId}: {Error}",
+                        operationId, postAddValidation.ErrorMessage);
+                    scope.MarkWarning($"Post-SmartAdd validation found issues: {postAddValidation.ErrorMessage}");
+                }
+                else
+                {
+                    _logger.LogInformation("Post-SmartAdd validation successful for operation {OperationId}", operationId);
+                }
+            }
+            else
+            {
+                _logger.LogInformation("Automatic post-SmartAdd validation skipped for operation {OperationId} " +
+                    "(ValidationAutomationMode or EnableBatchValidation is disabled)", operationId);
+            }
 
             scope.MarkSuccess(new { Duration = stopwatch.Elapsed, FinalRowCount = finalRowCount });
 
@@ -216,6 +244,29 @@ internal sealed class SmartOperationService : ISmartOperationService
 
             _logger.LogInformation("Smart delete rows operation {OperationId} completed in {Duration}ms: physicallyDeleted={Physical}, contentCleared={Cleared}, shifted={Shifted}, finalCount={FinalCount}",
                 operationId, stopwatch.ElapsedMilliseconds, rowsPhysicallyDeleted, rowsContentCleared, rowsShifted, finalRowCount);
+
+            // CRITICAL: Automatic post-operation validation (only if ShouldRunAutomaticValidation returns true)
+            if (_validationService.ShouldRunAutomaticValidation("SmartDeleteRowsAsync"))
+            {
+                _logger.LogInformation("Starting automatic post-SmartDelete batch validation for operation {OperationId}", operationId);
+
+                var postDeleteValidation = await _validationService.AreAllNonEmptyRowsValidAsync(false, cancellationToken);
+                if (!postDeleteValidation.IsSuccess)
+                {
+                    _logger.LogWarning("Post-SmartDelete validation found issues for operation {OperationId}: {Error}",
+                        operationId, postDeleteValidation.ErrorMessage);
+                    scope.MarkWarning($"Post-SmartDelete validation found issues: {postDeleteValidation.ErrorMessage}");
+                }
+                else
+                {
+                    _logger.LogInformation("Post-SmartDelete validation successful for operation {OperationId}", operationId);
+                }
+            }
+            else
+            {
+                _logger.LogInformation("Automatic post-SmartDelete validation skipped for operation {OperationId} " +
+                    "(ValidationAutomationMode or EnableBatchValidation is disabled)", operationId);
+            }
 
             scope.MarkSuccess(new { Duration = stopwatch.Elapsed, FinalRowCount = finalRowCount });
 
