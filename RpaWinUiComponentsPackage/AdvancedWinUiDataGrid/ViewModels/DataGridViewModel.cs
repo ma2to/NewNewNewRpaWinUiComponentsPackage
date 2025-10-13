@@ -255,6 +255,7 @@ public sealed class DataGridViewModel : ViewModelBase
     /// <summary>
     /// Creates Grid ColumnDefinitions from current ColumnHeaders
     /// This should be called by UI controls to synchronize their Grid layouts
+    /// ValidationAlerts column uses Star sizing to fill remaining space
     /// </summary>
     /// <returns>List of ColumnDefinition with widths from ColumnHeaders</returns>
     public List<ColumnDefinition> CreateColumnDefinitions()
@@ -262,10 +263,22 @@ public sealed class DataGridViewModel : ViewModelBase
         var definitions = new List<ColumnDefinition>();
         foreach (var header in ColumnHeaders)
         {
-            definitions.Add(new ColumnDefinition
+            // ValidationAlerts stĺpec má vyplniť medzeru medzi dátovými stĺpcami a delete stĺpcom
+            if (header.SpecialType == SpecialColumnType.ValidationAlerts)
             {
-                Width = new GridLength(header.Width, GridUnitType.Pixel)
-            });
+                definitions.Add(new ColumnDefinition
+                {
+                    Width = new GridLength(1, GridUnitType.Star), // Vyplní zostávajúci priestor
+                    MinWidth = header.Width // Minimálna šírka z nastavení
+                });
+            }
+            else
+            {
+                definitions.Add(new ColumnDefinition
+                {
+                    Width = new GridLength(header.Width, GridUnitType.Pixel)
+                });
+            }
         }
         return definitions;
     }

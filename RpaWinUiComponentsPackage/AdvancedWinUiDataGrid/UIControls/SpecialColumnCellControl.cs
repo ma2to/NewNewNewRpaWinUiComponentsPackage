@@ -91,7 +91,8 @@ internal sealed class SpecialColumnCellControl : UserControl
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
             MinWidth = 0,
-            Padding = new Thickness(0)
+            Padding = new Thickness(0),
+            Visibility = Visibility.Visible // Vždy viditeľný, aj keď nie je checked
         };
 
         // Event: checkbox checked/unchecked

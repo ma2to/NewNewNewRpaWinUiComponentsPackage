@@ -42,6 +42,7 @@ public sealed partial class AdvancedDataGridFacade : IAdvancedDataGridFacade
     private readonly AutoRowHeight.IDataGridAutoRowHeight _autoRowHeight;
     private readonly Shortcuts.IDataGridShortcuts _shortcuts;
     private readonly MVVM.IDataGridMVVM _mvvm;
+    private readonly SmartOperations.IDataGridSmartOperations _smartOperations;
 
     #region Feature Module Properties
 
@@ -135,6 +136,11 @@ public sealed partial class AdvancedDataGridFacade : IAdvancedDataGridFacade
     /// </summary>
     public MVVM.IDataGridMVVM MVVM => _mvvm;
 
+    /// <summary>
+    /// Smart row management operations (add/delete with minimum rows)
+    /// </summary>
+    public SmartOperations.IDataGridSmartOperations SmartOperations => _smartOperations;
+
     #endregion
 
     /// <summary>
@@ -182,6 +188,7 @@ public sealed partial class AdvancedDataGridFacade : IAdvancedDataGridFacade
         _autoRowHeight = serviceProvider.GetRequiredService<AutoRowHeight.IDataGridAutoRowHeight>();
         _shortcuts = serviceProvider.GetRequiredService<Shortcuts.IDataGridShortcuts>();
         _mvvm = serviceProvider.GetRequiredService<MVVM.IDataGridMVVM>();
+        _smartOperations = serviceProvider.GetRequiredService<SmartOperations.IDataGridSmartOperations>();
 
         _logger.LogInformation("AdvancedDataGrid facade initialized with operation mode {OperationMode}", _options.OperationMode);
     }

@@ -93,6 +93,7 @@ internal static class ServiceRegistration
         services.AddScoped<AutoRowHeight.IDataGridAutoRowHeight, AutoRowHeight.DataGridAutoRowHeight>();
         services.AddScoped<Shortcuts.IDataGridShortcuts, Shortcuts.DataGridShortcuts>();
         services.AddScoped<MVVM.IDataGridMVVM, MVVM.DataGridMVVM>();
+        services.AddScoped<SmartOperations.IDataGridSmartOperations, SmartOperations.DataGridSmartOperations>();
 
         return services;
     }

@@ -21,6 +21,7 @@ public sealed partial class MainWindow : Window
     private bool _isInitialized = false;
     private readonly System.Text.StringBuilder _logOutput = new();
     private IDisposable? _dataRefreshSubscription;
+    private bool _isAddingEmptyRow = false; // Prevent recursive empty row addition
 
     public MainWindow()
     {
@@ -394,7 +395,8 @@ public sealed partial class MainWindow : Window
 
     /// <summary>
     /// Handles delete row requests from the delete button special column.
-    /// Removes the row via the Rows module.
+    /// Uses SmartOperations from facade - no custom logic needed!
+    /// SmartDelete automatically handles: clear vs remove, minimum rows, empty row at end.
     /// </summary>
     private async void OnDeleteRowRequested(object? sender, int rowIndex)
     {
@@ -407,26 +409,38 @@ public sealed partial class MainWindow : Window
         try
         {
             AddLogMessage("");
-            AddLogMessage($"=== DELETE ROW REQUEST ===");
+            AddLogMessage($"=== SMART DELETE REQUEST ===");
             AddLogMessage($"Row index: {rowIndex}");
 
-            // Remove row via facade Rows module
-            var result = await _gridFacade.Rows.RemoveRowAsync(rowIndex);
+            // Use SmartOperations from facade - it handles everything!
+            var config = PublicSmartOperationsConfig.Create(
+                minimumRows: 1,
+                enableSmartDelete: true,
+                enableAutoExpand: true,
+                alwaysKeepLastEmpty: true
+            );
+
+            var result = await _gridFacade.SmartOperations.SmartDeleteRowAsync(rowIndex, config);
 
             if (result.IsSuccess)
             {
-                AddLogMessage($"✓ Row deleted successfully!");
-                AddLogMessage($"  {result.Message}");
+                AddLogMessage($"✓ Smart delete successful!");
+                AddLogMessage($"  Final rows: {result.FinalRowCount}");
+                AddLogMessage($"  Physically deleted: {result.Statistics.RowsPhysicallyDeleted}");
+                AddLogMessage($"  Content cleared: {result.Statistics.RowsContentCleared}");
+                AddLogMessage($"  Empty rows created: {result.Statistics.EmptyRowsCreated}");
+                AddLogMessage($"  Minimum enforced: {result.Statistics.MinimumRowsEnforced}");
+                AddLogMessage($"  Duration: {result.OperationTime.TotalMilliseconds:F0}ms");
                 AddLogMessage("⏳ Waiting for automatic UI refresh...");
             }
             else
             {
-                AddLogMessage($"✗ Delete failed: {result.Message}");
+                AddLogMessage($"✗ Smart delete failed: {result.ErrorMessage}");
             }
         }
         catch (Exception ex)
         {
-            AddLogMessage($"✗ Exception during delete: {ex.Message}");
+            AddLogMessage($"✗ Exception during smart delete: {ex.Message}");
             AddLogMessage($"  Stack: {ex.StackTrace}");
         }
     }
@@ -527,6 +541,54 @@ public sealed partial class MainWindow : Window
     #endregion
 
     #region Helper Methods
+
+    /// <summary>
+    /// Ensures there is always an empty row at the end of the grid.
+    /// If the last row contains data, adds a new empty row.
+    /// </summary>
+    private async Task EnsureEmptyRowAtEnd(List<string> columnNames)
+    {
+        if (_gridFacade == null || _isAddingEmptyRow) return;
+
+        try
+        {
+            _isAddingEmptyRow = true; // Prevent recursive calls
+
+            var allRows = _gridFacade.Rows.GetAllRows();
+            if (allRows.Count == 0)
+            {
+                // No rows - add empty row
+                var emptyRow = new Dictionary<string, object?>();
+                foreach (var col in columnNames)
+                {
+                    emptyRow[col] = null;
+                }
+                await _gridFacade.Rows.AddRowAsync(emptyRow);
+                AddLogMessage("📝 Added initial empty row");
+                return;
+            }
+
+            // Check if last row is empty
+            var lastRow = allRows[allRows.Count - 1];
+            bool lastRowIsEmpty = lastRow.Values.All(v => v == null || string.IsNullOrWhiteSpace(v?.ToString()));
+
+            if (!lastRowIsEmpty)
+            {
+                // Last row has data - add new empty row
+                var emptyRow = new Dictionary<string, object?>();
+                foreach (var col in columnNames)
+                {
+                    emptyRow[col] = null;
+                }
+                await _gridFacade.Rows.AddRowAsync(emptyRow);
+                AddLogMessage("📝 Auto-added empty row at end");
+            }
+        }
+        finally
+        {
+            _isAddingEmptyRow = false;
+        }
+    }
 
     private List<Dictionary<string, object?>> GenerateTestData(int rowCount, int columnCount)
     {

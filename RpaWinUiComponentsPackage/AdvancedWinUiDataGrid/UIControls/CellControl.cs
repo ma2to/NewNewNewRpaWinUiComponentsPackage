@@ -64,7 +64,7 @@ public sealed class CellControl : UserControl
         _rootBorder = new Border
         {
             BorderThickness = new Thickness(1),
-            Padding = new Thickness(1),
+            Padding = new Thickness(1), // 1px padding
             HorizontalAlignment = HorizontalAlignment.Stretch
         };
 
@@ -159,6 +159,10 @@ public sealed class CellControl : UserControl
         _rootBorder.DoubleTapped += OnCellDoubleTapped;
         _rootBorder.PointerEntered += OnPointerEntered;
 
+        // Enable keyboard navigation (Tab/Shift+Tab)
+        _rootBorder.IsTabStop = true;
+        _rootBorder.KeyDown += OnCellKeyDown;
+
         // Set Border as UserControl content
         Content = _rootBorder;
     }
@@ -186,6 +190,17 @@ public sealed class CellControl : UserControl
         CellPointerEntered?.Invoke(this, ViewModel);
     }
 
+    private void OnCellKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        // Tab/Shift+Tab navigation support - allow focus to move naturally
+        if (e.Key == Windows.System.VirtualKey.Tab)
+        {
+            // Don't handle Tab - let WinUI move focus naturally through IsTabStop controls
+            // This allows Tab to work for both normal and special columns
+            return;
+        }
+    }
+
     private void OnCellDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
         // Double tap - enter edit mode
@@ -202,13 +217,16 @@ public sealed class CellControl : UserControl
 
     private void OnEditTextBoxLostFocus(object sender, RoutedEventArgs e)
     {
-        // Exit edit mode when focus lost - this commits the changes
-        // The TwoWay binding has already updated ViewModel.Value during typing
+        // Exit edit mode when focus lost - CANCEL changes (restore original value)
         if (ViewModel.IsEditing)
         {
+            // Restore original value on focus lost (prepnutie do inej bunky = CANCEL)
+            if (_originalValue != null || ViewModel.Value != null)
+            {
+                ViewModel.Value = _originalValue;
+            }
             ViewModel.IsEditing = false;
-            CellEditCompleted?.Invoke(this, ViewModel);
-            _originalValue = null; // Clear stored value after commit
+            _originalValue = null; // Clear stored value
         }
     }
 
