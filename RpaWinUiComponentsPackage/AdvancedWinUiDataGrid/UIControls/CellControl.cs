@@ -155,7 +155,7 @@ public sealed class CellControl : UserControl
         _rootBorder.Child = _rootGrid;
 
         // Event handlers for interaction
-        _rootBorder.Tapped += OnCellTapped;
+        _rootBorder.PointerPressed += OnCellPointerPressed;
         _rootBorder.DoubleTapped += OnCellDoubleTapped;
         _rootBorder.PointerEntered += OnPointerEntered;
 
@@ -163,7 +163,7 @@ public sealed class CellControl : UserControl
         Content = _rootBorder;
     }
 
-    private void OnCellTapped(object sender, TappedRoutedEventArgs e)
+    private void OnCellPointerPressed(object sender, PointerRoutedEventArgs e)
     {
         // Check if Ctrl key is pressed
         var isCtrlPressed = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
@@ -175,6 +175,9 @@ public sealed class CellControl : UserControl
             Cell = ViewModel,
             IsCtrlPressed = isCtrlPressed
         });
+
+        // Mark event as handled to prevent bubbling to ScrollViewer
+        e.Handled = true;
     }
 
     private void OnPointerEntered(object sender, PointerRoutedEventArgs e)

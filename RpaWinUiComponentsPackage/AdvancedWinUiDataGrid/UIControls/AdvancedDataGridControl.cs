@@ -21,6 +21,18 @@ public sealed class AdvancedDataGridControl : UserControl
     /// </summary>
     public DataGridViewModel ViewModel { get; }
 
+    /// <summary>
+    /// Event fired when the user requests to delete a row via the delete button in special column.
+    /// The application should handle this event and call the facade's SmartDelete functionality.
+    /// </summary>
+    public event EventHandler<int>? DeleteRowRequested;
+
+    /// <summary>
+    /// Event fired when the user changes row selection via the checkbox special column.
+    /// The application can handle this event to track which rows are selected.
+    /// </summary>
+    public event EventHandler<(int rowIndex, bool isSelected)>? RowSelectionChanged;
+
     private SearchPanelView? _searchPanelView;
     private FilterRowView? _filterRowView;
     private HeadersRowView? _headersRowView;
@@ -151,9 +163,29 @@ public sealed class AdvancedDataGridControl : UserControl
 
         // Create and wire up DataGridCellsView - the main scrollable data area
         _dataCellsView = new DataGridCellsView(ViewModel);
+        _dataCellsView.DeleteRowRequested += OnDeleteRowRequestedInternal;
+        _dataCellsView.RowSelectionChanged += OnRowSelectionChangedInternal;
         _dataCellsContainer.Child = _dataCellsView;
 
         _logger?.LogInformation("Sub-views initialized successfully");
+    }
+
+    /// <summary>
+    /// Internal handler that forwards delete row requests from DataGridCellsView to public event.
+    /// </summary>
+    private void OnDeleteRowRequestedInternal(object? sender, int rowIndex)
+    {
+        _logger?.LogInformation("Delete row requested for row index {RowIndex}", rowIndex);
+        DeleteRowRequested?.Invoke(this, rowIndex);
+    }
+
+    /// <summary>
+    /// Internal handler that forwards row selection changes from DataGridCellsView to public event.
+    /// </summary>
+    private void OnRowSelectionChangedInternal(object? sender, (int rowIndex, bool isSelected) e)
+    {
+        _logger?.LogInformation("Row selection changed: row {RowIndex} -> {IsSelected}", e.rowIndex, e.isSelected);
+        RowSelectionChanged?.Invoke(this, e);
     }
 
     /// <summary>

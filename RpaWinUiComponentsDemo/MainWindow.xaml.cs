@@ -70,6 +70,10 @@ public sealed partial class MainWindow : Window
             // Create UI control
             _gridControl = new AdvancedDataGridControl(loggerFactory.CreateLogger<AdvancedDataGridControl>());
 
+            // Wire up special column events
+            _gridControl.DeleteRowRequested += OnDeleteRowRequested;
+            _gridControl.RowSelectionChanged += OnRowSelectionChanged;
+
             // Add UI control to container
             GridContainer.Child = _gridControl;
 
@@ -382,6 +386,70 @@ public sealed partial class MainWindow : Window
     private void PasteDataButton_Click(object sender, RoutedEventArgs e)
     {
         AddLogMessage("Paste data not implemented in this demo");
+    }
+
+    #endregion
+
+    #region Special Column Event Handlers
+
+    /// <summary>
+    /// Handles delete row requests from the delete button special column.
+    /// Removes the row via the Rows module.
+    /// </summary>
+    private async void OnDeleteRowRequested(object? sender, int rowIndex)
+    {
+        if (!_isInitialized || _gridFacade == null || _gridControl == null)
+        {
+            AddLogMessage("⚠ Grid not initialized!");
+            return;
+        }
+
+        try
+        {
+            AddLogMessage("");
+            AddLogMessage($"=== DELETE ROW REQUEST ===");
+            AddLogMessage($"Row index: {rowIndex}");
+
+            // Remove row via facade Rows module
+            var result = await _gridFacade.Rows.RemoveRowAsync(rowIndex);
+
+            if (result.IsSuccess)
+            {
+                AddLogMessage($"✓ Row deleted successfully!");
+                AddLogMessage($"  {result.Message}");
+                AddLogMessage("⏳ Waiting for automatic UI refresh...");
+            }
+            else
+            {
+                AddLogMessage($"✗ Delete failed: {result.Message}");
+            }
+        }
+        catch (Exception ex)
+        {
+            AddLogMessage($"✗ Exception during delete: {ex.Message}");
+            AddLogMessage($"  Stack: {ex.StackTrace}");
+        }
+    }
+
+    /// <summary>
+    /// Handles row selection changes from the checkbox special column.
+    /// Logs selection state for tracking purposes.
+    /// </summary>
+    private void OnRowSelectionChanged(object? sender, (int rowIndex, bool isSelected) e)
+    {
+        if (!_isInitialized || _gridFacade == null || _gridControl == null)
+        {
+            return;
+        }
+
+        try
+        {
+            AddLogMessage($"Row {e.rowIndex} selection changed: {(e.isSelected ? "✓ Selected" : "○ Deselected")}");
+        }
+        catch (Exception ex)
+        {
+            AddLogMessage($"✗ Exception during selection change: {ex.Message}");
+        }
     }
 
     #endregion

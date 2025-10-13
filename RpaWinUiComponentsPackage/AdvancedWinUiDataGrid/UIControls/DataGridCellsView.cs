@@ -22,6 +22,16 @@ public sealed class DataGridCellsView : UserControl
     private bool _isMouseDown; // Tracks whether mouse is pressed for drag selection
 
     /// <summary>
+    /// Event fired when user requests to delete a row via delete button.
+    /// </summary>
+    public event EventHandler<int>? DeleteRowRequested;
+
+    /// <summary>
+    /// Event fired when user changes row selection via checkbox.
+    /// </summary>
+    public event EventHandler<(int rowIndex, bool isSelected)>? RowSelectionChanged;
+
+    /// <summary>
     /// Creates a new data grid cells view bound to the specified view model.
     /// Automatically subscribes to row collection changes and column definition changes.
     /// </summary>
@@ -190,8 +200,8 @@ public sealed class DataGridCellsView : UserControl
     /// </summary>
     private void HandleRowSelectionChanged(int rowIndex, bool isSelected)
     {
-        // TODO: Notify facade about selection change
-        // This will be implemented when connecting to SmartAddDelete operations
+        // Fire event to notify parent control (AdvancedDataGridControl)
+        RowSelectionChanged?.Invoke(this, (rowIndex, isSelected));
     }
 
     /// <summary>
@@ -199,8 +209,8 @@ public sealed class DataGridCellsView : UserControl
     /// </summary>
     private void HandleDeleteRowRequested(int rowIndex)
     {
-        // TODO: Trigger SmartDelete via facade
-        // This will be implemented when connecting to SmartAddDelete operations
+        // Fire event to notify parent control (AdvancedDataGridControl)
+        DeleteRowRequested?.Invoke(this, rowIndex);
     }
 
     private void OnCellsCollectionChanged(Grid rowGrid, ObservableCollection<CellViewModel> cells, NotifyCollectionChangedEventArgs e)
