@@ -32,7 +32,9 @@
       "Bash(echo \"Processed: $file\")",
       "Bash(while read file)",
       "Bash(do if ! grep -q \"ILogger\\|_logger\" \"$file\")",
-      "Bash(then echo \"$file\")"
+      "Bash(then echo \"$file\")",
+      "Bash(dotnet test:*)",
+      "Read(//c/Users/patro/**)"
     ],
     "deny": [],
     "ask": []

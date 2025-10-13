@@ -67,4 +67,38 @@ public interface IDataGridNotifications
     /// Clears all event subscriptions.
     /// </summary>
     void ClearAllSubscriptions();
+
+    /// <summary>
+    /// Subscribes to validation refresh notifications (IDisposable pattern).
+    /// Returns a disposable that unsubscribes when disposed.
+    /// </summary>
+    /// <param name="handler">Action handler for validation refresh events</param>
+    /// <returns>Disposable subscription</returns>
+    IDisposable SubscribeToValidationRefresh(Action<PublicValidationRefreshEventArgs> handler);
+
+    /// <summary>
+    /// Subscribes to data refresh notifications (IDisposable pattern).
+    /// Returns a disposable that unsubscribes when disposed.
+    /// </summary>
+    /// <param name="handler">Action handler for data refresh events</param>
+    /// <returns>Disposable subscription</returns>
+    IDisposable SubscribeToDataRefresh(Action<PublicDataRefreshEventArgs> handler);
+
+    /// <summary>
+    /// Subscribes to operation progress notifications (IDisposable pattern).
+    /// Returns a disposable that unsubscribes when disposed.
+    /// </summary>
+    /// <param name="handler">Action handler for operation progress events</param>
+    /// <returns>Disposable subscription</returns>
+    IDisposable SubscribeToOperationProgress(Action<PublicOperationProgressEventArgs> handler);
+
+    /// <summary>
+    /// Manually refreshes UI after operations.
+    /// Available in both Interactive and Headless modes (if DispatcherQueue is provided).
+    /// - Interactive mode: Automatic UI refresh after operations + manual via this method
+    /// - Headless mode: NO automatic refresh, ONLY manual via this method
+    /// </summary>
+    /// <param name="operationType">Type of operation that triggered the refresh</param>
+    /// <param name="affectedRows">Number of affected rows</param>
+    Task RefreshUIAsync(string operationType = "ManualRefresh", int affectedRows = 0);
 }

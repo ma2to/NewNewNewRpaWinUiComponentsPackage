@@ -1,879 +1,458 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using System.Data;
-using System.Collections.Generic;
-using System.Threading.Tasks;
 using System;
+using System.Collections.Generic;
 using System.Linq;
-using System.IO;
-using System.Text;
+using System.Threading.Tasks;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
-using RpaWinUiComponentsPackage.AdvancedWinUiLogger;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIControls;
 
 namespace RpaWinUiComponents.Demo;
 
 /// <summary>
-/// 🎯 KOMPLEXNÁ DEMO APLIKÁCIA PRE TESTOVANIE AdvancedWinUiDataGrid
-///
-/// Funkcie:
-/// - Inicializácia tabuľky s vlastnými stĺpcami
-/// - Definícia a aplikácia validácií
-/// - Import/Export dát (Dictionary, DataTable, CSV)
-/// - Filter, Search, Sort
-/// - Column resize (drag & drop)
-/// - Cell selection
-/// - Profesionálne logovanie do súboru
+/// Simple demo application for testing AdvancedWinUiDataGrid
+/// Updated to use current public API (2025) with UI component
 /// </summary>
 public sealed partial class MainWindow : Window
 {
-    #region Private Fields
-
-    private readonly ILogger<MainWindow> _baseLogger;
-    private readonly ILogger _fileLogger;
+    private IAdvancedDataGridFacade? _gridFacade;
+    private AdvancedDataGridControl? _gridControl;
+    private bool _isInitialized = false;
     private readonly System.Text.StringBuilder _logOutput = new();
-    private IAdvancedDataGridFacade? _dataGridFacade;
-    private bool _isGridInitialized = false;
-    private string _logDirectory;
-
-    #endregion
-
-    #region Constructor and Initialization
+    private IDisposable? _dataRefreshSubscription;
 
     public MainWindow()
     {
         this.InitializeComponent();
-
-        // STEP 1: Setup loggers
-        _baseLogger = App.LoggerFactory?.CreateLogger<MainWindow>() ??
-                     Microsoft.Extensions.Logging.Abstractions.NullLogger<MainWindow>.Instance;
-
-        // STEP 2: Create file logger with rotation (10MB)
-        _logDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "DataGridDemo_Logs");
-        Directory.CreateDirectory(_logDirectory);
-
-        string baseFileName = "AdvancedDataGridDemo";
-        int maxFileSizeMB = 10;
-
-        _fileLogger = LoggerAPI.CreateFileLogger(
-            externalLogger: _baseLogger,
-            logDirectory: _logDirectory,
-            baseFileName: baseFileName,
-            maxFileSizeMB: maxFileSizeMB);
-
-        _fileLogger.LogInformation("=== DEMO APPLICATION STARTED ===");
-        _fileLogger.LogInformation("Log directory: {LogDirectory}", _logDirectory);
-
-        AddLogMessage("🚀 Demo aplikácia spustená");
-        AddLogMessage($"📂 Logy ukladané do: {_logDirectory}");
-        AddLogMessage("💡 Stlač 'Inicializovať Tabuľku' pre začatie");
+        AddLogMessage("=== Demo Application Started ===");
+        AddLogMessage("Click 'Initialize Grid' to begin");
     }
 
-    #endregion
-
-    #region Event Handlers - Initialization
+    #region Initialization
 
     private async void InitButton_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            AddLogMessage("═══════════════════════════════════════════════════");
-            AddLogMessage("🔧 KROK 1: INICIALIZÁCIA TABUĽKY");
-            AddLogMessage("═══════════════════════════════════════════════════");
+            AddLogMessage("");
+            AddLogMessage("=== INITIALIZING GRID ===");
 
-            _fileLogger.LogInformation("=== INITIALIZATION STARTED ===");
-
-            // STEP 1: Define columns
-            AddLogMessage("📋 Definujem stĺpce tabuľky...");
-            var columns = new List<DataGridColumn>
+            // Create logger factory
+            var loggerFactory = LoggerFactory.Create(builder =>
             {
-                new DataGridColumn
-                {
-                    Name = "ID",
-                    Header = "ID",
-                    DataType = typeof(int),
-                    ColumnType = DataGridColumnType.Numeric,
-                    IsReadOnly = true,
-                    Width = 80
-                },
-                new DataGridColumn
-                {
-                    Name = "Meno",
-                    Header = "Meno",
-                    DataType = typeof(string),
-                    ColumnType = DataGridColumnType.Required,
-                    Width = 150,
-                    MaxLength = 50
-                },
-                new DataGridColumn
-                {
-                    Name = "Email",
-                    Header = "Email",
-                    DataType = typeof(string),
-                    ColumnType = DataGridColumnType.Text,
-                    Width = 200,
-                    MaxLength = 100
-                },
-                new DataGridColumn
-                {
-                    Name = "Vek",
-                    Header = "Vek",
-                    DataType = typeof(int),
-                    ColumnType = DataGridColumnType.Numeric,
-                    Width = 80
-                },
-                new DataGridColumn
-                {
-                    Name = "Plat",
-                    Header = "Plat (€)",
-                    DataType = typeof(decimal),
-                    ColumnType = DataGridColumnType.Numeric,
-                    Width = 120
-                },
-                new DataGridColumn
-                {
-                    Name = "Aktívny",
-                    Header = "Aktívny",
-                    DataType = typeof(bool),
-                    ColumnType = DataGridColumnType.CheckBox,
-                    Width = 80
-                },
-                new DataGridColumn
-                {
-                    Name = "Validácia",
-                    Header = "⚠️",
-                    DataType = typeof(string),
-                    ColumnType = DataGridColumnType.ValidAlerts,
-                    Width = 60
-                },
-                new DataGridColumn
-                {
-                    Name = "Zmazať",
-                    Header = "🗑️",
-                    DataType = typeof(bool),
-                    ColumnType = DataGridColumnType.DeleteRow,
-                    Width = 60
-                }
+                builder.AddConsole();
+                builder.SetMinimumLevel(LogLevel.Warning);
+            });
+
+            // Create grid options with DispatcherQueue for UI operations
+            var options = new AdvancedDataGridOptions
+            {
+                OperationMode = PublicDataGridOperationMode.Interactive,
+                EnableParallelProcessing = true,
+                EnableLinqOptimizations = true,
+                EnableCaching = true,
+                BatchSize = 1000,
+                MinimumLogLevel = LogLevel.Warning,
+                DispatcherQueue = this.DispatcherQueue,
+
+                // ENABLE SPECIAL COLUMNS for testing
+                EnableRowNumberColumn = true,
+                EnableCheckboxColumn = true,
+                EnableValidationAlertsColumn = true,
+                EnableDeleteRowColumn = true,
+                ValidationAlertsColumnMinWidth = 150.0
             };
 
-            AddLogMessage($"✅ Definovaných {columns.Count} stĺpcov");
-            _fileLogger.LogInformation("Defined {ColumnCount} columns", columns.Count);
+            AddLogMessage("Creating DataGrid facade and UI control...");
+            _gridFacade = AdvancedDataGridFacadeFactory.CreateStandalone(options, loggerFactory, this.DispatcherQueue);
 
-            // STEP 2: Create logging config
-            var loggingConfig = new DataGridLoggingConfig
+            // Create UI control
+            _gridControl = new AdvancedDataGridControl(loggerFactory.CreateLogger<AdvancedDataGridControl>());
+
+            // Add UI control to container
+            GridContainer.Child = _gridControl;
+
+            if (_gridFacade != null && _gridControl != null)
             {
-                CategoryPrefix = "DataGridDemo",
-                LogMethodParameters = true,
-                LogPerformanceMetrics = true,
-                LogErrors = true,
-                MinimumLevel = DataGridLoggingLevel.Debug
-            };
+                _isInitialized = true;
+                AddLogMessage("✓ Grid created successfully with UI component!");
 
-            // STEP 3: Create DataGrid facade
-            AddLogMessage("🏗️ Vytváram DataGrid facade...");
-            _dataGridFacade = await AdvancedDataGridFacadeFactory.CreateAsync(_fileLogger, loggingConfig);
+                // Subscribe to automatic UI refresh notifications (Interactive mode)
+                AddLogMessage("Setting up automatic UI refresh subscription...");
+                _dataRefreshSubscription = _gridFacade.Notifications.SubscribeToDataRefresh(eventArgs =>
+                {
+                    AddLogMessage($"🔄 Auto-refresh triggered: {eventArgs.OperationType}, {eventArgs.AffectedRows} rows");
 
-            if (_dataGridFacade == null)
-            {
-                AddLogMessage("❌ CHYBA: Nepodarilo sa vytvoriť DataGrid facade");
-                return;
-            }
+                    // Automatically refresh UI control with special columns support
+                    var currentData = _gridFacade.Rows.GetAllRows();
+                    var headers = currentData.FirstOrDefault()?.Keys.ToList() ?? new List<string>();
 
-            AddLogMessage("✅ DataGrid facade vytvorený");
+                    _gridControl.LoadData(currentData, headers, options);
 
-            // STEP 4: Initialize with validation config
-            AddLogMessage("⚙️ Konfigurujem validáciu...");
-            var theme = DataGridTheme.Light;
-            var validationConfig = new DataGridValidationConfig
-            {
-                EnableValidation = true,
-                EnableRealTimeValidation = true,
-                StrictValidation = false,
-                ValidateEmptyRows = false
-            };
-            var performanceConfig = new DataGridPerformanceConfig
-            {
-                EnableVirtualization = true,
-                VirtualizationThreshold = 1000,
-                EnableBackgroundProcessing = true
-            };
+                    AddLogMessage("✓ UI automatically refreshed with special columns!");
+                });
+                AddLogMessage("✓ Auto-refresh subscription active (Interactive mode)");
 
-            AddLogMessage("🚀 Inicializujem tabuľku...");
-            var result = await _dataGridFacade.InitializeAsync(
-                columns,
-                theme,
-                validationConfig,
-                performanceConfig,
-                minimumRows: 10);
-
-            if (result.IsSuccess)
-            {
-                _isGridInitialized = true;
-                AddLogMessage("✅ Tabuľka úspešne inicializovaná!");
-                AddLogMessage($"📊 Minimálny počet riadkov: 10");
-
-                _fileLogger.LogInformation("DataGrid initialized successfully");
-
-                // STEP 5: Define validations
-                await DefineValidationsAsync();
-
-                // STEP 6: Display UI
-                await DisplayDataGridUI();
+                AddLogMessage("");
+                AddLogMessage("Available operations:");
+                AddLogMessage("- Import Dictionary: Import sample data and display in grid");
+                AddLogMessage("- Export Dictionary: Export current data");
+                AddLogMessage("- Add Row: Add new row to grid");
+                AddLogMessage("- Get Statistics: Show row/column count");
+                AddLogMessage("");
+                AddLogMessage("NOTE: UI will auto-refresh after data operations (Interactive mode)");
             }
             else
             {
-                AddLogMessage($"❌ Chyba inicializácie: {result.ErrorMessage}");
-                _fileLogger.LogError("Initialization failed: {Error}", result.ErrorMessage);
+                AddLogMessage("✗ Failed to create grid facade or UI control");
             }
-        }
-        catch (Exception ex)
-        {
-            AddLogMessage($"❌ VÝNIMKA: {ex.Message}");
-            _fileLogger.LogError(ex, "Exception during initialization");
-        }
-    }
-
-    #endregion
-
-    #region Validation Definition
-
-    private async Task DefineValidationsAsync()
-    {
-        try
-        {
-            AddLogMessage("");
-            AddLogMessage("═══════════════════════════════════════════════════");
-            AddLogMessage("🔒 KROK 2: DEFINÍCIA VALIDÁCIÍ");
-            AddLogMessage("═══════════════════════════════════════════════════");
-
-            if (_dataGridFacade == null) return;
-
-            // Validation 1: Meno nie je prázdne a má min 2 znaky
-            AddLogMessage("📝 Validácia 1: Meno (min 2 znaky, max 50)");
-
-            // Validation 2: Email obsahuje @
-            AddLogMessage("📝 Validácia 2: Email (musí obsahovať @)");
-
-            // Validation 3: Vek medzi 18 a 65
-            AddLogMessage("📝 Validácia 3: Vek (18-65 rokov)");
-
-            // Validation 4: Plat > 0
-            AddLogMessage("📝 Validácia 4: Plat (musí byť > 0)");
-
-            AddLogMessage("✅ Validácie definované");
-            _fileLogger.LogInformation("Validations defined successfully");
 
             await Task.CompletedTask;
         }
         catch (Exception ex)
         {
-            AddLogMessage($"❌ Chyba pri definícii validácií: {ex.Message}");
-            _fileLogger.LogError(ex, "Error defining validations");
+            AddLogMessage($"✗ Exception: {ex.Message}");
+            AddLogMessage($"  Stack: {ex.StackTrace}");
         }
+    }
+
+    private void InitWithValidationButton_Click(object sender, RoutedEventArgs e)
+    {
+        AddLogMessage("Init with validation not implemented in this demo");
     }
 
     #endregion
 
-    #region Event Handlers - Import Data
+    #region Import Operations
 
     private async void ImportDictionaryButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!_isGridInitialized || _dataGridFacade == null)
+        if (!_isInitialized || _gridFacade == null || _gridControl == null)
         {
-            AddLogMessage("⚠️ Najprv inicializuj tabuľku!");
+            AddLogMessage("⚠ Initialize grid first!");
             return;
         }
 
         try
         {
             AddLogMessage("");
-            AddLogMessage("═══════════════════════════════════════════════════");
-            AddLogMessage("📥 KROK 3: IMPORT DÁT (DICTIONARY)");
-            AddLogMessage("═══════════════════════════════════════════════════");
+            AddLogMessage("=== IMPORTING DATA ===");
 
-            // Vymyslené testovacie dáta
-            var testData = new List<Dictionary<string, object?>>
-            {
-                new() { ["ID"] = 1, ["Meno"] = "Ján Novák", ["Email"] = "jan.novak@firma.sk", ["Vek"] = 28, ["Plat"] = 1500.50m, ["Aktívny"] = true },
-                new() { ["ID"] = 2, ["Meno"] = "M", ["Email"] = "maria.invalid", ["Vek"] = 17, ["Plat"] = 1200.00m, ["Aktívny"] = true }, // Invalid: meno krátke, email bez @, vek < 18
-                new() { ["ID"] = 3, ["Meno"] = "Peter Varga", ["Email"] = "peter.varga@email.com", ["Vek"] = 35, ["Plat"] = 2500.75m, ["Aktívny"] = true },
-                new() { ["ID"] = 4, ["Meno"] = "", ["Email"] = "test@test.sk", ["Vek"] = 70, ["Plat"] = 0m, ["Aktívny"] = false }, // Invalid: prázdne meno, vek > 65, plat = 0
-                new() { ["ID"] = 5, ["Meno"] = "Eva Kováčová", ["Email"] = "eva.kovacova@gmail.com", ["Vek"] = 42, ["Plat"] = 3200.00m, ["Aktívny"] = true },
-                new() { ["ID"] = 6, ["Meno"] = "Martin Horváth", ["Email"] = "martin.horvath@company.sk", ["Vek"] = 31, ["Plat"] = 2800.50m, ["Aktívny"] = false },
-                new() { ["ID"] = 7, ["Meno"] = "Zuzana Szabová", ["Email"] = "zuzana@domain.com", ["Vek"] = 25, ["Plat"] = 1800.00m, ["Aktívny"] = true },
-                new() { ["ID"] = 8, ["Meno"] = "X", ["Email"] = "noemail", ["Vek"] = 15, ["Plat"] = -100m, ["Aktívny"] = true }, // Invalid: všetko zlé
-            };
+            // Generate test data
+            var testData = GenerateTestData(100, 5);
 
-            AddLogMessage($"📊 Importujem {testData.Count} záznamov...");
-            _fileLogger.LogInformation("Importing {Count} records", testData.Count);
+            AddLogMessage($"Importing {testData.Count} rows...");
 
-            var result = await _dataGridFacade.ImportFromDictionaryAsync(testData);
+            // Create import command
+            var command = ImportDataCommand.FromDictionaries(testData);
+
+            // Execute import via facade (using new modular API)
+            var result = await _gridFacade.IO.ImportAsync(command, default);
 
             if (result.IsSuccess)
             {
-                AddLogMessage($"✅ Import úspešný: {testData.Count} záznamov");
-                AddLogMessage("💡 Poznámka: Niektoré záznamy obsahují chyby pre testovanie validácie");
-
-                _fileLogger.LogInformation("Import successful: {Count} records", testData.Count);
-
-                // Trigger validation
-                await Task.Delay(500);
-                await ValidateDataAsync();
+                AddLogMessage($"✓ Import successful: {result.ImportedRows} rows imported to facade");
+                AddLogMessage($"  Duration: {result.ImportTime.TotalMilliseconds:F0}ms");
+                AddLogMessage("⏳ Waiting for automatic UI refresh...");
             }
             else
             {
-                AddLogMessage($"❌ Import zlyhal: {result.ErrorMessage}");
-                _fileLogger.LogError("Import failed: {Error}", result.ErrorMessage);
+                AddLogMessage($"✗ Import failed: {string.Join(", ", result.ErrorMessages)}");
             }
         }
         catch (Exception ex)
         {
-            AddLogMessage($"❌ VÝNIMKA: {ex.Message}");
-            _fileLogger.LogError(ex, "Exception during dictionary import");
+            AddLogMessage($"✗ Exception: {ex.Message}");
+            AddLogMessage($"  Stack: {ex.StackTrace}");
         }
     }
 
-    private async void ImportDataTableButton_Click(object sender, RoutedEventArgs e)
+    private void ImportDataTableButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!_isGridInitialized || _dataGridFacade == null)
-        {
-            AddLogMessage("⚠️ Najprv inicializuj tabuľku!");
-            return;
-        }
-
-        try
-        {
-            AddLogMessage("");
-            AddLogMessage("═══════════════════════════════════════════════════");
-            AddLogMessage("📥 IMPORT DÁT (DATATABLE)");
-            AddLogMessage("═══════════════════════════════════════════════════");
-
-            // Create DataTable with test data
-            var dataTable = new DataTable();
-            dataTable.Columns.Add("ID", typeof(int));
-            dataTable.Columns.Add("Meno", typeof(string));
-            dataTable.Columns.Add("Email", typeof(string));
-            dataTable.Columns.Add("Vek", typeof(int));
-            dataTable.Columns.Add("Plat", typeof(decimal));
-            dataTable.Columns.Add("Aktívny", typeof(bool));
-
-            dataTable.Rows.Add(10, "Tomáš Malý", "tomas.maly@firma.sk", 29, 2100.00m, true);
-            dataTable.Rows.Add(11, "Katarína Veľká", "katarina@email.com", 33, 2700.50m, true);
-            dataTable.Rows.Add(12, "Michal Novotný", "michal.n@test.sk", 27, 1900.00m, false);
-
-            AddLogMessage($"📊 Importujem DataTable s {dataTable.Rows.Count} záznamami...");
-            _fileLogger.LogInformation("Importing DataTable with {Count} records", dataTable.Rows.Count);
-
-            var result = await _dataGridFacade.ImportFromDataTableAsync(dataTable);
-
-            if (result.IsSuccess)
-            {
-                AddLogMessage($"✅ DataTable import úspešný: {dataTable.Rows.Count} záznamov");
-                _fileLogger.LogInformation("DataTable import successful");
-
-                await Task.Delay(500);
-                await ValidateDataAsync();
-            }
-            else
-            {
-                AddLogMessage($"❌ DataTable import zlyhal: {result.ErrorMessage}");
-                _fileLogger.LogError("DataTable import failed: {Error}", result.ErrorMessage);
-            }
-        }
-        catch (Exception ex)
-        {
-            AddLogMessage($"❌ VÝNIMKA: {ex.Message}");
-            _fileLogger.LogError(ex, "Exception during DataTable import");
-        }
+        AddLogMessage("DataTable import not implemented in this demo");
     }
 
     #endregion
 
-    #region Event Handlers - Validation
-
-    private async Task ValidateDataAsync()
-    {
-        if (!_isGridInitialized || _dataGridFacade == null) return;
-
-        try
-        {
-            AddLogMessage("");
-            AddLogMessage("═══════════════════════════════════════════════════");
-            AddLogMessage("✔️ KROK 4: VALIDÁCIA DÁT");
-            AddLogMessage("═══════════════════════════════════════════════════");
-
-            AddLogMessage("🔍 Spúšťam validáciu všetkých buniek...");
-            _fileLogger.LogInformation("Starting validation");
-
-            // Get current data and validate
-            var exportResult = await _dataGridFacade.ExportToDictionaryAsync();
-
-            if (exportResult.IsSuccess && exportResult.Value != null)
-            {
-                int invalidCount = 0;
-                var data = exportResult.Value;
-
-                foreach (var row in data)
-                {
-                    bool hasError = false;
-                    var errorMessages = new List<string>();
-
-                    // Validate Meno
-                    if (row.TryGetValue("Meno", out var menoObj) && menoObj is string meno)
-                    {
-                        if (string.IsNullOrWhiteSpace(meno))
-                        {
-                            errorMessages.Add("Meno je prázdne");
-                            hasError = true;
-                        }
-                        else if (meno.Length < 2)
-                        {
-                            errorMessages.Add("Meno musí mať min 2 znaky");
-                            hasError = true;
-                        }
-                    }
-
-                    // Validate Email
-                    if (row.TryGetValue("Email", out var emailObj) && emailObj is string email)
-                    {
-                        if (!email.Contains("@"))
-                        {
-                            errorMessages.Add("Email musí obsahovať @");
-                            hasError = true;
-                        }
-                    }
-
-                    // Validate Vek
-                    if (row.TryGetValue("Vek", out var vekObj))
-                    {
-                        int vek = Convert.ToInt32(vekObj);
-                        if (vek < 18 || vek > 65)
-                        {
-                            errorMessages.Add($"Vek musí byť 18-65 (aktuálne: {vek})");
-                            hasError = true;
-                        }
-                    }
-
-                    // Validate Plat
-                    if (row.TryGetValue("Plat", out var platObj))
-                    {
-                        decimal plat = Convert.ToDecimal(platObj);
-                        if (plat <= 0)
-                        {
-                            errorMessages.Add($"Plat musí byť > 0 (aktuálne: {plat})");
-                            hasError = true;
-                        }
-                    }
-
-                    if (hasError)
-                    {
-                        invalidCount++;
-                        var id = row.TryGetValue("ID", out var idObj) ? idObj?.ToString() : "?";
-                        AddLogMessage($"❌ Záznam ID={id}: {string.Join(", ", errorMessages)}");
-                    }
-                }
-
-                if (invalidCount == 0)
-                {
-                    AddLogMessage("✅ Všetky záznamy sú platné!");
-                }
-                else
-                {
-                    AddLogMessage($"⚠️ Nájdených {invalidCount} neplatných záznamov");
-                }
-
-                _fileLogger.LogInformation("Validation completed: {InvalidCount} invalid records", invalidCount);
-            }
-        }
-        catch (Exception ex)
-        {
-            AddLogMessage($"❌ Chyba validácie: {ex.Message}");
-            _fileLogger.LogError(ex, "Validation error");
-        }
-    }
-
-    private async void ValidateAllButton_Click(object sender, RoutedEventArgs e)
-    {
-        await ValidateDataAsync();
-    }
-
-    #endregion
-
-    #region Event Handlers - Export
+    #region Export Operations
 
     private async void ExportDictionaryButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!_isGridInitialized || _dataGridFacade == null)
+        if (!_isInitialized || _gridFacade == null || _gridControl == null)
         {
-            AddLogMessage("⚠️ Najprv inicializuj tabuľku!");
+            AddLogMessage("⚠ Initialize grid first!");
             return;
         }
 
         try
         {
             AddLogMessage("");
-            AddLogMessage("═══════════════════════════════════════════════════");
-            AddLogMessage("📤 EXPORT DO DICTIONARY");
-            AddLogMessage("═══════════════════════════════════════════════════");
+            AddLogMessage("=== EXPORTING DATA ===");
 
-            var result = await _dataGridFacade.ExportToDictionaryAsync();
+            // Create export command
+            var command = ExportDataCommand.ToDictionary();
 
-            if (result.IsSuccess && result.Value != null)
+            // Execute export (using new modular API)
+            var result = await _gridFacade.IO.ExportAsync(command, default);
+
+            if (result.IsSuccess)
             {
-                AddLogMessage($"✅ Export úspešný: {result.Value.Count} záznamov");
-                AddLogMessage("📊 Prvých 3 záznamy:");
+                AddLogMessage($"✓ Export successful: {result.ExportedRows} rows exported");
+                AddLogMessage($"  Duration: {result.ExportTime.TotalMilliseconds:F0}ms");
 
-                foreach (var row in result.Value.Take(3))
+                // Show sample data
+                if (result.ExportedData is List<Dictionary<string, object?>> data && data.Count > 0)
                 {
-                    var preview = string.Join(", ", row.Select(kvp => $"{kvp.Key}={kvp.Value}"));
-                    AddLogMessage($"   • {preview}");
+                    AddLogMessage($"  First row: {string.Join(", ", data[0].Take(3).Select(kvp => $"{kvp.Key}={kvp.Value}"))}...");
                 }
-
-                _fileLogger.LogInformation("Dictionary export successful: {Count} records", result.Value.Count);
             }
             else
             {
-                AddLogMessage($"❌ Export zlyhal: {result.ErrorMessage}");
+                AddLogMessage($"✗ Export failed: {string.Join(", ", result.ErrorMessages)}");
             }
         }
         catch (Exception ex)
         {
-            AddLogMessage($"❌ VÝNIMKA: {ex.Message}");
-            _fileLogger.LogError(ex, "Exception during dictionary export");
+            AddLogMessage($"✗ Exception: {ex.Message}");
+            AddLogMessage($"  Stack: {ex.StackTrace}");
         }
     }
 
-    private async void ExportToCsvButton_Click(object sender, RoutedEventArgs e)
+    private void ExportDataTableButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!_isGridInitialized || _dataGridFacade == null)
-        {
-            AddLogMessage("⚠️ Najprv inicializuj tabuľku!");
-            return;
-        }
-
-        try
-        {
-            AddLogMessage("");
-            AddLogMessage("═══════════════════════════════════════════════════");
-            AddLogMessage("📤 KROK 5: EXPORT DO CSV");
-            AddLogMessage("═══════════════════════════════════════════════════");
-
-            // Export to dictionary first
-            var result = await _dataGridFacade.ExportToDictionaryAsync();
-
-            if (result.IsSuccess && result.Value != null)
-            {
-                var data = result.Value;
-
-                // Create CSV content
-                var csv = new StringBuilder();
-
-                // Header
-                if (data.Count > 0)
-                {
-                    var headers = data[0].Keys.Where(k => k != "Validácia" && k != "Zmazať");
-                    csv.AppendLine(string.Join(";", headers));
-
-                    // Data rows
-                    foreach (var row in data)
-                    {
-                        var values = headers.Select(h =>
-                        {
-                            if (row.TryGetValue(h, out var value))
-                            {
-                                return value?.ToString()?.Replace(";", ",") ?? "";
-                            }
-                            return "";
-                        });
-                        csv.AppendLine(string.Join(";", values));
-                    }
-                }
-
-                // Save to desktop
-                var desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-                var csvPath = Path.Combine(desktopPath, "testicek_exportik.csv");
-
-                AddLogMessage($"💾 Ukladám do: {csvPath}");
-                await File.WriteAllTextAsync(csvPath, csv.ToString(), Encoding.UTF8);
-
-                AddLogMessage($"✅ CSV export úspešný!");
-                AddLogMessage($"📁 Súbor: testicek_exportik.csv");
-                AddLogMessage($"📊 Exportovaných {data.Count} záznamov");
-
-                _fileLogger.LogInformation("CSV export successful: {Path}, {Count} records", csvPath, data.Count);
-            }
-            else
-            {
-                AddLogMessage($"❌ Export zlyhal: {result.ErrorMessage}");
-            }
-        }
-        catch (Exception ex)
-        {
-            AddLogMessage($"❌ VÝNIMKA: {ex.Message}");
-            _fileLogger.LogError(ex, "Exception during CSV export");
-        }
-    }
-
-    private async void ExportDataTableButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (!_isGridInitialized || _dataGridFacade == null)
-        {
-            AddLogMessage("⚠️ Najprv inicializuj tabuľku!");
-            return;
-        }
-
-        try
-        {
-            AddLogMessage("");
-            AddLogMessage("📤 EXPORT DO DATATABLE");
-
-            var result = await _dataGridFacade.ExportToDataTableAsync();
-
-            if (result.IsSuccess && result.Value != null)
-            {
-                AddLogMessage($"✅ DataTable export úspešný: {result.Value.Rows.Count} riadkov");
-                _fileLogger.LogInformation("DataTable export successful: {Count} rows", result.Value.Rows.Count);
-            }
-            else
-            {
-                AddLogMessage($"❌ Export zlyhal: {result.ErrorMessage}");
-            }
-        }
-        catch (Exception ex)
-        {
-            AddLogMessage($"❌ VÝNIMKA: {ex.Message}");
-            _fileLogger.LogError(ex, "Exception during DataTable export");
-        }
+        AddLogMessage("DataTable export not implemented in this demo");
     }
 
     #endregion
 
-    #region Event Handlers - Search, Filter, Sort
+    #region Validation Operations
 
-    private void SearchButton_Click(object sender, RoutedEventArgs e)
+    private void ValidateAllButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!_isGridInitialized)
-        {
-            AddLogMessage("⚠️ Najprv inicializuj tabuľku!");
-            return;
-        }
+        AddLogMessage("Validation not implemented in this demo");
+    }
 
-        var searchText = SearchTextBox?.Text ?? "";
-        if (string.IsNullOrWhiteSpace(searchText))
-        {
-            AddLogMessage("⚠️ Zadaj hľadaný text!");
-            return;
-        }
-
-        AddLogMessage("");
-        AddLogMessage("═══════════════════════════════════════════════════");
-        AddLogMessage($"🔍 VYHĽADÁVANIE: '{searchText}'");
-        AddLogMessage("═══════════════════════════════════════════════════");
-        AddLogMessage("💡 Vyhľadávanie funguje priamo v tabuľke");
-        AddLogMessage("💡 Klikni do tabuľky a použi Ctrl+F pre interaktívne hľadanie");
-
-        _fileLogger.LogInformation("Search initiated: {SearchText}", searchText);
+    private void BatchValidationButton_Click(object sender, RoutedEventArgs e)
+    {
+        AddLogMessage("Batch validation not implemented in this demo");
     }
 
     private void ClearFiltersButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!_isGridInitialized)
-        {
-            AddLogMessage("⚠️ Najprv inicializuj tabuľku!");
-            return;
-        }
+        AddLogMessage("Clear filters not implemented in this demo");
+    }
 
-        AddLogMessage("");
-        AddLogMessage("🔄 Čistím filtre...");
-        AddLogMessage("💡 Filtre sa aplikujú priamo v tabuľke");
-        AddLogMessage("💡 Klikni na hlavičku stĺpca pre filtrovanie");
+    private void RealTimeValidationButton_Click(object sender, RoutedEventArgs e)
+    {
+        AddLogMessage("Real-time validation not implemented in this demo");
+    }
 
-        _fileLogger.LogInformation("Clear filters clicked");
+    private void OnSaveValidationButton_Click(object sender, RoutedEventArgs e)
+    {
+        AddLogMessage("On-save validation not implemented in this demo");
+    }
+
+    private void OnFocusValidationButton_Click(object sender, RoutedEventArgs e)
+    {
+        AddLogMessage("On-focus validation not implemented in this demo");
+    }
+
+    private void ManualValidationButton_Click(object sender, RoutedEventArgs e)
+    {
+        AddLogMessage("Manual validation not implemented in this demo");
     }
 
     #endregion
 
-    #region Event Handlers - Row Management
+    #region UI Operations
 
-    private async void AddRowButton_Click(object sender, RoutedEventArgs e)
+    private async void RefreshUIButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!_isGridInitialized || _dataGridFacade == null)
+        if (!_isInitialized || _gridFacade == null || _gridControl == null)
         {
-            AddLogMessage("⚠️ Najprv inicializuj tabuľku!");
+            AddLogMessage("⚠ Initialize grid first!");
             return;
         }
 
         try
         {
-            AddLogMessage("➕ Pridávam nový prázdny riadok...");
+            AddLogMessage("");
+            AddLogMessage("=== MANUAL UI REFRESH ==");
+            AddLogMessage("Requesting manual UI refresh...");
+
+            // Trigger manual refresh via Notifications module
+            await _gridFacade.Notifications.RefreshUIAsync("ManualRefresh", 0);
+
+            AddLogMessage("✓ Manual refresh requested successfully!");
+        }
+        catch (Exception ex)
+        {
+            AddLogMessage($"✗ Exception: {ex.Message}");
+            AddLogMessage($"  Stack: {ex.StackTrace}");
+        }
+    }
+
+    private void UpdateValidationUIButton_Click(object sender, RoutedEventArgs e)
+    {
+        AddLogMessage("Update validation UI not implemented in this demo");
+    }
+
+    private void InvalidateLayoutButton_Click(object sender, RoutedEventArgs e)
+    {
+        AddLogMessage("Invalidate layout not implemented in this demo");
+    }
+
+    #endregion
+
+    #region Search Operations
+
+    private void SearchButton_Click(object sender, RoutedEventArgs e)
+    {
+        var searchText = SearchTextBox?.Text ?? "";
+        if (string.IsNullOrWhiteSpace(searchText))
+        {
+            AddLogMessage("⚠ Enter search text!");
+            return;
+        }
+
+        AddLogMessage($"Search for '{searchText}' not implemented in this demo");
+    }
+
+    #endregion
+
+    #region Row Management
+
+    private async void AddRowButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_isInitialized || _gridFacade == null || _gridControl == null)
+        {
+            AddLogMessage("⚠ Initialize grid first!");
+            return;
+        }
+
+        try
+        {
+            AddLogMessage("Adding new row...");
 
             var newRow = new Dictionary<string, object?>
             {
-                ["ID"] = 0,
-                ["Meno"] = "",
-                ["Email"] = "",
-                ["Vek"] = 0,
-                ["Plat"] = 0m,
-                ["Aktívny"] = false
+                ["Column_1"] = "New Value 1",
+                ["Column_2"] = "New Value 2",
+                ["Column_3"] = "New Value 3",
+                ["Column_4"] = "New Value 4",
+                ["Column_5"] = "New Value 5"
             };
 
-            var result = await _dataGridFacade.ImportFromDictionaryAsync(new List<Dictionary<string, object?>> { newRow });
+            // Add row using new modular API
+            var result = await _gridFacade.Rows.AddRowAsync(newRow);
 
             if (result.IsSuccess)
             {
-                AddLogMessage("✅ Nový riadok pridaný");
-                _fileLogger.LogInformation("New row added");
+                AddLogMessage($"✓ Row added at index {result.Value} via facade");
+                AddLogMessage("⏳ Waiting for automatic UI refresh...");
             }
             else
             {
-                AddLogMessage($"❌ Chyba: {result.ErrorMessage}");
+                AddLogMessage($"✗ Failed to add row");
             }
         }
         catch (Exception ex)
         {
-            AddLogMessage($"❌ VÝNIMKA: {ex.Message}");
-            _fileLogger.LogError(ex, "Error adding row");
+            AddLogMessage($"✗ Exception: {ex.Message}");
+            AddLogMessage($"  Stack: {ex.StackTrace}");
         }
     }
 
     private void DeleteRowButton_Click(object sender, RoutedEventArgs e)
     {
-        AddLogMessage("🗑️ Mazanie riadkov");
-        AddLogMessage("💡 Klikni na tlačidlo 🗑️ v poslednom stĺpci pre zmazanie riadku");
-        _fileLogger.LogInformation("Delete row info shown");
+        AddLogMessage("Delete row not implemented in this demo");
+    }
+
+    private void SmartDeleteButton_Click(object sender, RoutedEventArgs e)
+    {
+        AddLogMessage("Smart delete not implemented in this demo");
+    }
+
+    private void CompactRowsButton_Click(object sender, RoutedEventArgs e)
+    {
+        AddLogMessage("Compact rows not implemented in this demo");
+    }
+
+    private void PasteDataButton_Click(object sender, RoutedEventArgs e)
+    {
+        AddLogMessage("Paste data not implemented in this demo");
     }
 
     #endregion
 
-    #region Event Handlers - Other Operations
+    #region Color/Theme Operations
 
-    private async void ClearDataButton_Click(object sender, RoutedEventArgs e)
+    private void ApplyDarkThemeButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!_isGridInitialized || _dataGridFacade == null)
-        {
-            AddLogMessage("⚠️ Najprv inicializuj tabuľku!");
-            return;
-        }
-
-        try
-        {
-            AddLogMessage("");
-            AddLogMessage("🗑️ Čistím všetky dáta...");
-
-            var emptyData = new List<Dictionary<string, object?>>();
-            var result = await _dataGridFacade.ImportFromDictionaryAsync(emptyData);
-
-            if (result.IsSuccess)
-            {
-                AddLogMessage("✅ Všetky dáta vymazané");
-                _fileLogger.LogInformation("All data cleared");
-            }
-            else
-            {
-                AddLogMessage($"❌ Chyba: {result.ErrorMessage}");
-            }
-        }
-        catch (Exception ex)
-        {
-            AddLogMessage($"❌ VÝNIMKA: {ex.Message}");
-            _fileLogger.LogError(ex, "Error clearing data");
-        }
+        AddLogMessage("Dark theme not implemented in this demo");
     }
+
+    private void ResetColorsButton_Click(object sender, RoutedEventArgs e)
+    {
+        AddLogMessage("Reset colors not implemented in this demo");
+    }
+
+    private void TestSelectiveColorsButton_Click(object sender, RoutedEventArgs e)
+    {
+        AddLogMessage("Selective colors not implemented in this demo");
+    }
+
+    private void TestBorderOnlyButton_Click(object sender, RoutedEventArgs e)
+    {
+        AddLogMessage("Border only not implemented in this demo");
+    }
+
+    private void TestValidationOnlyButton_Click(object sender, RoutedEventArgs e)
+    {
+        AddLogMessage("Validation only not implemented in this demo");
+    }
+
+    #endregion
+
+    #region Data Operations
+
+    private void ClearDataButton_Click(object sender, RoutedEventArgs e)
+    {
+        AddLogMessage("Clear data not implemented in this demo");
+    }
+
+    #endregion
+
+    #region Statistics
 
     private void GetStatsButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!_isGridInitialized || _dataGridFacade == null)
+        if (!_isInitialized || _gridFacade == null || _gridControl == null)
         {
-            AddLogMessage("⚠️ Najprv inicializuj tabuľku!");
+            AddLogMessage("⚠ Initialize grid first!");
             return;
         }
 
         try
         {
             AddLogMessage("");
-            AddLogMessage("═══════════════════════════════════════════════════");
-            AddLogMessage("📊 ŠTATISTIKY");
-            AddLogMessage("═══════════════════════════════════════════════════");
+            AddLogMessage("=== STATISTICS ===");
 
-            var rowCount = _dataGridFacade.GetRowCount();
-            var colCount = _dataGridFacade.GetColumnCount();
+            // Use new modular API
+            var rowCount = _gridFacade.Rows.GetRowCount();
+            var colCount = _gridFacade.Columns.GetColumnCount();
 
-            AddLogMessage($"📊 Počet riadkov: {rowCount}");
-            AddLogMessage($"📊 Počet stĺpcov: {colCount}");
-            AddLogMessage($"📊 Inicializované: {(_isGridInitialized ? "Áno" : "Nie")}");
-            AddLogMessage($"📂 Logy: {_logDirectory}");
-
-            _fileLogger.LogInformation("Statistics: Rows={Rows}, Columns={Columns}", rowCount, colCount);
+            AddLogMessage($"Rows (Facade): {rowCount}");
+            AddLogMessage($"Columns (Facade): {colCount}");
+            AddLogMessage($"Rows (UI): {_gridControl.ViewModel.Rows.Count}");
+            AddLogMessage($"Columns (UI): {_gridControl.ViewModel.ColumnHeaders.Count}");
+            AddLogMessage($"Initialized: {_isInitialized}");
         }
         catch (Exception ex)
         {
-            AddLogMessage($"❌ VÝNIMKA: {ex.Message}");
-            _fileLogger.LogError(ex, "Error getting stats");
-        }
-    }
-
-    private void ShowFeaturesButton_Click(object sender, RoutedEventArgs e)
-    {
-        AddLogMessage("");
-        AddLogMessage("═══════════════════════════════════════════════════");
-        AddLogMessage("🎯 DOSTUPNÉ FUNKCIE");
-        AddLogMessage("═══════════════════════════════════════════════════");
-        AddLogMessage("✅ Filter - Klikni na hlavičku stĺpca");
-        AddLogMessage("✅ Sort - Klikni na hlavičku stĺpca (vzostupne/zostupne)");
-        AddLogMessage("✅ Search - Použi vyhľadávacie pole hore");
-        AddLogMessage("✅ Resize - Potiahni okraj hlavičky stĺpca (drag & drop)");
-        AddLogMessage("✅ Cell Selection - Klikni na bunku pre výber");
-        AddLogMessage("✅ Multi Selection - Ctrl+Klik pre výber viacerých buniek");
-        AddLogMessage("✅ Edit - Double-klik na bunku pre editáciu");
-        AddLogMessage("✅ Delete Row - Klikni na 🗑️ tlačidlo v riadku");
-        AddLogMessage("✅ Validácia - Automaticky kontroluje dáta");
-        AddLogMessage("✅ Export - Exportuj do CSV na plochu");
-    }
-
-    #endregion
-
-    #region UI Display Methods
-
-    private async Task DisplayDataGridUI()
-    {
-        try
-        {
-            if (_dataGridFacade == null)
-            {
-                AddLogMessage("❌ DataGrid facade je null");
-                return;
-            }
-
-            AddLogMessage("");
-            AddLogMessage("🎨 Zobrazujem UI tabuľky...");
-            _fileLogger.LogInformation("Displaying DataGrid UI");
-
-            // Create UI control
-            var userControl = _dataGridFacade.CreateUserControlWithSampleData();
-
-            if (userControl != null)
-            {
-                GridContainer.Child = userControl;
-                AddLogMessage("✅ Tabuľka zobrazená!");
-                AddLogMessage("💡 Môžeš:");
-                AddLogMessage("   • Kliknúť na hlavičku pre sort/filter");
-                AddLogMessage("   • Potiahni okraj hlavičky pre resize");
-                AddLogMessage("   • Klikni na bunku pre výber");
-                AddLogMessage("   • Double-klikni pre editáciu");
-
-                _fileLogger.LogInformation("DataGrid UI displayed successfully");
-            }
-            else
-            {
-                AddLogMessage("❌ Nepodarilo sa vytvoriť UI");
-            }
-
-            await Task.CompletedTask;
-        }
-        catch (Exception ex)
-        {
-            AddLogMessage($"❌ Chyba UI: {ex.Message}");
-            _fileLogger.LogError(ex, "Error displaying UI");
+            AddLogMessage($"✗ Exception: {ex.Message}");
+            AddLogMessage($"  Stack: {ex.StackTrace}");
         }
     }
 
@@ -881,9 +460,26 @@ public sealed partial class MainWindow : Window
 
     #region Helper Methods
 
+    private List<Dictionary<string, object?>> GenerateTestData(int rowCount, int columnCount)
+    {
+        var result = new List<Dictionary<string, object?>>();
+
+        for (int i = 0; i < rowCount; i++)
+        {
+            var row = new Dictionary<string, object?>();
+            for (int j = 1; j <= columnCount; j++)
+            {
+                row[$"Column_{j}"] = $"Row{i + 1}_Col{j}";
+            }
+            result.Add(row);
+        }
+
+        return result;
+    }
+
     private void AddLogMessage(string message)
     {
-        var timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
+        var timestamp = DateTime.Now.ToString("HH:mm:ss");
         var logLine = $"[{timestamp}] {message}";
 
         _logOutput.AppendLine(logLine);
@@ -896,8 +492,6 @@ public sealed partial class MainWindow : Window
                 LogScrollViewer?.ChangeView(null, LogScrollViewer.ScrollableHeight, null);
             }
         });
-
-        _fileLogger?.LogInformation("[UI] {Message}", message);
     }
 
     #endregion

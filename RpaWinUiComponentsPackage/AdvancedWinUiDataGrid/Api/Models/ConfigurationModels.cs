@@ -5,22 +5,6 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
 /// </summary>
 public class PublicDataGridConfiguration
 {
-    public bool EnableVirtualization { get; init; } = true;
-    public bool EnableBatchUpdates { get; init; } = true;
-    public bool EnableValidation { get; init; } = true;
-    public bool EnableZebraRows { get; init; } = false;
-    public int MinimumColumnWidth { get; init; } = 50;
-    public int MaximumColumnWidth { get; init; } = 500;
-    public int DefaultRowHeight { get; init; } = 32;
-
-    public static PublicDataGridConfiguration Default => new();
-}
-
-/// <summary>
-/// Public grid configuration
-/// </summary>
-public sealed class PublicGridConfiguration
-{
     /// <summary>
     /// Configuration name
     /// </summary>
@@ -54,7 +38,22 @@ public sealed class PublicGridConfiguration
     /// <summary>
     /// Virtualization enabled
     /// </summary>
-    public bool VirtualizationEnabled { get; init; }
+    public bool VirtualizationEnabled { get; init; } = true;
+
+    /// <summary>
+    /// Batch updates enabled
+    /// </summary>
+    public bool EnableBatchUpdates { get; init; } = true;
+
+    /// <summary>
+    /// Validation enabled
+    /// </summary>
+    public bool EnableValidation { get; init; } = true;
+
+    /// <summary>
+    /// Zebra rows enabled
+    /// </summary>
+    public bool EnableZebraRows { get; init; } = false;
 
     /// <summary>
     /// Editing enabled
@@ -67,7 +66,24 @@ public sealed class PublicGridConfiguration
     public bool ShortcutsEnabled { get; init; }
 
     /// <summary>
+    /// Minimum column width
+    /// </summary>
+    public int MinimumColumnWidth { get; init; } = 50;
+
+    /// <summary>
+    /// Maximum column width
+    /// </summary>
+    public int MaximumColumnWidth { get; init; } = 500;
+
+    /// <summary>
+    /// Default row height
+    /// </summary>
+    public int DefaultRowHeight { get; init; } = 32;
+
+    /// <summary>
     /// Custom settings dictionary
     /// </summary>
     public IReadOnlyDictionary<string, object?> CustomSettings { get; init; } = new Dictionary<string, object?>();
+
+    public static PublicDataGridConfiguration Default => new();
 }

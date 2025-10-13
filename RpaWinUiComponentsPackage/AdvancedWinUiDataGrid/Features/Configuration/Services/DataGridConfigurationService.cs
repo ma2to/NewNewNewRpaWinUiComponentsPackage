@@ -73,6 +73,16 @@ internal sealed class DataGridConfigurationService : IDataGridConfiguration
         _logger?.LogInformation("Exported configuration to '{FilePath}'", filePath);
     }
 
+    public async Task<string> ExportConfigurationAsJsonAsync(CancellationToken cancellationToken = default)
+    {
+        return await Task.Run(() =>
+        {
+            var json = JsonSerializer.Serialize(_currentConfiguration, new JsonSerializerOptions { WriteIndented = true });
+            _logger?.LogInformation("Exported configuration as JSON string");
+            return json;
+        }, cancellationToken);
+    }
+
     public async Task<PublicDataGridConfiguration> ImportConfigurationAsync(string filePath, CancellationToken cancellationToken = default)
     {
         var json = await File.ReadAllTextAsync(filePath, cancellationToken);
@@ -84,6 +94,20 @@ internal sealed class DataGridConfigurationService : IDataGridConfiguration
             return config;
         }
         throw new InvalidOperationException($"Failed to import configuration from '{filePath}'");
+    }
+
+    public async Task<PublicDataGridConfiguration> ImportConfigurationFromJsonAsync(string jsonConfig, CancellationToken cancellationToken = default)
+    {
+        return await Task.Run(() =>
+        {
+            var config = JsonSerializer.Deserialize<PublicDataGridConfiguration>(jsonConfig);
+            if (config == null)
+                throw new InvalidOperationException("Failed to deserialize configuration JSON");
+
+            _currentConfiguration = config;
+            _logger?.LogInformation("Imported configuration from JSON string");
+            return config;
+        }, cancellationToken);
     }
 
     public IReadOnlyList<string> GetAvailablePresets()

@@ -37,9 +37,19 @@ internal interface IDataGridConfiguration
     Task ExportConfigurationAsync(string filePath, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Export configuration as JSON string
+    /// </summary>
+    Task<string> ExportConfigurationAsJsonAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Import configuration from file
     /// </summary>
     Task<PublicDataGridConfiguration> ImportConfigurationAsync(string filePath, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Import configuration from JSON string
+    /// </summary>
+    Task<PublicDataGridConfiguration> ImportConfigurationFromJsonAsync(string jsonConfig, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Get available preset names

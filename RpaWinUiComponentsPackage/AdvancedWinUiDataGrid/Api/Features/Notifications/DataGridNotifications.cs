@@ -165,4 +165,132 @@ internal sealed class DataGridNotifications : IDataGridNotifications
             SelectionChanged?.Invoke(this, publicArgs);
         }
     }
+
+    public IDisposable SubscribeToValidationRefresh(Action<PublicValidationRefreshEventArgs> handler)
+    {
+        if (handler == null)
+            throw new ArgumentNullException(nameof(handler));
+
+        _logger?.LogDebug("Subscribing to validation refresh notifications via Notifications module");
+
+        // Subscribe to internal event and wrap it
+        Action<int, bool> internalHandler = (errorCount, hasErrors) =>
+        {
+            var eventArgs = new PublicValidationRefreshEventArgs
+            {
+                TotalErrors = errorCount,
+                ErrorCount = hasErrors ? errorCount : 0,
+                WarningCount = 0, // Not tracked separately in current implementation
+                HasErrors = hasErrors,
+                RefreshTime = DateTime.UtcNow
+            };
+
+            handler(eventArgs);
+        };
+
+        _uiNotificationService.OnValidationResultsRefreshed += internalHandler;
+
+        // Return disposable that unsubscribes
+        return new NotificationSubscription(() =>
+        {
+            _uiNotificationService.OnValidationResultsRefreshed -= internalHandler;
+            _logger?.LogDebug("Unsubscribed from validation refresh notifications");
+        });
+    }
+
+    public IDisposable SubscribeToDataRefresh(Action<PublicDataRefreshEventArgs> handler)
+    {
+        if (handler == null)
+            throw new ArgumentNullException(nameof(handler));
+
+        _logger?.LogDebug("Subscribing to data refresh notifications via Notifications module");
+
+        // Subscribe to internal event and wrap it
+        Action<int, int> internalHandler = (rowCount, columnCount) =>
+        {
+            var eventArgs = new PublicDataRefreshEventArgs
+            {
+                AffectedRows = rowCount,
+                ColumnCount = columnCount,
+                OperationType = "DataRefresh",
+                RefreshTime = DateTime.UtcNow
+            };
+
+            handler(eventArgs);
+        };
+
+        _uiNotificationService.OnDataRefreshed += internalHandler;
+
+        // Return disposable that unsubscribes
+        return new NotificationSubscription(() =>
+        {
+            _uiNotificationService.OnDataRefreshed -= internalHandler;
+            _logger?.LogDebug("Unsubscribed from data refresh notifications");
+        });
+    }
+
+    public IDisposable SubscribeToOperationProgress(Action<PublicOperationProgressEventArgs> handler)
+    {
+        if (handler == null)
+            throw new ArgumentNullException(nameof(handler));
+
+        _logger?.LogDebug("Subscribing to operation progress notifications via Notifications module");
+
+        // Subscribe to internal event and wrap it
+        Action<string, double, string?> internalHandler = (operationName, progressPercentage, message) =>
+        {
+            var eventArgs = new PublicOperationProgressEventArgs
+            {
+                OperationName = operationName,
+                ProcessedItems = 0, // Not tracked separately
+                TotalItems = 0, // Not tracked separately
+                ProgressPercentage = progressPercentage,
+                Message = message,
+                ElapsedTime = TimeSpan.Zero // Not tracked separately
+            };
+
+            handler(eventArgs);
+        };
+
+        _uiNotificationService.OnOperationProgress += internalHandler;
+
+        // Return disposable that unsubscribes
+        return new NotificationSubscription(() =>
+        {
+            _uiNotificationService.OnOperationProgress -= internalHandler;
+            _logger?.LogDebug("Unsubscribed from operation progress notifications");
+        });
+    }
+
+    public async Task RefreshUIAsync(string operationType = "ManualRefresh", int affectedRows = 0)
+    {
+        _logger?.LogInformation("Manual UI refresh requested: OperationType={OperationType}, AffectedRows={AffectedRows}",
+            operationType, affectedRows);
+
+        // Works in both Interactive and Headless mode (if DispatcherQueue provided)
+        await _uiNotificationService.NotifyDataRefreshAsync(affectedRows, operationType);
+    }
+
+    /// <summary>
+    /// Helper class for notification subscriptions
+    /// </summary>
+    private sealed class NotificationSubscription : IDisposable
+    {
+        private readonly Action _unsubscribeAction;
+        private bool _disposed;
+
+        public NotificationSubscription(Action unsubscribeAction)
+        {
+            _unsubscribeAction = unsubscribeAction ?? throw new ArgumentNullException(nameof(unsubscribeAction));
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+                return;
+
+            _unsubscribeAction();
+            _disposed = true;
+        }
+    }
 }

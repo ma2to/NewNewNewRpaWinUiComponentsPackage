@@ -49,6 +49,7 @@ public sealed class CellControl : UserControl
     private readonly Grid _rootGrid;
     private readonly TextBlock _displayTextBlock;
     private readonly TextBox _editTextBox;
+    private object? _originalValue; // Store original value before editing for cancel support
 
     /// <summary>
     /// Creates a new cell control bound to the specified view model.
@@ -63,7 +64,7 @@ public sealed class CellControl : UserControl
         _rootBorder = new Border
         {
             BorderThickness = new Thickness(1),
-            Padding = new Thickness(4),
+            Padding = new Thickness(1),
             HorizontalAlignment = HorizontalAlignment.Stretch
         };
 
@@ -185,6 +186,9 @@ public sealed class CellControl : UserControl
     private void OnCellDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
         // Double tap - enter edit mode
+        // Store original value before editing to support cancel
+        _originalValue = ViewModel.Value;
+
         ViewModel.IsEditing = true;
         CellEditStarted?.Invoke(this, ViewModel);
 
@@ -195,11 +199,13 @@ public sealed class CellControl : UserControl
 
     private void OnEditTextBoxLostFocus(object sender, RoutedEventArgs e)
     {
-        // Exit edit mode when focus lost
+        // Exit edit mode when focus lost - this commits the changes
+        // The TwoWay binding has already updated ViewModel.Value during typing
         if (ViewModel.IsEditing)
         {
             ViewModel.IsEditing = false;
             CellEditCompleted?.Invoke(this, ViewModel);
+            _originalValue = null; // Clear stored value after commit
         }
     }
 
@@ -207,15 +213,21 @@ public sealed class CellControl : UserControl
     {
         if (e.Key == Windows.System.VirtualKey.Enter)
         {
-            // Enter key - complete edit
+            // Enter key - commit edit (value already updated via TwoWay binding)
             ViewModel.IsEditing = false;
             CellEditCompleted?.Invoke(this, ViewModel);
+            _originalValue = null; // Clear stored value after commit
             e.Handled = true;
         }
         else if (e.Key == Windows.System.VirtualKey.Escape)
         {
-            // Escape key - cancel edit (restore original value would go here)
+            // Escape key - cancel edit and restore original value
+            if (_originalValue != null || ViewModel.Value != null)
+            {
+                ViewModel.Value = _originalValue; // Restore original value
+            }
             ViewModel.IsEditing = false;
+            _originalValue = null; // Clear stored value after cancel
             e.Handled = true;
         }
     }

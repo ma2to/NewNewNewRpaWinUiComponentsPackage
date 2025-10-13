@@ -3,6 +3,7 @@ using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Mappings;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Import.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Export.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Persistence.Interfaces;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIAdapters.WinUI;
 using System.Data;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.IO;
@@ -17,16 +18,22 @@ internal sealed class DataGridIO : IDataGridIO
     private readonly IImportService _importService;
     private readonly IExportService _exportService;
     private readonly IRowStore _rowStore;
+    private readonly UiNotificationService? _uiNotificationService;
+    private readonly AdvancedDataGridOptions _options;
 
     public DataGridIO(
         IImportService importService,
         IExportService exportService,
         IRowStore rowStore,
+        AdvancedDataGridOptions options,
+        UiNotificationService? uiNotificationService = null,
         ILogger<DataGridIO>? logger = null)
     {
         _importService = importService ?? throw new ArgumentNullException(nameof(importService));
         _exportService = exportService ?? throw new ArgumentNullException(nameof(exportService));
         _rowStore = rowStore ?? throw new ArgumentNullException(nameof(rowStore));
+        _options = options ?? throw new ArgumentNullException(nameof(options));
+        _uiNotificationService = uiNotificationService;
         _logger = logger;
     }
 
@@ -36,7 +43,15 @@ internal sealed class DataGridIO : IDataGridIO
         {
             _logger?.LogInformation("Importing data via IO module");
             var internalResult = await _importService.ImportAsync(command.ToInternal(), cancellationToken);
-            return internalResult.ToPublic();
+            var result = internalResult.ToPublic();
+
+            // Trigger automatic UI refresh in Interactive mode
+            if (result.IsSuccess)
+            {
+                await TriggerUIRefreshIfNeededAsync("Import", result.ImportedRows);
+            }
+
+            return result;
         }
         catch (Exception ex)
         {
@@ -88,5 +103,18 @@ internal sealed class DataGridIO : IDataGridIO
             _logger?.LogError(ex, "GetCurrentDataAsDataTable failed in IO module");
             throw;
         }
+    }
+
+    /// <summary>
+    /// Triggers automatic UI refresh ONLY in Interactive mode
+    /// </summary>
+    private async Task TriggerUIRefreshIfNeededAsync(string operationType, int affectedRows)
+    {
+        // Automatický refresh LEN v Interactive mode
+        if (_options.OperationMode == PublicDataGridOperationMode.Interactive && _uiNotificationService != null)
+        {
+            await _uiNotificationService.NotifyDataRefreshAsync(affectedRows, operationType);
+        }
+        // V Readonly/Headless mode → skip (automatický refresh je zakázaný)
     }
 }

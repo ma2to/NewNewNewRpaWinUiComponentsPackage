@@ -247,9 +247,9 @@ internal enum FilterOperator
 }
 
 /// <summary>
-/// Defines special column types
+/// Defines special column types (PUBLIC for UI layer accessibility)
 /// </summary>
-internal enum SpecialColumnType
+public enum SpecialColumnType
 {
     /// <summary>Regular data column</summary>
     None,

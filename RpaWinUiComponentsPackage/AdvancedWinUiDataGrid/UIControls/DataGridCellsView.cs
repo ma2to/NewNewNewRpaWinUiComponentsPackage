@@ -145,14 +145,38 @@ public sealed class DataGridCellsView : UserControl
         for (int i = 0; i < row.Cells.Count; i++)
         {
             var cell = row.Cells[i];
-            var cellControl = new CellControl(cell);
-            Grid.SetColumn(cellControl, cell.ColumnIndex);
 
-            // Wire up selection events
-            cellControl.CellSelected += OnCellSelected;
-            cellControl.CellPointerEntered += OnCellPointerEntered;
+            // Use SpecialColumnCellControl for special columns, CellControl for normal data columns
+            if (cell.IsSpecialColumn)
+            {
+                var specialControl = new SpecialColumnCellControl(cell);
 
-            rowGrid.Children.Add(cellControl);
+                // Subscribe to special column events
+                specialControl.OnRowSelectionChanged += (rowIndex, isSelected) =>
+                {
+                    HandleRowSelectionChanged(rowIndex, isSelected);
+                };
+
+                specialControl.OnDeleteRowRequested += (rowIndex) =>
+                {
+                    HandleDeleteRowRequested(rowIndex);
+                };
+
+                Grid.SetColumn(specialControl, cell.ColumnIndex);
+                rowGrid.Children.Add(specialControl);
+            }
+            else
+            {
+                // Normal data cell with editing support
+                var normalCellControl = new CellControl(cell);
+
+                // Wire up selection events
+                normalCellControl.CellSelected += OnCellSelected;
+                normalCellControl.CellPointerEntered += OnCellPointerEntered;
+
+                Grid.SetColumn(normalCellControl, cell.ColumnIndex);
+                rowGrid.Children.Add(normalCellControl);
+            }
         }
 
         // Listen for changes to the Cells collection
@@ -161,20 +185,60 @@ public sealed class DataGridCellsView : UserControl
         return rowGrid;
     }
 
+    /// <summary>
+    /// Handles row selection change from checkbox special column
+    /// </summary>
+    private void HandleRowSelectionChanged(int rowIndex, bool isSelected)
+    {
+        // TODO: Notify facade about selection change
+        // This will be implemented when connecting to SmartAddDelete operations
+    }
+
+    /// <summary>
+    /// Handles delete row request from delete button special column
+    /// </summary>
+    private void HandleDeleteRowRequested(int rowIndex)
+    {
+        // TODO: Trigger SmartDelete via facade
+        // This will be implemented when connecting to SmartAddDelete operations
+    }
+
     private void OnCellsCollectionChanged(Grid rowGrid, ObservableCollection<CellViewModel> cells, NotifyCollectionChangedEventArgs e)
     {
         if (e.Action == NotifyCollectionChangedAction.Add && e.NewItems != null)
         {
             foreach (CellViewModel cell in e.NewItems)
             {
-                var cellControl = new CellControl(cell);
-                Grid.SetColumn(cellControl, cell.ColumnIndex);
+                // Use SpecialColumnCellControl for special columns, CellControl for normal data columns
+                if (cell.IsSpecialColumn)
+                {
+                    var specialControl = new SpecialColumnCellControl(cell);
 
-                // Wire up selection events
-                cellControl.CellSelected += OnCellSelected;
-                cellControl.CellPointerEntered += OnCellPointerEntered;
+                    // Subscribe to special column events
+                    specialControl.OnRowSelectionChanged += (rowIndex, isSelected) =>
+                    {
+                        HandleRowSelectionChanged(rowIndex, isSelected);
+                    };
 
-                rowGrid.Children.Add(cellControl);
+                    specialControl.OnDeleteRowRequested += (rowIndex) =>
+                    {
+                        HandleDeleteRowRequested(rowIndex);
+                    };
+
+                    Grid.SetColumn(specialControl, cell.ColumnIndex);
+                    rowGrid.Children.Add(specialControl);
+                }
+                else
+                {
+                    var normalCellControl = new CellControl(cell);
+
+                    // Wire up selection events
+                    normalCellControl.CellSelected += OnCellSelected;
+                    normalCellControl.CellPointerEntered += OnCellPointerEntered;
+
+                    Grid.SetColumn(normalCellControl, cell.ColumnIndex);
+                    rowGrid.Children.Add(normalCellControl);
+                }
             }
         }
         else if (e.Action == NotifyCollectionChangedAction.Remove && e.OldItems != null)

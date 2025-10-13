@@ -211,22 +211,33 @@ public sealed class AdvancedDataGridControl : UserControl
     /// <summary>
     /// Loads data into the grid and initializes columns based on the provided column names.
     /// This is the primary method for populating the grid with data.
+    /// Supports special columns (RowNumber, Checkbox, ValidationAlerts, DeleteRow) based on options.
     /// </summary>
     /// <param name="data">Collection of rows to display, where each row is a dictionary of column name to value</param>
     /// <param name="columnNames">Names of columns to display in the grid</param>
-    public void LoadData(IEnumerable<IReadOnlyDictionary<string, object?>> data, IEnumerable<string> columnNames)
+    /// <param name="options">Optional grid options containing special column configuration</param>
+    public void LoadData(
+        IEnumerable<IReadOnlyDictionary<string, object?>> data,
+        IEnumerable<string> columnNames,
+        AdvancedDataGridOptions? options = null)
     {
         var columnList = columnNames.ToList();
         var dataList = data.ToList();
 
-        _logger?.LogInformation("Loading data: {RowCount} rows, {ColumnCount} columns",
+        _logger?.LogInformation("Loading data: {RowCount} rows, {ColumnCount} columns (with special columns support)",
             dataList.Count, columnList.Count);
 
-        // Initialize columns first, then load the row data
-        ViewModel.InitializeColumns(columnList);
+        // Initialize columns first (including special columns), then load the row data
+        ViewModel.InitializeColumns(columnList, options);
         ViewModel.LoadRows(dataList);
 
-        _logger?.LogInformation("Data loaded successfully");
+        _logger?.LogInformation("Data loaded successfully with {SpecialCount} special columns",
+            options != null ?
+                (options.EnableRowNumberColumn ? 1 : 0) +
+                (options.EnableCheckboxColumn ? 1 : 0) +
+                (options.EnableValidationAlertsColumn ? 1 : 0) +
+                (options.EnableDeleteRowColumn ? 1 : 0)
+                : 0);
     }
 
     /// <summary>

@@ -1,6 +1,7 @@
 using Microsoft.UI;
 using Microsoft.UI.Xaml.Media;
 using Windows.UI;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.ViewModels;
 
@@ -8,6 +9,7 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.ViewModels;
 /// View model for a single cell in the data grid.
 /// Manages cell state including value, selection, validation, and visual appearance.
 /// Automatically updates visual styling based on current state (validation error, selected, search match, etc.).
+/// Supports special column types (RowNumber, Checkbox, ValidationAlerts, DeleteRow).
 /// </summary>
 public sealed class CellViewModel : ViewModelBase
 {
@@ -23,6 +25,10 @@ public sealed class CellViewModel : ViewModelBase
     private SolidColorBrush _backgroundBrush = new(Colors.White);
     private SolidColorBrush _foregroundBrush = new(Colors.Black);
     private double _borderThickness = 1.0;
+    private SpecialColumnType _specialType = SpecialColumnType.None;
+    private bool _isReadOnly = false;
+    private bool _isRowSelected = false;
+    private string? _validationAlertMessage = null;
 
     /// <summary>
     /// Creates a new cell view model with optional theme support.
@@ -191,6 +197,63 @@ public sealed class CellViewModel : ViewModelBase
         get => _borderThickness;
         set => SetProperty(ref _borderThickness, value);
     }
+
+    /// <summary>
+    /// Gets or sets the type of special column (None for normal data columns)
+    /// </summary>
+    public SpecialColumnType SpecialType
+    {
+        get => _specialType;
+        set => SetProperty(ref _specialType, value);
+    }
+
+    /// <summary>
+    /// Gets whether this is a special column cell (not a normal data cell)
+    /// </summary>
+    public bool IsSpecialColumn => SpecialType != SpecialColumnType.None;
+
+    /// <summary>
+    /// Gets or sets whether this cell is read-only (cannot be edited)
+    /// Special column cells are typically read-only
+    /// </summary>
+    public bool IsReadOnly
+    {
+        get => _isReadOnly;
+        set => SetProperty(ref _isReadOnly, value);
+    }
+
+    /// <summary>
+    /// Gets the display row number for RowNumber special column (1-based)
+    /// </summary>
+    public int DisplayRowNumber => RowIndex + 1;
+
+    /// <summary>
+    /// Gets or sets whether the row is selected (for Checkbox special column)
+    /// </summary>
+    public bool IsRowSelected
+    {
+        get => _isRowSelected;
+        set => SetProperty(ref _isRowSelected, value);
+    }
+
+    /// <summary>
+    /// Gets or sets the validation alert message (for ValidationAlerts special column)
+    /// </summary>
+    public string? ValidationAlertMessage
+    {
+        get => _validationAlertMessage;
+        set => SetProperty(ref _validationAlertMessage, value);
+    }
+
+    /// <summary>
+    /// Gets whether this cell has a validation alert message
+    /// </summary>
+    public bool HasValidationAlert => !string.IsNullOrEmpty(ValidationAlertMessage);
+
+    /// <summary>
+    /// Gets the theme manager for accessing theme colors
+    /// </summary>
+    public ThemeManager? Theme => _themeManager;
 
     /// <summary>
     /// Update cell visual appearance based on current state

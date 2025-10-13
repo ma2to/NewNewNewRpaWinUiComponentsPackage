@@ -1,25 +1,9 @@
-﻿using System.Data;
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.UI.Dispatching;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Import.Interfaces;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Export.Interfaces;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Validation.Interfaces;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.CopyPaste.Interfaces;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Selection.Interfaces;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Column.Interfaces;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Filter.Interfaces;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.AutoRowHeight.Interfaces;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Interfaces;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Commands;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Models;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Mappings;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Configuration;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Persistence.Interfaces;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.Interfaces;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.NullPattern;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Commands;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Interfaces;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
 

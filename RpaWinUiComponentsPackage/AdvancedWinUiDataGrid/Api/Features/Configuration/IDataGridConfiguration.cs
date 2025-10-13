@@ -56,7 +56,7 @@ public interface IDataGridConfiguration
     /// Gets current grid configuration.
     /// </summary>
     /// <returns>Current configuration</returns>
-    PublicGridConfiguration GetCurrentConfiguration();
+    PublicDataGridConfiguration GetCurrentConfiguration();
 
     /// <summary>
     /// Applies a configuration to the grid.
@@ -64,7 +64,7 @@ public interface IDataGridConfiguration
     /// <param name="configuration">Configuration to apply</param>
     /// <param name="cancellationToken">Cancellation token for operation</param>
     /// <returns>Result of the operation</returns>
-    Task<PublicResult> ApplyConfigurationAsync(PublicGridConfiguration configuration, CancellationToken cancellationToken = default);
+    Task<PublicResult> ApplyConfigurationAsync(PublicDataGridConfiguration configuration, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Resets configuration to defaults.

@@ -44,31 +44,21 @@
     <RuntimeIdentifier Condition="'$(Platform)' == 'ARM64'">win-arm64</RuntimeIdentifier>
     <!-- Fallback RID for self-contained deployment -->
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+
+    <!-- Disable XAML compilation to avoid WindowsAppSDK 1.8 compiler issues -->
+    <EnableDefaultXamlItems>true</EnableDefaultXamlItems>
+    <EnableXamlRuntime>true</EnableXamlRuntime>
   </PropertyGroup>
 
-  <!-- Override problematic PRI targets for WindowsAppSDK 1.8+ -->
-  <Target Name="ExpandPriContent" />
-  <Target Name="GeneratePriConfigXml" />
-  <Target Name="CreatePri" />
-  <Target Name="PackagePri" />
-  <Target Name="AddPriPayloadFilesToCopyToOutputDirectoryItems" />
-
   <ItemGroup>
-    <!-- CRITICAL: Project reference for development testing -->
-    <!-- Testing latest modular structure with clean API -->
 
     <!-- External logging implementation for testing -->
     <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.9" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.9" />
     <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.9" />
-    <PackageReference Include="RpaWinUiComponentsPackage" Version="2.2.7" />
-    <!--<PackageReference Include="RpaWinUiComponentsPackage" Version="2.2.6" />-->
+    <PackageReference Include="RpaWinUiComponentsPackage" Version="2.2.10" />
 
-    
-    <!-- REMOVED: Package reference to avoid circular dependency -->
-    <!-- Using ProjectReference instead for development testing --> 
-    
-    <!-- Package reference with automatic dependencies -->
+    <!-- Fix for WindowsAppSDK ML dependency -->
   </ItemGroup>
 
   <ItemGroup>
@@ -80,6 +70,7 @@
   <ItemGroup>
     <None Remove="nul" />
   </ItemGroup>
+
 
   <ItemGroup>
     <PackageReference Update="Microsoft.Extensions.Logging.Abstractions" Version="9.0.9" />

@@ -27,8 +27,8 @@ internal sealed class DataGridConfiguration : IDataGridConfiguration
         {
             _logger?.LogInformation("Saving configuration preset '{PresetName}' via Configuration module", presetName);
 
-            // TODO: Save current configuration as preset
-            await Task.CompletedTask;
+            var currentConfig = _configurationService.GetCurrentConfiguration();
+            await _configurationService.SaveConfigurationPresetAsync(presetName, currentConfig, cancellationToken);
             return PublicResult.Success();
         }
         catch (Exception ex)
@@ -89,8 +89,8 @@ internal sealed class DataGridConfiguration : IDataGridConfiguration
         {
             _logger?.LogInformation("Exporting configuration via Configuration module");
 
-            await _configurationService.ExportConfigurationAsync("config.json", cancellationToken);
-            return PublicResult<string>.Success("config.json");
+            var json = await _configurationService.ExportConfigurationAsJsonAsync(cancellationToken);
+            return PublicResult<string>.Success(json);
         }
         catch (Exception ex)
         {
@@ -105,7 +105,8 @@ internal sealed class DataGridConfiguration : IDataGridConfiguration
         {
             _logger?.LogInformation("Importing configuration via Configuration module");
 
-            await _configurationService.ImportConfigurationAsync(jsonConfig, cancellationToken);
+            var config = await _configurationService.ImportConfigurationFromJsonAsync(jsonConfig, cancellationToken);
+            await _configurationService.ApplyConfigurationAsync(config, cancellationToken);
             return PublicResult.Success();
         }
         catch (Exception ex)
@@ -115,30 +116,26 @@ internal sealed class DataGridConfiguration : IDataGridConfiguration
         }
     }
 
-    public PublicGridConfiguration GetCurrentConfiguration()
+    public PublicDataGridConfiguration GetCurrentConfiguration()
     {
         try
         {
-            var internalConfig = _configurationService.GetCurrentConfiguration();
-            // TODO: Create ToPublic mapping for PublicDataGridConfiguration -> PublicGridConfiguration
-            return new PublicGridConfiguration();
+            return _configurationService.GetCurrentConfiguration();
         }
         catch (Exception ex)
         {
             _logger?.LogError(ex, "GetCurrentConfiguration failed in Configuration module");
-            return new PublicGridConfiguration();
+            return PublicDataGridConfiguration.Default;
         }
     }
 
-    public async Task<PublicResult> ApplyConfigurationAsync(PublicGridConfiguration configuration, CancellationToken cancellationToken = default)
+    public async Task<PublicResult> ApplyConfigurationAsync(PublicDataGridConfiguration configuration, CancellationToken cancellationToken = default)
     {
         try
         {
             _logger?.LogInformation("Applying configuration via Configuration module");
 
-            // TODO: Create ToInternal mapping for PublicGridConfiguration -> PublicDataGridConfiguration
-            var internalConfig = new PublicDataGridConfiguration();
-            await _configurationService.ApplyConfigurationAsync(internalConfig, cancellationToken);
+            await _configurationService.ApplyConfigurationAsync(configuration, cancellationToken);
             return PublicResult.Success();
         }
         catch (Exception ex)

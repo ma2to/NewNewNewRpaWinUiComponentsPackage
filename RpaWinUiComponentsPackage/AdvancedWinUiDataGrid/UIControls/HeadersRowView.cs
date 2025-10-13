@@ -119,7 +119,8 @@ public sealed class HeadersRowView : UserControl
         {
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center,
-            TextTrimming = TextTrimming.CharacterEllipsis
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Foreground = _viewModel.Theme.HeaderForeground // Explicitly set readable color from theme
         };
 
         var textBinding = new Binding

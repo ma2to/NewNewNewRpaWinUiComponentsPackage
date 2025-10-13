@@ -1,23 +1,6 @@
-using System.Data;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Import.Interfaces;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Export.Interfaces;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Validation.Interfaces;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.CopyPaste.Interfaces;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Selection.Interfaces;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Column.Interfaces;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Filter.Interfaces;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.AutoRowHeight.Interfaces;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Interfaces;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Commands;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Initialization.Models;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Mappings;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Configuration;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Persistence.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.NullPattern;
 
@@ -39,6 +22,120 @@ public sealed partial class AdvancedDataGridFacade : IAdvancedDataGridFacade
     private readonly UIAdapters.WinUI.GridViewModelAdapter? _gridViewModelAdapter;
     private readonly Features.Color.ThemeService _themeService;
     private bool _disposed;
+
+    // Feature module dependencies
+    private readonly Columns.IDataGridColumns _columns;
+    private readonly Editing.IDataGridEditing _editing;
+    private readonly Filtering.IDataGridFiltering _filtering;
+    private readonly Selection.IDataGridSelection _selection;
+    private readonly Sorting.IDataGridSorting _sorting;
+    private readonly Configuration.IDataGridConfiguration _configuration;
+    private readonly Rows.IDataGridRows _rows;
+    private readonly Batch.IDataGridBatch _batch;
+    private readonly IO.IDataGridIO _io;
+    private readonly Clipboard.IDataGridClipboard _clipboard;
+    private readonly Search.IDataGridSearch _search;
+    private readonly Validation.IDataGridValidation _validation;
+    private readonly Performance.IDataGridPerformance _performance;
+    private readonly Theming.IDataGridTheming _theming;
+    private readonly Notifications.IDataGridNotifications _notifications;
+    private readonly AutoRowHeight.IDataGridAutoRowHeight _autoRowHeight;
+    private readonly Shortcuts.IDataGridShortcuts _shortcuts;
+    private readonly MVVM.IDataGridMVVM _mvvm;
+
+    #region Feature Module Properties
+
+    /// <summary>
+    /// Column management operations
+    /// </summary>
+    public Columns.IDataGridColumns Columns => _columns;
+
+    /// <summary>
+    /// Cell editing operations
+    /// </summary>
+    public Editing.IDataGridEditing Editing => _editing;
+
+    /// <summary>
+    /// Filtering operations
+    /// </summary>
+    public Filtering.IDataGridFiltering Filtering => _filtering;
+
+    /// <summary>
+    /// Selection operations
+    /// </summary>
+    public Selection.IDataGridSelection Selection => _selection;
+
+    /// <summary>
+    /// Sorting operations
+    /// </summary>
+    public Sorting.IDataGridSorting Sorting => _sorting;
+
+    /// <summary>
+    /// Configuration management
+    /// </summary>
+    public Configuration.IDataGridConfiguration Configuration => _configuration;
+
+    /// <summary>
+    /// Row management operations
+    /// </summary>
+    public Rows.IDataGridRows Rows => _rows;
+
+    /// <summary>
+    /// Batch operations
+    /// </summary>
+    public Batch.IDataGridBatch Batch => _batch;
+
+    /// <summary>
+    /// Import/Export operations
+    /// </summary>
+    public IO.IDataGridIO IO => _io;
+
+    /// <summary>
+    /// Clipboard operations
+    /// </summary>
+    public Clipboard.IDataGridClipboard Clipboard => _clipboard;
+
+    /// <summary>
+    /// Search operations
+    /// </summary>
+    public Search.IDataGridSearch Search => _search;
+
+    /// <summary>
+    /// Validation operations
+    /// </summary>
+    public Validation.IDataGridValidation Validation => _validation;
+
+    /// <summary>
+    /// Performance monitoring
+    /// </summary>
+    public Performance.IDataGridPerformance Performance => _performance;
+
+    /// <summary>
+    /// Theme and color management
+    /// </summary>
+    public Theming.IDataGridTheming Theming => _theming;
+
+    /// <summary>
+    /// UI notifications and subscriptions
+    /// </summary>
+    public Notifications.IDataGridNotifications Notifications => _notifications;
+
+    /// <summary>
+    /// Auto row height management
+    /// </summary>
+    public AutoRowHeight.IDataGridAutoRowHeight AutoRowHeight => _autoRowHeight;
+
+    /// <summary>
+    /// Keyboard shortcuts
+    /// </summary>
+    public Shortcuts.IDataGridShortcuts Shortcuts => _shortcuts;
+
+    /// <summary>
+    /// MVVM binding support
+    /// </summary>
+    public MVVM.IDataGridMVVM MVVM => _mvvm;
+
+    #endregion
 
     /// <summary>
     /// AdvancedDataGridFacade constructor
@@ -65,6 +162,26 @@ public sealed partial class AdvancedDataGridFacade : IAdvancedDataGridFacade
 
         // Obtain ThemeService (always available)
         _themeService = serviceProvider.GetRequiredService<Features.Color.ThemeService>();
+
+        // Obtain feature modules via DI
+        _columns = serviceProvider.GetRequiredService<Columns.IDataGridColumns>();
+        _editing = serviceProvider.GetRequiredService<Editing.IDataGridEditing>();
+        _filtering = serviceProvider.GetRequiredService<Filtering.IDataGridFiltering>();
+        _selection = serviceProvider.GetRequiredService<Selection.IDataGridSelection>();
+        _sorting = serviceProvider.GetRequiredService<Sorting.IDataGridSorting>();
+        _configuration = serviceProvider.GetRequiredService<Configuration.IDataGridConfiguration>();
+        _rows = serviceProvider.GetRequiredService<Rows.IDataGridRows>();
+        _batch = serviceProvider.GetRequiredService<Batch.IDataGridBatch>();
+        _io = serviceProvider.GetRequiredService<IO.IDataGridIO>();
+        _clipboard = serviceProvider.GetRequiredService<Clipboard.IDataGridClipboard>();
+        _search = serviceProvider.GetRequiredService<Search.IDataGridSearch>();
+        _validation = serviceProvider.GetRequiredService<Validation.IDataGridValidation>();
+        _performance = serviceProvider.GetRequiredService<Performance.IDataGridPerformance>();
+        _theming = serviceProvider.GetRequiredService<Theming.IDataGridTheming>();
+        _notifications = serviceProvider.GetRequiredService<Notifications.IDataGridNotifications>();
+        _autoRowHeight = serviceProvider.GetRequiredService<AutoRowHeight.IDataGridAutoRowHeight>();
+        _shortcuts = serviceProvider.GetRequiredService<Shortcuts.IDataGridShortcuts>();
+        _mvvm = serviceProvider.GetRequiredService<MVVM.IDataGridMVVM>();
 
         _logger.LogInformation("AdvancedDataGrid facade initialized with operation mode {OperationMode}", _options.OperationMode);
     }

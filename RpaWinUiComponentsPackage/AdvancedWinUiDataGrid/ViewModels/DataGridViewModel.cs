@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.ViewModels;
 
@@ -110,31 +111,68 @@ public sealed class DataGridViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Initializes columns from the provided column names.
+    /// Initializes columns from the provided column names with support for special columns.
     /// Creates headers and filter inputs for each column, and sets up width synchronization.
-    /// Each column starts with a default width of 120 pixels.
+    /// Special columns (RowNumber, Checkbox, ValidationAlerts, DeleteRow) are added based on options.
     /// </summary>
-    /// <param name="columnNames">Names of the columns to initialize</param>
-    public void InitializeColumns(IEnumerable<string> columnNames)
+    /// <param name="columnNames">Names of the data columns to initialize</param>
+    /// <param name="options">Grid options containing special column configuration (optional)</param>
+    public void InitializeColumns(IEnumerable<string> columnNames, AdvancedDataGridOptions? options = null)
     {
         var columnList = columnNames.ToList();
-        _logger?.LogInformation("Initializing {Count} columns", columnList.Count);
+        _logger?.LogInformation("Initializing {Count} data columns with special columns support", columnList.Count);
 
         ColumnHeaders.Clear();
         FilterRow.ColumnFilters.Clear();
 
+        int displayOrder = 0;
+
+        // 1. ROW NUMBER COLUMN (if enabled)
+        if (options?.EnableRowNumberColumn == true)
+        {
+            var rowNumHeader = CreateSpecialColumnHeader(
+                name: "rowNumber",
+                displayName: "#",
+                specialType: SpecialColumnType.RowNumber,
+                width: 60,
+                isResizable: false,
+                displayOrder: displayOrder++
+            );
+            ColumnHeaders.Add(rowNumHeader);
+            _logger?.LogInformation("Added RowNumber special column");
+            // NO FILTER for RowNumber
+        }
+
+        // 2. CHECKBOX COLUMN (if enabled)
+        if (options?.EnableCheckboxColumn == true)
+        {
+            var checkboxHeader = CreateSpecialColumnHeader(
+                name: "checkbox",
+                displayName: "☑",
+                specialType: SpecialColumnType.Checkbox,
+                width: 40,
+                isResizable: false,
+                displayOrder: displayOrder++
+            );
+            ColumnHeaders.Add(checkboxHeader);
+            _logger?.LogInformation("Added Checkbox special column");
+            // NO FILTER for Checkbox
+        }
+
+        // 3. DATA COLUMNS (all user columns)
         foreach (var columnName in columnList)
         {
-            // Create column header with default width
             var header = new ColumnHeaderViewModel
             {
                 ColumnName = columnName,
                 DisplayName = columnName,
-                Width = 120 // Default column width in pixels
+                Width = 120,
+                IsResizable = true,
+                SpecialType = SpecialColumnType.None,
+                DisplayOrder = displayOrder++
             };
 
             // Subscribe to Width changes to keep filters and cells synchronized
-            // When a user resizes a column, this ensures all rows adjust accordingly
             header.PropertyChanged += (s, e) =>
             {
                 if (e.PropertyName == nameof(ColumnHeaderViewModel.Width))
@@ -145,16 +183,73 @@ public sealed class DataGridViewModel : ViewModelBase
 
             ColumnHeaders.Add(header);
 
-            // Create corresponding filter input
+            // Add filter for data columns
             var filter = new ColumnFilterViewModel
             {
                 ColumnName = columnName,
-                Width = 120 // Matches header width
+                Width = 120
             };
             FilterRow.ColumnFilters.Add(filter);
         }
 
-        _logger?.LogInformation("Columns initialized successfully");
+        // 4. VALIDATION ALERTS COLUMN (if enabled)
+        if (options?.EnableValidationAlertsColumn == true)
+        {
+            var validAlertsHeader = CreateSpecialColumnHeader(
+                name: "validAlerts",
+                displayName: "⚠ Validation",
+                specialType: SpecialColumnType.ValidationAlerts,
+                width: options.ValidationAlertsColumnMinWidth,
+                isResizable: true,
+                displayOrder: displayOrder++
+            );
+            ColumnHeaders.Add(validAlertsHeader);
+            _logger?.LogInformation("Added ValidationAlerts special column");
+            // NO FILTER for ValidationAlerts
+        }
+
+        // 5. DELETE ROW COLUMN (if enabled)
+        if (options?.EnableDeleteRowColumn == true)
+        {
+            var deleteHeader = CreateSpecialColumnHeader(
+                name: "deleteRow",
+                displayName: "🗑",
+                specialType: SpecialColumnType.DeleteRow,
+                width: 80,
+                isResizable: false,
+                displayOrder: displayOrder++
+            );
+            ColumnHeaders.Add(deleteHeader);
+            _logger?.LogInformation("Added DeleteRow special column");
+            // NO FILTER for DeleteRow
+        }
+
+        _logger?.LogInformation("Columns initialized successfully: {Total} total ({Special} special, {Data} data)",
+            ColumnHeaders.Count,
+            ColumnHeaders.Count(h => h.IsSpecialColumn),
+            columnList.Count);
+    }
+
+    /// <summary>
+    /// Creates a special column header with specified properties
+    /// </summary>
+    private ColumnHeaderViewModel CreateSpecialColumnHeader(
+        string name,
+        string displayName,
+        SpecialColumnType specialType,
+        double width,
+        bool isResizable,
+        int displayOrder)
+    {
+        return new ColumnHeaderViewModel
+        {
+            ColumnName = name,
+            DisplayName = displayName,
+            Width = width,
+            IsResizable = isResizable,
+            SpecialType = specialType,
+            DisplayOrder = displayOrder
+        };
     }
 
     /// <summary>
@@ -195,15 +290,16 @@ public sealed class DataGridViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Loads data rows into the grid.
+    /// Loads data rows into the grid with support for special columns.
     /// Creates a CellViewModel for each cell, linking it to the theme manager for visual styling.
+    /// Special column cells are populated with computed values (RowNumber, Checkbox state, etc.).
     /// If a column value is missing in a row, the cell will have a null value.
     /// </summary>
     /// <param name="rowsData">Collection of rows to load, where each row is a dictionary of column name to value</param>
     public void LoadRows(IEnumerable<IReadOnlyDictionary<string, object?>> rowsData)
     {
         var dataList = rowsData.ToList();
-        _logger?.LogInformation("Loading {RowCount} rows into grid", dataList.Count);
+        _logger?.LogInformation("Loading {RowCount} rows into grid with special columns support", dataList.Count);
 
         Rows.Clear();
 
@@ -216,7 +312,7 @@ public sealed class DataGridViewModel : ViewModelBase
                 RowIndex = rowIndex
             };
 
-            // Create a cell for each column in the row
+            // Create a cell for each column (special + data)
             for (int colIndex = 0; colIndex < ColumnHeaders.Count; colIndex++)
             {
                 var header = ColumnHeaders[colIndex];
@@ -225,9 +321,39 @@ public sealed class DataGridViewModel : ViewModelBase
                     RowIndex = rowIndex,
                     ColumnIndex = colIndex,
                     ColumnName = header.ColumnName,
-                    // Try to get the value from the row data, use null if column doesn't exist
-                    Value = rowData.TryGetValue(header.ColumnName, out var value) ? value : null
+                    SpecialType = header.SpecialType,
+                    IsReadOnly = header.IsSpecialColumn // Special columns are read-only (except checkbox)
                 };
+
+                // Populate cell value based on column type
+                if (header.SpecialType == SpecialColumnType.RowNumber)
+                {
+                    // RowNumber - computed from rowIndex (1-based)
+                    cellVm.Value = rowIndex + 1;
+                }
+                else if (header.SpecialType == SpecialColumnType.Checkbox)
+                {
+                    // Checkbox - default unchecked
+                    cellVm.IsRowSelected = false;
+                    cellVm.Value = null; // No text value
+                }
+                else if (header.SpecialType == SpecialColumnType.ValidationAlerts)
+                {
+                    // ValidationAlerts - will be populated later via validation system
+                    cellVm.ValidationAlertMessage = null; // TODO: Populate from validation results
+                    cellVm.Value = null;
+                }
+                else if (header.SpecialType == SpecialColumnType.DeleteRow)
+                {
+                    // DeleteRow - no value, just button rendered by UI
+                    cellVm.Value = null;
+                }
+                else
+                {
+                    // Normal data column - get value from row data
+                    cellVm.Value = rowData.TryGetValue(header.ColumnName, out var value) ? value : null;
+                }
+
                 rowVm.Cells.Add(cellVm);
             }
 
@@ -235,7 +361,8 @@ public sealed class DataGridViewModel : ViewModelBase
             rowIndex++;
         }
 
-        _logger?.LogInformation("Rows loaded successfully");
+        _logger?.LogInformation("Rows loaded successfully with {SpecialCount} special columns per row",
+            ColumnHeaders.Count(h => h.IsSpecialColumn));
     }
 
     /// <summary>
