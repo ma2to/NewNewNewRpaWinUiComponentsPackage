@@ -11,25 +11,42 @@ public interface IDataGridValidation
     /// Validates all non-empty rows with batched, thread-safe processing.
     /// </summary>
     /// <param name="onlyFiltered">Whether to validate only filtered rows</param>
+    /// <param name="onlyChecked">Whether to validate only checked rows (checkbox column = true)</param>
     /// <param name="cancellationToken">Cancellation token for operation</param>
     /// <returns>Validation result indicating if all rows are valid</returns>
-    Task<PublicResult<bool>> ValidateAllAsync(bool onlyFiltered = false, CancellationToken cancellationToken = default);
+    /// <remarks>
+    /// When both onlyFiltered and onlyChecked are true, validates rows that match BOTH criteria (AND logic).
+    /// This is commonly used for export scenarios where user wants to export only filtered AND checked rows.
+    /// </remarks>
+    Task<PublicResult<bool>> ValidateAllAsync(
+        bool onlyFiltered = false,
+        bool onlyChecked = false,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Validates all non-empty rows with detailed statistics tracking.
     /// Provides performance insights including rule execution times and error rates.
     /// </summary>
     /// <param name="onlyFiltered">Whether to validate only filtered rows</param>
+    /// <param name="onlyChecked">Whether to validate only checked rows (checkbox column = true)</param>
     /// <param name="cancellationToken">Cancellation token for operation</param>
     /// <returns>Validation result with detailed rule statistics and performance metrics</returns>
-    Task<PublicValidationResultWithStatistics> ValidateAllWithStatisticsAsync(bool onlyFiltered = false, CancellationToken cancellationToken = default);
+    Task<PublicValidationResultWithStatistics> ValidateAllWithStatisticsAsync(
+        bool onlyFiltered = false,
+        bool onlyChecked = false,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Checks if all non-empty rows are valid (quick check without detailed statistics).
     /// </summary>
+    /// <param name="onlyFiltered">Whether to validate only filtered rows</param>
+    /// <param name="onlyChecked">Whether to validate only checked rows (checkbox column = true)</param>
     /// <param name="cancellationToken">Cancellation token for operation</param>
     /// <returns>True if all non-empty rows are valid, false otherwise</returns>
-    Task<bool> AreAllNonEmptyRowsValidAsync(CancellationToken cancellationToken = default);
+    Task<bool> AreAllNonEmptyRowsValidAsync(
+        bool onlyFiltered = false,
+        bool onlyChecked = false,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Refreshes validation results to UI (no-op in headless mode).

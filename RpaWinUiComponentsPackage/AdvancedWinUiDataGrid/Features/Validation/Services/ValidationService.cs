@@ -48,10 +48,21 @@ internal sealed class ValidationService : IValidationService
     /// <summary>
     /// CRITICAL: Validates all non-empty rows with batch, thread-safe and stream support
     /// Must be called by Import & Paste & Export operations
-    /// Supports filtered validation for export scenarios
+    /// Supports filtered and checked validation for export scenarios
     /// Uses IRowStore validation state management for persistence
     /// </summary>
-    public async Task<Result<bool>> AreAllNonEmptyRowsValidAsync(bool onlyFiltered = false, CancellationToken cancellationToken = default)
+    /// <param name="onlyFiltered">If true, validates only filtered rows</param>
+    /// <param name="onlyChecked">If true, validates only checked rows (checkbox column = true)</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Result indicating if all non-empty rows are valid</returns>
+    /// <remarks>
+    /// When both onlyFiltered and onlyChecked are true, validates rows that match BOTH criteria (AND logic)
+    /// This is commonly used for export scenarios where user wants to export only filtered AND checked rows
+    /// </remarks>
+    public async Task<Result<bool>> AreAllNonEmptyRowsValidAsync(
+        bool onlyFiltered = false,
+        bool onlyChecked = false,
+        CancellationToken cancellationToken = default)
     {
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var operationId = Guid.NewGuid();
@@ -60,7 +71,8 @@ internal sealed class ValidationService : IValidationService
         using var scope = _operationLogger.LogOperationStart("AreAllNonEmptyRowsValidAsync", new
         {
             OperationId = operationId,
-            OnlyFiltered = onlyFiltered
+            OnlyFiltered = onlyFiltered,
+            OnlyChecked = onlyChecked
         });
 
         // Get row count for specialized logging
@@ -73,20 +85,27 @@ internal sealed class ValidationService : IValidationService
         try
         {
             // Check if we have cached validation state that we can use
-            _logger.LogInformation("Checking cached validation state for operation {OperationId}", operationId);
-            var hasValidationState = await _rowStore.HasValidationStateForScopeAsync(onlyFiltered, cancellationToken);
+            _logger.LogInformation("Checking cached validation state for operation {OperationId} (onlyFiltered={OnlyFiltered}, onlyChecked={OnlyChecked})",
+                operationId, onlyFiltered, onlyChecked);
+            var hasValidationState = await _rowStore.HasValidationStateForScopeAsync(onlyFiltered, onlyChecked, cancellationToken);
             if (hasValidationState)
             {
-                var cachedResult = await _rowStore.AreAllNonEmptyRowsMarkedValidAsync(onlyFiltered, cancellationToken);
+                var cachedResult = await _rowStore.AreAllNonEmptyRowsMarkedValidAsync(onlyFiltered, onlyChecked, cancellationToken);
                 _logger.LogInformation("Using cached validation state for operation {OperationId}: {CachedResult}",
                     operationId, cachedResult);
-                _validationLogger.LogValidationCache(operationId, "hit", onlyFiltered ? "filtered" : "all");
+                var scopeDesc = onlyFiltered && onlyChecked ? "filtered+checked" :
+                                onlyFiltered ? "filtered" :
+                                onlyChecked ? "checked" : "all";
+                _validationLogger.LogValidationCache(operationId, "hit", scopeDesc);
                 scope.MarkSuccess(new { CachedResult = cachedResult, UsedCache = true });
                 return Result<bool>.Success(cachedResult);
             }
 
             _logger.LogInformation("Cache not found, starting new validation");
-            _validationLogger.LogValidationCache(operationId, "miss", onlyFiltered ? "filtered" : "all");
+            var cacheScopeDesc = onlyFiltered && onlyChecked ? "filtered+checked" :
+                                 onlyFiltered ? "filtered" :
+                                 onlyChecked ? "checked" : "all";
+            _validationLogger.LogValidationCache(operationId, "miss", cacheScopeDesc);
 
             // Get validation rules
             var activeRules = _validationRules.ToArray();
@@ -101,12 +120,13 @@ internal sealed class ValidationService : IValidationService
                 return Result<bool>.Success(true);
             }
 
-            // Get data for validation (filtered or all) using StreamRowsAsync for efficient memory
-            _logger.LogInformation("Loading data for validation with batch size {BatchSize}", _options.BatchSize);
+            // Get data for validation (filtered, checked, or all) using StreamRowsAsync for efficient memory
+            _logger.LogInformation("Loading data for validation with batch size {BatchSize} (onlyFiltered={OnlyFiltered}, onlyChecked={OnlyChecked})",
+                _options.BatchSize, onlyFiltered, onlyChecked);
             var nonEmptyRows = new List<IReadOnlyDictionary<string, object?>>();
             var batchIndex = 0;
 
-            await foreach (var batch in _rowStore.StreamRowsAsync(onlyFiltered, _options.BatchSize, cancellationToken))
+            await foreach (var batch in _rowStore.StreamRowsAsync(onlyFiltered, onlyChecked, _options.BatchSize, cancellationToken))
             {
                 var nonEmptyInBatch = FilterNonEmptyRows(batch, operationId);
                 nonEmptyRows.AddRange(nonEmptyInBatch);
@@ -961,14 +981,20 @@ internal sealed class ValidationService : IValidationService
     }
 
     // Public API compatibility methods
-    public async Task<Result<bool>> ValidateAllAsync(bool onlyFiltered = false, CancellationToken cancellationToken = default)
+    public async Task<Result<bool>> ValidateAllAsync(
+        bool onlyFiltered = false,
+        bool onlyChecked = false,
+        CancellationToken cancellationToken = default)
     {
-        return await AreAllNonEmptyRowsValidAsync(onlyFiltered, cancellationToken);
+        return await AreAllNonEmptyRowsValidAsync(onlyFiltered, onlyChecked, cancellationToken);
     }
 
-    public async Task<PublicValidationResultWithStatistics> ValidateAllWithStatisticsAsync(bool onlyFiltered = false, CancellationToken cancellationToken = default)
+    public async Task<PublicValidationResultWithStatistics> ValidateAllWithStatisticsAsync(
+        bool onlyFiltered = false,
+        bool onlyChecked = false,
+        CancellationToken cancellationToken = default)
     {
-        var result = await AreAllNonEmptyRowsValidAsync(onlyFiltered, cancellationToken);
+        var result = await AreAllNonEmptyRowsValidAsync(onlyFiltered, onlyChecked, cancellationToken);
         return new PublicValidationResultWithStatistics
         {
             IsValid = result.Value,

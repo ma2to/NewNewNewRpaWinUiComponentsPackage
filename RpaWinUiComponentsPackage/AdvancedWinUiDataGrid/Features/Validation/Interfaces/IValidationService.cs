@@ -15,10 +15,15 @@ internal interface IValidationService
     /// Called by Import & Paste & Export operations automatically
     /// </summary>
     /// <param name="onlyFiltered">Whether to validate only filtered rows</param>
+    /// <param name="onlyChecked">Whether to validate only checked rows (checkbox column = true)</param>
     /// <param name="cancellationToken">Cancellation token for operation</param>
     /// <returns>Result indicating if all non-empty rows are valid</returns>
+    /// <remarks>
+    /// When both onlyFiltered and onlyChecked are true, validates rows that match BOTH criteria (AND logic)
+    /// </remarks>
     Task<Result<bool>> AreAllNonEmptyRowsValidAsync(
         bool onlyFiltered = false,
+        bool onlyChecked = false,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -145,8 +150,8 @@ internal interface IValidationService
         CancellationToken cancellationToken = default);
 
     // Public API compatibility methods
-    Task<Result<bool>> ValidateAllAsync(bool onlyFiltered = false, CancellationToken cancellationToken = default);
-    Task<PublicValidationResultWithStatistics> ValidateAllWithStatisticsAsync(bool onlyFiltered = false, CancellationToken cancellationToken = default);
+    Task<Result<bool>> ValidateAllAsync(bool onlyFiltered = false, bool onlyChecked = false, CancellationToken cancellationToken = default);
+    Task<PublicValidationResultWithStatistics> ValidateAllWithStatisticsAsync(bool onlyFiltered = false, bool onlyChecked = false, CancellationToken cancellationToken = default);
     void RefreshValidationResultsToUI();
     string GetValidationAlerts(int rowIndex);
     bool HasValidationErrors(int rowIndex);

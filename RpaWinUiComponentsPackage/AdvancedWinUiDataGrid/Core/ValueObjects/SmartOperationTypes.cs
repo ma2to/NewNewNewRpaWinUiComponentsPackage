@@ -152,6 +152,39 @@ internal sealed record RowManagementResult
     internal IReadOnlyList<string> Messages { get; init; } = Array.Empty<string>();
     internal RowManagementStatistics Statistics { get; init; } = new();
 
+    #region Granular Update Metadata (for 10M+ row performance optimization)
+
+    /// <summary>
+    /// Indices of rows that were physically deleted from storage.
+    /// Used for granular UI updates (Remove action) instead of full rebuild.
+    /// Empty for Scenario A (clear content only).
+    /// </summary>
+    internal IReadOnlyList<int> PhysicallyDeletedIndices { get; init; } = Array.Empty<int>();
+
+    /// <summary>
+    /// Indices of rows where content was cleared but row structure remains.
+    /// Used for granular UI updates (update cell values) instead of full rebuild.
+    /// Empty for Scenario B (physical delete).
+    /// </summary>
+    internal IReadOnlyList<int> ContentClearedIndices { get; init; } = Array.Empty<int>();
+
+    /// <summary>
+    /// Dictionary of row indices to updated row data (e.g., shifted rows after delete).
+    /// Key: Row index, Value: New row data for that index.
+    /// Used for granular UI updates (update cell values) instead of full rebuild.
+    /// </summary>
+    internal IReadOnlyDictionary<int, IReadOnlyDictionary<string, object?>> UpdatedRowData { get; init; }
+        = new Dictionary<int, IReadOnlyDictionary<string, object?>>();
+
+    /// <summary>
+    /// Indices of rows that may be affected by this operation for validation purposes.
+    /// Used for selective validation instead of validating all rows.
+    /// Includes deleted/cleared rows and rows with dependent column values.
+    /// </summary>
+    internal IReadOnlyList<int> AffectedRowIndices { get; init; } = Array.Empty<int>();
+
+    #endregion
+
     internal static RowManagementResult CreateSuccess(
         int finalRowCount,
         int processedRows,

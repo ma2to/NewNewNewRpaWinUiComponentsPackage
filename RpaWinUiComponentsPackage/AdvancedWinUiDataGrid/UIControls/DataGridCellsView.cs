@@ -122,7 +122,9 @@ public sealed class DataGridCellsView : UserControl
         }
         else if (e.Action == NotifyCollectionChangedAction.Reset)
         {
-            _rowsPanel.Children.Clear();
+            // CRITICAL FIX: Reset means "everything changed, rebuild all rows"
+            // This is fired by BulkObservableCollection.AddRange() after bulk import
+            RebuildAllRows();
         }
     }
 

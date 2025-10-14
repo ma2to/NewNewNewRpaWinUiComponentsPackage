@@ -10,14 +10,19 @@ internal interface IRowStore
 {
     /// <summary>
     /// Stream rows in batches for memory-efficient processing
-    /// Supports filtered and unfiltered data retrieval
+    /// Supports filtered and unfiltered data retrieval, with optional checkbox filtering
     /// </summary>
     /// <param name="onlyFiltered">If true, returns only rows that match active filters</param>
+    /// <param name="onlyChecked">If true, returns only rows where checkbox column is checked</param>
     /// <param name="batchSize">Number of rows per batch</param>
     /// <param name="cancellationToken">Cancellation token for async operations</param>
     /// <returns>Async enumerable of row batches</returns>
+    /// <remarks>
+    /// When both onlyFiltered and onlyChecked are true, returns rows that match BOTH criteria (AND logic)
+    /// </remarks>
     IAsyncEnumerable<IReadOnlyList<IReadOnlyDictionary<string, object?>>> StreamRowsAsync(
         bool onlyFiltered = false,
+        bool onlyChecked = false,
         int batchSize = 1000,
         CancellationToken cancellationToken = default);
 
@@ -97,10 +102,12 @@ internal interface IRowStore
     /// Check if validation state exists for current scope
     /// </summary>
     /// <param name="onlyFiltered">Whether to check filtered or all data</param>
+    /// <param name="onlyChecked">Whether to check only checked rows</param>
     /// <param name="cancellationToken">Cancellation token for async operations</param>
     /// <returns>True if validation state exists</returns>
     Task<bool> HasValidationStateForScopeAsync(
         bool onlyFiltered,
+        bool onlyChecked = false,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -108,20 +115,24 @@ internal interface IRowStore
     /// Fast path for validation operations
     /// </summary>
     /// <param name="onlyFiltered">Whether to check filtered or all data</param>
+    /// <param name="onlyChecked">Whether to check only checked rows</param>
     /// <param name="cancellationToken">Cancellation token for async operations</param>
     /// <returns>True if all non-empty rows are valid</returns>
     Task<bool> AreAllNonEmptyRowsMarkedValidAsync(
         bool onlyFiltered,
+        bool onlyChecked = false,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Get validation errors for rows
     /// </summary>
     /// <param name="onlyFiltered">Whether to get errors for filtered or all data</param>
+    /// <param name="onlyChecked">Whether to get errors for only checked rows</param>
     /// <param name="cancellationToken">Cancellation token for async operations</param>
     /// <returns>Validation errors found</returns>
     Task<IReadOnlyList<ValidationError>> GetValidationErrorsAsync(
         bool onlyFiltered = false,
+        bool onlyChecked = false,
         CancellationToken cancellationToken = default);
 
     /// <summary>

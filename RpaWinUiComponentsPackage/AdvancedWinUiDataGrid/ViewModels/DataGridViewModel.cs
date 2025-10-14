@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -14,8 +15,15 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.ViewModels;
 public sealed class DataGridViewModel : ViewModelBase
 {
     private readonly ILogger<DataGridViewModel>? _logger;
+    private readonly Microsoft.UI.Dispatching.DispatcherQueue? _dispatcherQueue;
     private bool _isSearchPanelVisible = true;
     private bool _isFilterRowVisible = true;
+
+    // MEMORY LEAK FIX: Track event handlers to properly unsubscribe them
+    private readonly List<(ColumnHeaderViewModel header, PropertyChangedEventHandler handler)> _headerHandlers = new();
+
+    // PERFORMANCE FIX #1: Debounce/Throttle resize events to prevent excessive UI rebuilds
+    private System.Threading.Timer? _columnResizeThrottle;
 
     /// <summary>
     /// ViewModel for the search panel (contains search text, case sensitivity, etc.)
@@ -39,17 +47,20 @@ public sealed class DataGridViewModel : ViewModelBase
 
     /// <summary>
     /// Collection of data rows (each row contains cells)
+    /// Uses BulkObservableCollection for efficient bulk operations with large datasets
     /// </summary>
-    public ObservableCollection<DataGridRowViewModel> Rows { get; } = new();
+    public BulkObservableCollection<DataGridRowViewModel> Rows { get; } = new();
 
     /// <summary>
     /// Creates a new instance of the DataGridViewModel.
     /// This is the main view model that manages all grid state including columns, rows, filters, and search.
     /// </summary>
     /// <param name="logger">Optional logger for diagnostics and troubleshooting</param>
-    public DataGridViewModel(ILogger<DataGridViewModel>? logger = null)
+    /// <param name="dispatcherQueue">Optional DispatcherQueue for UI thread marshalling (required for resize operations)</param>
+    public DataGridViewModel(ILogger<DataGridViewModel>? logger = null, Microsoft.UI.Dispatching.DispatcherQueue? dispatcherQueue = null)
     {
         _logger = logger;
+        _dispatcherQueue = dispatcherQueue;
         _logger?.LogInformation("DataGridViewModel created");
     }
 
@@ -114,6 +125,7 @@ public sealed class DataGridViewModel : ViewModelBase
     /// Initializes columns from the provided column names with support for special columns.
     /// Creates headers and filter inputs for each column, and sets up width synchronization.
     /// Special columns (RowNumber, Checkbox, ValidationAlerts, DeleteRow) are added based on options.
+    /// MEMORY LEAK FIX: Properly unsubscribes old event handlers before creating new ones.
     /// </summary>
     /// <param name="columnNames">Names of the data columns to initialize</param>
     /// <param name="options">Grid options containing special column configuration (optional)</param>
@@ -121,6 +133,13 @@ public sealed class DataGridViewModel : ViewModelBase
     {
         var columnList = columnNames.ToList();
         _logger?.LogInformation("Initializing {Count} data columns with special columns support", columnList.Count);
+
+        // MEMORY LEAK FIX: Unsubscribe old event handlers BEFORE clearing collections
+        foreach (var (header, handler) in _headerHandlers)
+        {
+            header.PropertyChanged -= handler;
+        }
+        _headerHandlers.Clear();
 
         ColumnHeaders.Clear();
         FilterRow.ColumnFilters.Clear();
@@ -172,14 +191,17 @@ public sealed class DataGridViewModel : ViewModelBase
                 DisplayOrder = displayOrder++
             };
 
+            // MEMORY LEAK FIX: Store handler reference for later cleanup
             // Subscribe to Width changes to keep filters and cells synchronized
-            header.PropertyChanged += (s, e) =>
+            PropertyChangedEventHandler handler = (s, e) =>
             {
                 if (e.PropertyName == nameof(ColumnHeaderViewModel.Width))
                 {
                     SyncColumnWidth(header.ColumnName, header.Width);
                 }
             };
+            header.PropertyChanged += handler;
+            _headerHandlers.Add((header, handler));
 
             ColumnHeaders.Add(header);
 
@@ -286,20 +308,40 @@ public sealed class DataGridViewModel : ViewModelBase
     /// <summary>
     /// Synchronizes column width across header, filter, and all cells in that column
     /// Fires ColumnDefinitionsChanged event to notify UI controls to rebuild their layouts
+    /// PERFORMANCE FIX #1: Uses debounce/throttle to prevent excessive UI rebuilds during resize
+    /// CRITICAL FIX: Dispatches event to UI thread to prevent COMException
     /// </summary>
     /// <param name="columnName">Name of the column</param>
     /// <param name="newWidth">New width to apply</param>
     public void SyncColumnWidth(string columnName, double newWidth)
     {
-        // Update filter width
+        // Update filter width immediately (lightweight operation)
         var filter = FilterRow.ColumnFilters.FirstOrDefault(f => f.ColumnName == columnName);
         if (filter != null)
         {
             filter.Width = newWidth;
         }
 
-        // Notify UI controls to rebuild their Grid.ColumnDefinitions
-        ColumnDefinitionsChanged?.Invoke(this, EventArgs.Empty);
+        // PERFORMANCE FIX #1: Debounce UI notification - only notify AFTER resize is complete
+        // This prevents rebuilding ALL views (HeadersRowView, DataGridCellsView, FilterRowView) on every mouse move
+        _columnResizeThrottle?.Dispose();
+        _columnResizeThrottle = new System.Threading.Timer(_ =>
+        {
+            // CRITICAL FIX: Dispatch to UI thread to prevent COMException
+            // Timer callback runs on background thread, but ColumnDefinitions.Clear() must run on UI thread
+            if (_dispatcherQueue != null)
+            {
+                _dispatcherQueue.TryEnqueue(() =>
+                {
+                    ColumnDefinitionsChanged?.Invoke(this, EventArgs.Empty);
+                });
+            }
+            else
+            {
+                // Fallback if no dispatcher available (should not happen in normal usage)
+                ColumnDefinitionsChanged?.Invoke(this, EventArgs.Empty);
+            }
+        }, null, 150, System.Threading.Timeout.Infinite); // 150ms debounce delay
     }
 
     /// <summary>
@@ -307,6 +349,7 @@ public sealed class DataGridViewModel : ViewModelBase
     /// Creates a CellViewModel for each cell, linking it to the theme manager for visual styling.
     /// Special column cells are populated with computed values (RowNumber, Checkbox state, etc.).
     /// If a column value is missing in a row, the cell will have a null value.
+    /// PERFORMANCE: Uses BulkObservableCollection.AddRange for efficient bulk loading.
     /// </summary>
     /// <param name="rowsData">Collection of rows to load, where each row is a dictionary of column name to value</param>
     public void LoadRows(IEnumerable<IReadOnlyDictionary<string, object?>> rowsData)
@@ -315,6 +358,9 @@ public sealed class DataGridViewModel : ViewModelBase
         _logger?.LogInformation("Loading {RowCount} rows into grid with special columns support", dataList.Count);
 
         Rows.Clear();
+
+        // PERFORMANCE: Build all rows first, then add in bulk with single notification
+        var rowViewModels = new List<DataGridRowViewModel>(dataList.Count);
 
         int rowIndex = 0;
         foreach (var rowData in dataList)
@@ -370,9 +416,13 @@ public sealed class DataGridViewModel : ViewModelBase
                 rowVm.Cells.Add(cellVm);
             }
 
-            Rows.Add(rowVm);
+            rowViewModels.Add(rowVm);
             rowIndex++;
         }
+
+        // CRITICAL PERFORMANCE: Use AddRange instead of individual Add() calls
+        // For 10M rows: 10M events → 1 event = MASSIVE speedup
+        Rows.AddRange(rowViewModels);
 
         _logger?.LogInformation("Rows loaded successfully with {SpecialCount} special columns per row",
             ColumnHeaders.Count(h => h.IsSpecialColumn));
@@ -381,10 +431,18 @@ public sealed class DataGridViewModel : ViewModelBase
     /// <summary>
     /// Clears all data from the grid, including rows, columns, filters, and search criteria.
     /// This resets the grid to a completely empty state.
+    /// MEMORY LEAK FIX: Properly unsubscribes all event handlers before clearing.
     /// </summary>
     public void Clear()
     {
         _logger?.LogInformation("Clearing all grid data");
+
+        // MEMORY LEAK FIX: Unsubscribe all event handlers BEFORE clearing
+        foreach (var (header, handler) in _headerHandlers)
+        {
+            header.PropertyChanged -= handler;
+        }
+        _headerHandlers.Clear();
 
         Rows.Clear();
         ColumnHeaders.Clear();

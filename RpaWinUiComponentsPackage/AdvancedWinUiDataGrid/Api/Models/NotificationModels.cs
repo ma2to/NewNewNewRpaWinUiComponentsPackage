@@ -55,6 +55,32 @@ public sealed class PublicDataRefreshEventArgs
     /// Time when refresh occurred
     /// </summary>
     public DateTime RefreshTime { get; init; }
+
+    #region Granular Update Metadata (for 10M+ row performance optimization)
+
+    /// <summary>
+    /// Indices of rows that were physically deleted from the grid.
+    /// Used by InternalUIUpdateHandler for granular RemoveAt() operations instead of full rebuild.
+    /// Empty for Scenario A (content clear only) operations.
+    /// </summary>
+    public IReadOnlyList<int> PhysicallyDeletedIndices { get; init; } = Array.Empty<int>();
+
+    /// <summary>
+    /// Indices of rows where content was cleared but row structure remains.
+    /// Used by InternalUIUpdateHandler for granular cell value updates instead of full rebuild.
+    /// Empty for Scenario B (physical delete) operations.
+    /// </summary>
+    public IReadOnlyList<int> ContentClearedIndices { get; init; } = Array.Empty<int>();
+
+    /// <summary>
+    /// Dictionary of row indices to updated row data (e.g., shifted rows after delete).
+    /// Key: Row index, Value: New row data for that index.
+    /// Used by InternalUIUpdateHandler for granular cell value updates instead of full rebuild.
+    /// </summary>
+    public IReadOnlyDictionary<int, IReadOnlyDictionary<string, object?>> UpdatedRowData { get; init; }
+        = new Dictionary<int, IReadOnlyDictionary<string, object?>>();
+
+    #endregion
 }
 
 /// <summary>

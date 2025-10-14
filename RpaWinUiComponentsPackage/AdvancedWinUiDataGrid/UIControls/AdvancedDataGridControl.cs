@@ -52,7 +52,7 @@ public sealed class AdvancedDataGridControl : UserControl
     public AdvancedDataGridControl(ILogger<AdvancedDataGridControl>? logger = null)
     {
         _logger = logger;
-        ViewModel = new DataGridViewModel();
+        ViewModel = new DataGridViewModel(null, this.DispatcherQueue);
 
         _logger?.LogInformation("AdvancedDataGridControl created with new ViewModel");
 

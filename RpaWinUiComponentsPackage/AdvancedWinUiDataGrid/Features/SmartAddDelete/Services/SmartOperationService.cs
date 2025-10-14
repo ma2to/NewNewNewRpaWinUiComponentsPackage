@@ -113,7 +113,7 @@ internal sealed class SmartOperationService : ISmartOperationService
             {
                 _logger.LogInformation("Starting automatic post-SmartAdd batch validation for operation {OperationId}", operationId);
 
-                var postAddValidation = await _validationService.AreAllNonEmptyRowsValidAsync(false, cancellationToken);
+                var postAddValidation = await _validationService.AreAllNonEmptyRowsValidAsync(false, false, cancellationToken);
                 if (!postAddValidation.IsSuccess)
                 {
                     _logger.LogWarning("Post-SmartAdd validation found issues for operation {OperationId}: {Error}",
@@ -175,6 +175,12 @@ internal sealed class SmartOperationService : ISmartOperationService
             var rowsContentCleared = 0;
             var rowsShifted = 0;
 
+            // PERFORMANCE OPTIMIZATION: Track affected indices for granular UI updates (10M+ row support)
+            var physicallyDeletedList = new List<int>();
+            var contentClearedList = new List<int>();
+            var updatedRowDataDict = new Dictionary<int, IReadOnlyDictionary<string, object?>>();
+            var affectedRowIndicesList = new List<int>();
+
             // SMART DELETE LOGIC:
             // A) If currentRows <= minimumRows: clear content only + shift rows up
             // B) If currentRows > minimumRows: physical delete (but keep 1 empty at end)
@@ -182,14 +188,21 @@ internal sealed class SmartOperationService : ISmartOperationService
             if (currentRows <= minRows || !command.Configuration.EnableSmartDelete)
             {
                 // Scenario A: Clear content + shift up
+                _logger.LogDebug("SmartDelete Scenario A: Clear content + shift (currentRows={Current} <= minRows={Min})", currentRows, minRows);
+
                 var allRows = (await _rowStore.GetAllRowsAsync(cancellationToken)).ToList();
                 var rowsToModify = allRows.ToList();
 
-                foreach (var rowIndex in command.RowIndexesToDelete.OrderByDescending(i => i))
+                // Sort descending to avoid index shifting issues during iteration
+                var sortedIndicesToDelete = command.RowIndexesToDelete.OrderByDescending(i => i).ToList();
+
+                foreach (var rowIndex in sortedIndicesToDelete)
                 {
                     if (rowIndex < rowsToModify.Count)
                     {
-                        // Clear content of this row and shift
+                        // Track content cleared
+                        contentClearedList.Add(rowIndex);
+                        affectedRowIndicesList.Add(rowIndex);
                         rowsContentCleared++;
 
                         // Remove the row and add empty at end
@@ -197,23 +210,45 @@ internal sealed class SmartOperationService : ISmartOperationService
                         var emptyRow = CreateEmptyRow(allRows.FirstOrDefault());
                         rowsToModify.Add(emptyRow);
                         rowsShifted++;
+
+                        // Track shifted rows for granular UI update
+                        // All rows from deleted index to (count-1) have been shifted up by 1 position
+                        for (int shiftedIdx = rowIndex; shiftedIdx < rowsToModify.Count - 1; shiftedIdx++)
+                        {
+                            updatedRowDataDict[shiftedIdx] = rowsToModify[shiftedIdx];
+                            _logger.LogTrace("Tracked shifted row: index {Index}", shiftedIdx);
+                        }
                     }
                 }
+
+                _logger.LogDebug("Scenario A metadata: ContentCleared={Cleared}, UpdatedRows={Updated}, AffectedRows={Affected}",
+                    contentClearedList.Count, updatedRowDataDict.Count, affectedRowIndicesList.Count);
 
                 await _rowStore.ReplaceAllRowsAsync(rowsToModify, cancellationToken);
             }
             else
             {
                 // Scenario B: Physical delete
+                _logger.LogDebug("SmartDelete Scenario B: Physical delete (currentRows={Current} > minRows={Min})", currentRows, minRows);
+
                 var allRows = (await _rowStore.GetAllRowsAsync(cancellationToken)).ToList();
                 var rowsToKeep = allRows.ToList();
 
-                foreach (var rowIndex in command.RowIndexesToDelete.OrderByDescending(i => i))
+                // Sort descending to avoid index shifting issues during iteration
+                var sortedIndicesToDelete = command.RowIndexesToDelete.OrderByDescending(i => i).ToList();
+
+                foreach (var rowIndex in sortedIndicesToDelete)
                 {
                     if (rowIndex < rowsToKeep.Count)
                     {
+                        // Track physical deletion
+                        physicallyDeletedList.Add(rowIndex);
+                        affectedRowIndicesList.Add(rowIndex);
+
                         rowsToKeep.RemoveAt(rowIndex);
                         rowsPhysicallyDeleted++;
+
+                        _logger.LogTrace("Tracked physical delete: index {Index}", rowIndex);
                     }
                 }
 
@@ -224,6 +259,9 @@ internal sealed class SmartOperationService : ISmartOperationService
                     var emptyRow = CreateEmptyRow(lastRow);
                     rowsToKeep.Add(emptyRow);
                 }
+
+                _logger.LogDebug("Scenario B metadata: PhysicallyDeleted={Deleted}, AffectedRows={Affected}",
+                    physicallyDeletedList.Count, affectedRowIndicesList.Count);
 
                 await _rowStore.ReplaceAllRowsAsync(rowsToKeep, cancellationToken);
             }
@@ -250,7 +288,7 @@ internal sealed class SmartOperationService : ISmartOperationService
             {
                 _logger.LogInformation("Starting automatic post-SmartDelete batch validation for operation {OperationId}", operationId);
 
-                var postDeleteValidation = await _validationService.AreAllNonEmptyRowsValidAsync(false, cancellationToken);
+                var postDeleteValidation = await _validationService.AreAllNonEmptyRowsValidAsync(false, false, cancellationToken);
                 if (!postDeleteValidation.IsSuccess)
                 {
                     _logger.LogWarning("Post-SmartDelete validation found issues for operation {OperationId}: {Error}",
@@ -270,12 +308,22 @@ internal sealed class SmartOperationService : ISmartOperationService
 
             scope.MarkSuccess(new { Duration = stopwatch.Elapsed, FinalRowCount = finalRowCount });
 
-            return RowManagementResult.CreateSuccess(
+            // Create result with granular metadata for 10M+ row performance
+            var result = RowManagementResult.CreateSuccess(
                 finalRowCount,
                 command.RowIndexesToDelete.Count,
                 RowOperationType.SmartDelete,
                 stopwatch.Elapsed,
                 statistics);
+
+            // Add granular update metadata (using record 'with' expression for immutability)
+            return result with
+            {
+                PhysicallyDeletedIndices = physicallyDeletedList.AsReadOnly(),
+                ContentClearedIndices = contentClearedList.AsReadOnly(),
+                UpdatedRowData = updatedRowDataDict,
+                AffectedRowIndices = affectedRowIndicesList.Distinct().OrderBy(i => i).ToList().AsReadOnly()
+            };
         }
         catch (Exception ex)
         {

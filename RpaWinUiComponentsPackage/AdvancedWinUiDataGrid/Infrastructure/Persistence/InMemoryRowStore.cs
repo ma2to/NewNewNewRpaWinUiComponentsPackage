@@ -144,20 +144,26 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
 
     /// <summary>
     /// Stream rows in batches - IRowStore implementation
+    /// Supports filtering by both filtered state and checked state
     /// </summary>
     public async IAsyncEnumerable<IReadOnlyList<IReadOnlyDictionary<string, object?>>> StreamRowsAsync(
         bool onlyFiltered = false,
+        bool onlyChecked = false,
         int batchSize = 1000,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Streaming rows in batches: onlyFiltered={OnlyFiltered}, batchSize={BatchSize}",
-            onlyFiltered, batchSize);
+        _logger.LogDebug("Streaming rows in batches: onlyFiltered={OnlyFiltered}, onlyChecked={OnlyChecked}, batchSize={BatchSize}",
+            onlyFiltered, onlyChecked, batchSize);
 
         await Task.Yield(); // Make it truly async
 
         var allRows = _rows.Values
             .Where(row => !onlyFiltered || IsRowVisible(row))
+            .Where(row => !onlyChecked || IsRowChecked(row))
             .ToList();
+
+        _logger.LogInformation("Filtered {TotalRows} rows: onlyFiltered={OnlyFiltered}, onlyChecked={OnlyChecked}, result={ResultCount}",
+            _rows.Count, onlyFiltered, onlyChecked, allRows.Count);
 
         for (int i = 0; i < allRows.Count; i += batchSize)
         {
@@ -267,6 +273,7 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
     /// </summary>
     public Task<bool> HasValidationStateForScopeAsync(
         bool onlyFiltered,
+        bool onlyChecked = false,
         CancellationToken cancellationToken = default)
     {
         return Task.FromResult(_hasValidationState);
@@ -274,9 +281,11 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
 
     /// <summary>
     /// Check if all non-empty rows are valid - IRowStore implementation
+    /// Supports filtering by both filtered state and checked state
     /// </summary>
     public Task<bool> AreAllNonEmptyRowsMarkedValidAsync(
         bool onlyFiltered,
+        bool onlyChecked = false,
         CancellationToken cancellationToken = default)
     {
         if (!_hasValidationState)
@@ -284,25 +293,35 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
 
         var rowsToCheck = _rows.Values
             .Where(row => !onlyFiltered || IsRowVisible(row))
+            .Where(row => !onlyChecked || IsRowChecked(row))
             .Where(row => !IsRowEmpty(row));
 
         var allValid = !_validationErrors.Any() ||
                        rowsToCheck.All(row => !_validationErrors.ContainsKey(GetRowId(row)));
+
+        _logger.LogDebug("Checked validation state: onlyFiltered={OnlyFiltered}, onlyChecked={OnlyChecked}, allValid={AllValid}",
+            onlyFiltered, onlyChecked, allValid);
 
         return Task.FromResult(allValid);
     }
 
     /// <summary>
     /// Get validation errors - IRowStore implementation
+    /// Supports filtering by both filtered state and checked state
     /// </summary>
     public Task<IReadOnlyList<ValidationError>> GetValidationErrorsAsync(
         bool onlyFiltered = false,
+        bool onlyChecked = false,
         CancellationToken cancellationToken = default)
     {
         var errors = _validationErrors.Values
             .SelectMany(list => list)
-            .Where(error => !onlyFiltered || IsRowVisible(_rows.GetValueOrDefault(error.RowIndex)
-                ?? new Dictionary<string, object?>()))
+            .Where(error =>
+            {
+                var row = _rows.GetValueOrDefault(error.RowIndex) ?? new Dictionary<string, object?>();
+                return (!onlyFiltered || IsRowVisible(row)) &&
+                       (!onlyChecked || IsRowChecked(row));
+            })
             .ToList();
 
         return Task.FromResult<IReadOnlyList<ValidationError>>(errors);
@@ -447,6 +466,27 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
         }
 
         return true; // Default to visible
+    }
+
+    private bool IsRowChecked(IReadOnlyDictionary<string, object?> row)
+    {
+        // Check if row has checkbox column marked as checked
+        // Look for typical checkbox column names
+        foreach (var kvp in row)
+        {
+            var columnName = kvp.Key.ToLowerInvariant();
+            if ((columnName.Contains("selected") ||
+                 columnName.Contains("checked") ||
+                 columnName.Contains("check") ||
+                 columnName == "isselected" ||
+                 columnName == "ischecked") &&
+                kvp.Value is bool boolValue)
+            {
+                return boolValue;
+            }
+        }
+
+        return false; // Default to not checked
     }
 
     private bool IsRowEmpty(IReadOnlyDictionary<string, object?> row)

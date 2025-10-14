@@ -125,6 +125,13 @@ internal static class ServiceRegistration
             // UI notification service available for BOTH modes (if DispatcherQueue provided)
             services.TryAddSingleton<UIAdapters.WinUI.UiNotificationService>();
             services.TryAddSingleton<UIAdapters.WinUI.GridViewModelAdapter>();
+
+            // CRITICAL: InternalUIUpdateHandler for automatic granular updates (10M+ row performance)
+            // ONLY registered in Interactive mode - Headless mode does not need automatic UI updates
+            if (options.OperationMode == PublicDataGridOperationMode.Interactive)
+            {
+                services.TryAddSingleton<UIAdapters.WinUI.InternalUIUpdateHandler>();
+            }
         }
 
         // Register logging infrastructure (OPTIONAL - uses null object pattern if ILoggerFactory is not available)

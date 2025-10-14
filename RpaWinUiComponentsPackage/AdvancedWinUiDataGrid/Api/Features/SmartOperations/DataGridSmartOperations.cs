@@ -58,8 +58,9 @@ internal sealed class DataGridSmartOperations : IDataGridSmartOperations
             // Execute via internal service
             var result = await _smartOperationService.SmartDeleteRowsAsync(command, cancellationToken);
 
-            // Trigger UI refresh if needed
-            await TriggerUIRefreshIfNeededAsync("SmartDeleteRows", result.ProcessedRows);
+            // CRITICAL FIX: Trigger UI refresh for Interactive mode with granular metadata
+            // ReplaceAllRowsAsync is storage-only, UI event must be fired explicitly
+            await TriggerUIRefreshWithMetadataAsync("SmartDeleteRows", result);
 
             // Convert result to public
             return MapToPublicResult(result);
@@ -101,8 +102,9 @@ internal sealed class DataGridSmartOperations : IDataGridSmartOperations
             // Execute via internal service
             var result = await _smartOperationService.SmartAddRowsAsync(command, cancellationToken);
 
-            // Trigger UI refresh if needed
-            await TriggerUIRefreshIfNeededAsync("SmartAddRows", result.ProcessedRows);
+            // CRITICAL FIX: Trigger UI refresh for Interactive mode with granular metadata
+            // AppendRowsAsync is storage-only, UI event must be fired explicitly
+            await TriggerUIRefreshWithMetadataAsync("SmartAddRows", result);
 
             // Convert result to public
             return MapToPublicResult(result);
@@ -136,8 +138,9 @@ internal sealed class DataGridSmartOperations : IDataGridSmartOperations
             // Execute via internal service
             var result = await _smartOperationService.AutoExpandEmptyRowAsync(command, cancellationToken);
 
-            // Trigger UI refresh if needed
-            await TriggerUIRefreshIfNeededAsync("AutoExpandEmptyRow", result.ProcessedRows);
+            // CRITICAL FIX: Trigger UI refresh for Interactive mode with granular metadata
+            // AppendRowsAsync is storage-only, UI event must be fired explicitly
+            await TriggerUIRefreshWithMetadataAsync("AutoExpandEmptyRow", result);
 
             // Convert result to public
             return MapToPublicResult(result);
@@ -214,10 +217,37 @@ internal sealed class DataGridSmartOperations : IDataGridSmartOperations
 
     private async Task TriggerUIRefreshIfNeededAsync(string operationType, int affectedRows)
     {
-        // Automatic refresh ONLY in Interactive mode
+        // Automatic refresh ONLY in Interactive mode (legacy method)
         if (_options.OperationMode == PublicDataGridOperationMode.Interactive && _uiNotificationService != null)
         {
             await _uiNotificationService.NotifyDataRefreshAsync(affectedRows, operationType);
+        }
+        // In Readonly/Headless mode → skip (automatic refresh is disabled)
+    }
+
+    private async Task TriggerUIRefreshWithMetadataAsync(string operationType, RowManagementResult result)
+    {
+        // Automatic refresh ONLY in Interactive mode with granular metadata
+        if (_options.OperationMode == PublicDataGridOperationMode.Interactive && _uiNotificationService != null)
+        {
+            var eventArgs = new PublicDataRefreshEventArgs
+            {
+                AffectedRows = result.ProcessedRows,
+                ColumnCount = 0,
+                OperationType = operationType,
+                RefreshTime = DateTime.UtcNow,
+                PhysicallyDeletedIndices = result.PhysicallyDeletedIndices,
+                ContentClearedIndices = result.ContentClearedIndices,
+                UpdatedRowData = result.UpdatedRowData
+            };
+
+            _logger?.LogDebug("Triggering UI refresh with metadata: Op={Op}, PhysicalDeletes={Del}, ContentClears={Clr}, Updates={Upd}",
+                operationType,
+                result.PhysicallyDeletedIndices.Count,
+                result.ContentClearedIndices.Count,
+                result.UpdatedRowData.Count);
+
+            await _uiNotificationService.NotifyDataRefreshWithMetadataAsync(eventArgs);
         }
         // In Readonly/Headless mode → skip (automatic refresh is disabled)
     }

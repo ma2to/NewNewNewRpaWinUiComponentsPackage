@@ -165,7 +165,7 @@ internal sealed class UiNotificationService
     }
 
     /// <summary>
-    /// Notify UI about data refresh
+    /// Notify UI about data refresh (legacy overload for backwards compatibility)
     /// </summary>
     /// <param name="rowCount">Number of rows</param>
     /// <param name="columnCount">Number of columns</param>
@@ -176,13 +176,21 @@ internal sealed class UiNotificationService
             _logger.LogInformation("UI notification: Data refreshed - Rows: {RowCount}, Columns: {ColumnCount}",
                 rowCount, columnCount);
 
-            OnDataRefreshed?.Invoke(rowCount, columnCount);
+            var eventArgs = new PublicDataRefreshEventArgs
+            {
+                AffectedRows = rowCount,
+                ColumnCount = columnCount,
+                OperationType = "DataRefresh",
+                RefreshTime = DateTime.UtcNow
+            };
+
+            OnDataRefreshed?.Invoke(eventArgs);
         });
     }
 
     /// <summary>
     /// Notify UI about data refresh (async version with operation type)
-    /// Used for unified UI/Headless architecture
+    /// Used for unified UI/Headless architecture (legacy overload)
     /// </summary>
     /// <param name="affectedRows">Number of affected rows</param>
     /// <param name="operationType">Type of operation that triggered refresh</param>
@@ -193,8 +201,37 @@ internal sealed class UiNotificationService
             _logger.LogInformation("UI notification: Data refreshed - AffectedRows: {AffectedRows}, Operation: {OperationType}",
                 affectedRows, operationType);
 
-            // Trigger data refreshed event
-            OnDataRefreshed?.Invoke(affectedRows, 0);
+            var eventArgs = new PublicDataRefreshEventArgs
+            {
+                AffectedRows = affectedRows,
+                ColumnCount = 0,
+                OperationType = operationType,
+                RefreshTime = DateTime.UtcNow
+            };
+
+            OnDataRefreshed?.Invoke(eventArgs);
+
+            await Task.CompletedTask;
+        });
+    }
+
+    /// <summary>
+    /// Notify UI about data refresh with granular metadata for 10M+ row performance.
+    /// Includes affected indices and updated row data for granular UI updates.
+    /// </summary>
+    /// <param name="eventArgs">Event args with granular metadata</param>
+    public Task NotifyDataRefreshWithMetadataAsync(PublicDataRefreshEventArgs eventArgs)
+    {
+        return ExecuteOnUIThreadAsync(async () =>
+        {
+            _logger.LogInformation("UI notification with metadata: Operation={Op}, AffectedRows={Affected}, PhysicalDeletes={Del}, ContentClears={Clr}, Updates={Upd}",
+                eventArgs.OperationType,
+                eventArgs.AffectedRows,
+                eventArgs.PhysicallyDeletedIndices.Count,
+                eventArgs.ContentClearedIndices.Count,
+                eventArgs.UpdatedRowData.Count);
+
+            OnDataRefreshed?.Invoke(eventArgs);
 
             await Task.CompletedTask;
         });
@@ -223,9 +260,10 @@ internal sealed class UiNotificationService
     public event Action<int, bool>? OnValidationResultsRefreshed;
 
     /// <summary>
-    /// Event raised when data is refreshed
+    /// Event raised when data is refreshed with granular metadata for 10M+ row performance.
+    /// Subscribers receive PublicDataRefreshEventArgs containing affected indices and updated row data.
     /// </summary>
-    public event Action<int, int>? OnDataRefreshed;
+    public event Action<PublicDataRefreshEventArgs>? OnDataRefreshed;
 
     /// <summary>
     /// Event raised when operation progress is updated

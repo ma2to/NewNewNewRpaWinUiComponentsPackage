@@ -203,19 +203,12 @@ internal sealed class DataGridNotifications : IDataGridNotifications
         if (handler == null)
             throw new ArgumentNullException(nameof(handler));
 
-        _logger?.LogDebug("Subscribing to data refresh notifications via Notifications module");
+        _logger?.LogDebug("Subscribing to data refresh notifications via Notifications module (with granular metadata support)");
 
-        // Subscribe to internal event and wrap it
-        Action<int, int> internalHandler = (rowCount, columnCount) =>
+        // Subscribe to internal event with granular metadata support
+        // UiNotificationService now fires Action<PublicDataRefreshEventArgs> directly
+        Action<PublicDataRefreshEventArgs> internalHandler = (eventArgs) =>
         {
-            var eventArgs = new PublicDataRefreshEventArgs
-            {
-                AffectedRows = rowCount,
-                ColumnCount = columnCount,
-                OperationType = "DataRefresh",
-                RefreshTime = DateTime.UtcNow
-            };
-
             handler(eventArgs);
         };
 

@@ -204,7 +204,7 @@ internal sealed class CopyPasteService : ICopyPasteService
             {
                 _logger.LogInformation("Starting automatic post-paste batch validation for operation {OperationId}", operationId);
 
-                var postPasteValidation = await _validationService.AreAllNonEmptyRowsValidAsync(false, cancellationToken);
+                var postPasteValidation = await _validationService.AreAllNonEmptyRowsValidAsync(false, false, cancellationToken);
                 if (!postPasteValidation.IsSuccess)
                 {
                     _logger.LogWarning("Post-paste validation found issues for operation {OperationId}: {Error} [CorrelationId: {CorrelationId}]",

@@ -121,7 +121,7 @@ internal sealed class ImportService : IImportService
                 _importLogger.LogValidationStart(operationId, 0);
 
                 var validationStart = stopwatch.Elapsed;
-                var postImportValidation = await _validationService.AreAllNonEmptyRowsValidAsync(false, cancellationToken);
+                var postImportValidation = await _validationService.AreAllNonEmptyRowsValidAsync(false, false, cancellationToken);
                 var validationTime = stopwatch.Elapsed - validationStart;
 
                 if (!postImportValidation.IsSuccess)

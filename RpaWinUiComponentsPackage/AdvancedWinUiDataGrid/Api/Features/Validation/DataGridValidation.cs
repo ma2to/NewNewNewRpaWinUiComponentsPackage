@@ -21,12 +21,16 @@ internal sealed class DataGridValidation : IDataGridValidation
         _logger = logger;
     }
 
-    public async Task<PublicResult<bool>> ValidateAllAsync(bool onlyFiltered = false, CancellationToken cancellationToken = default)
+    public async Task<PublicResult<bool>> ValidateAllAsync(
+        bool onlyFiltered = false,
+        bool onlyChecked = false,
+        CancellationToken cancellationToken = default)
     {
         try
         {
-            _logger?.LogInformation("Validating all rows via Validation module (onlyFiltered: {OnlyFiltered})", onlyFiltered);
-            var result = await _validationService.ValidateAllAsync(onlyFiltered, cancellationToken);
+            _logger?.LogInformation("Validating all rows via Validation module (onlyFiltered: {OnlyFiltered}, onlyChecked: {OnlyChecked})",
+                onlyFiltered, onlyChecked);
+            var result = await _validationService.ValidateAllAsync(onlyFiltered, onlyChecked, cancellationToken);
             return result.ToPublic();
         }
         catch (Exception ex)
@@ -36,12 +40,16 @@ internal sealed class DataGridValidation : IDataGridValidation
         }
     }
 
-    public async Task<PublicValidationResultWithStatistics> ValidateAllWithStatisticsAsync(bool onlyFiltered = false, CancellationToken cancellationToken = default)
+    public async Task<PublicValidationResultWithStatistics> ValidateAllWithStatisticsAsync(
+        bool onlyFiltered = false,
+        bool onlyChecked = false,
+        CancellationToken cancellationToken = default)
     {
         try
         {
-            _logger?.LogInformation("Validating all rows with statistics via Validation module (onlyFiltered: {OnlyFiltered})", onlyFiltered);
-            var result = await _validationService.ValidateAllWithStatisticsAsync(onlyFiltered, cancellationToken);
+            _logger?.LogInformation("Validating all rows with statistics via Validation module (onlyFiltered: {OnlyFiltered}, onlyChecked: {OnlyChecked})",
+                onlyFiltered, onlyChecked);
+            var result = await _validationService.ValidateAllWithStatisticsAsync(onlyFiltered, onlyChecked, cancellationToken);
             // Return directly since it's already the public type
             return result;
         }
@@ -52,12 +60,16 @@ internal sealed class DataGridValidation : IDataGridValidation
         }
     }
 
-    public async Task<bool> AreAllNonEmptyRowsValidAsync(CancellationToken cancellationToken = default)
+    public async Task<bool> AreAllNonEmptyRowsValidAsync(
+        bool onlyFiltered = false,
+        bool onlyChecked = false,
+        CancellationToken cancellationToken = default)
     {
         try
         {
-            _logger?.LogInformation("Checking if all non-empty rows are valid via Validation module");
-            var result = await _validationService.ValidateAllAsync(onlyFiltered: false, cancellationToken);
+            _logger?.LogInformation("Checking if all non-empty rows are valid via Validation module (onlyFiltered: {OnlyFiltered}, onlyChecked: {OnlyChecked})",
+                onlyFiltered, onlyChecked);
+            var result = await _validationService.ValidateAllAsync(onlyFiltered, onlyChecked, cancellationToken);
             return result.IsSuccess && result.Value;
         }
         catch (Exception ex)

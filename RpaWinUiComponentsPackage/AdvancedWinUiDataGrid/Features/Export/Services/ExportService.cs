@@ -99,7 +99,7 @@ internal sealed class ExportService : IExportService
         // Špecializované export logovanie - start
         var totalRowCount = (int)await _rowStore.GetRowCountAsync(cancellationToken);
         var columnCount = 0;
-        await foreach (var firstBatch in _rowStore.StreamRowsAsync(false, 1, cancellationToken))
+        await foreach (var firstBatch in _rowStore.StreamRowsAsync(false, false, 1, cancellationToken))
         {
             columnCount = firstBatch.Count > 0 ? firstBatch[0].Count : 0;
             break;
@@ -126,9 +126,14 @@ internal sealed class ExportService : IExportService
             // Note: In Automatic mode, validation should already be done. This is just a verification.
             if (_validationService.ShouldRunAutomaticValidation("ExportAsync"))
             {
-                _logger.LogInformation("Starting automatic pre-export batch validation for operation {OperationId}", operationId);
+                _logger.LogInformation("Starting automatic pre-export batch validation for operation {OperationId} (onlyFiltered={OnlyFiltered}, onlyChecked={OnlyChecked})",
+                    operationId, command.ExportOnlyFiltered, command.ExportOnlyChecked);
 
-                var preExportValidation = await _validationService.AreAllNonEmptyRowsValidAsync(command.ExportOnlyFiltered, cancellationToken);
+                var preExportValidation = await _validationService.AreAllNonEmptyRowsValidAsync(
+                    command.ExportOnlyFiltered,
+                    command.ExportOnlyChecked,
+                    cancellationToken);
+
                 if (!preExportValidation.IsSuccess)
                 {
                     // Pre-export validation found issues - log warning (not critical, we can still export)
@@ -330,7 +335,7 @@ internal sealed class ExportService : IExportService
         var originalCount = 0;
 
         // Streamujeme dáta z row store for pamäťovú efektívnosť
-        await foreach (var batch in _rowStore.StreamRowsAsync(command.ExportOnlyFiltered, _options.ExportBatchSize, cancellationToken))
+        await foreach (var batch in _rowStore.StreamRowsAsync(command.ExportOnlyFiltered, command.ExportOnlyChecked, _options.ExportBatchSize, cancellationToken))
         {
             originalCount += batch.Count;
 
