@@ -23,8 +23,9 @@ public sealed class DataGridCellsView : UserControl
 
     /// <summary>
     /// Event fired when user requests to delete a row via delete button.
+    /// Contains both rowIndex (for display) and rowId (for stable identification).
     /// </summary>
-    public event EventHandler<int>? DeleteRowRequested;
+    public event EventHandler<DeleteRowRequestedEventArgs>? DeleteRowRequested;
 
     /// <summary>
     /// Event fired when user changes row selection via checkbox.
@@ -169,9 +170,9 @@ public sealed class DataGridCellsView : UserControl
                     HandleRowSelectionChanged(rowIndex, isSelected);
                 };
 
-                specialControl.OnDeleteRowRequested += (rowIndex) =>
+                specialControl.OnDeleteRowRequested += (sender, args) =>
                 {
-                    HandleDeleteRowRequested(rowIndex);
+                    HandleDeleteRowRequested(args);
                 };
 
                 Grid.SetColumn(specialControl, cell.ColumnIndex);
@@ -209,10 +210,10 @@ public sealed class DataGridCellsView : UserControl
     /// <summary>
     /// Handles delete row request from delete button special column
     /// </summary>
-    private void HandleDeleteRowRequested(int rowIndex)
+    private void HandleDeleteRowRequested(DeleteRowRequestedEventArgs args)
     {
         // Fire event to notify parent control (AdvancedDataGridControl)
-        DeleteRowRequested?.Invoke(this, rowIndex);
+        DeleteRowRequested?.Invoke(this, args);
     }
 
     private void OnCellsCollectionChanged(Grid rowGrid, ObservableCollection<CellViewModel> cells, NotifyCollectionChangedEventArgs e)
@@ -232,9 +233,9 @@ public sealed class DataGridCellsView : UserControl
                         HandleRowSelectionChanged(rowIndex, isSelected);
                     };
 
-                    specialControl.OnDeleteRowRequested += (rowIndex) =>
+                    specialControl.OnDeleteRowRequested += (sender, args) =>
                     {
-                        HandleDeleteRowRequested(rowIndex);
+                        HandleDeleteRowRequested(args);
                     };
 
                     Grid.SetColumn(specialControl, cell.ColumnIndex);

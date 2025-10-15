@@ -23,6 +23,9 @@ internal static class Registration
         // Validation service - Scoped per DI_DECISIONS.md
         services.AddScoped<IValidationService, ValidationService>();
 
+        // PERFORMANCE: Debounced validation service - Singleton (shared state for debouncing)
+        services.AddSingleton<DebouncedValidationService>();
+
         return services;
     }
 }

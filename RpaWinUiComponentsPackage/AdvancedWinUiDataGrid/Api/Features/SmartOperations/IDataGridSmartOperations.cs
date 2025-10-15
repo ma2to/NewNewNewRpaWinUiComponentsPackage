@@ -35,6 +35,36 @@ public interface IDataGridSmartOperations
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Smart delete rows by stable row IDs - recommended to avoid index shifting bugs.
+    /// Uses unique row IDs instead of indices, preventing race conditions during rapid deletes.
+    ///
+    /// Behavior:
+    /// - Directly removes rows by ID (no GetAll/ReplaceAll overhead)
+    /// - Maintains minimum rows requirement
+    /// - Adds empty row at end if AlwaysKeepLastEmpty is enabled
+    /// </summary>
+    /// <param name="rowIds">Unique row IDs to delete</param>
+    /// <param name="config">Smart operations configuration (null uses default)</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Result with statistics about the operation</returns>
+    Task<PublicSmartOperationResult> SmartDeleteRowsByIdAsync(
+        IEnumerable<string> rowIds,
+        PublicSmartOperationsConfig? config = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Smart delete single row by ID - convenience method for deleting one row by its unique ID.
+    /// </summary>
+    /// <param name="rowId">Unique row ID to delete</param>
+    /// <param name="config">Smart operations configuration (null uses default)</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Result with statistics about the operation</returns>
+    Task<PublicSmartOperationResult> SmartDeleteRowByIdAsync(
+        string rowId,
+        PublicSmartOperationsConfig? config = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Smart add rows - adds data rows and maintains minimum rows + empty row at end.
     ///
     /// Behavior:

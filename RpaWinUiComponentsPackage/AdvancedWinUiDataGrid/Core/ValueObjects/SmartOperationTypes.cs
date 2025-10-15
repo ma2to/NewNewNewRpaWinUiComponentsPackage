@@ -113,6 +113,13 @@ internal sealed record SmartDeleteRowsCommand
     internal IProgress<RowManagementProgress>? ProgressReporter { get; init; }
     internal CancellationToken CancellationToken { get; init; } = default;
 
+    /// <summary>
+    /// PERFORMANCE: Skip automatic validation after delete for rapid operations.
+    /// When true, validation is skipped (user can manually trigger validation after bulk operations).
+    /// When false (default), validation runs with debounce to avoid blocking UI.
+    /// </summary>
+    internal bool SkipAutomaticValidation { get; init; } = false;
+
     internal static SmartDeleteRowsCommand Create(
         IReadOnlyList<int> rowIndexesToDelete,
         RowManagementConfiguration configuration) =>

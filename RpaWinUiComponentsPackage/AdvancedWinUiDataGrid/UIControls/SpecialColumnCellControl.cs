@@ -22,9 +22,9 @@ internal sealed class SpecialColumnCellControl : UserControl
     public event Action<int, bool>? OnRowSelectionChanged;
 
     /// <summary>
-    /// Event fired when delete row button is clicked (rowIndex)
+    /// Event fired when delete row button is clicked (contains both rowIndex and rowId)
     /// </summary>
-    public event Action<int>? OnDeleteRowRequested;
+    public event EventHandler<DeleteRowRequestedEventArgs>? OnDeleteRowRequested;
 
     public SpecialColumnCellControl(CellViewModel viewModel)
     {
@@ -191,7 +191,7 @@ internal sealed class SpecialColumnCellControl : UserControl
         // Event: delete button clicked
         button.Click += (s, e) =>
         {
-            OnDeleteRowRequested?.Invoke(_viewModel.RowIndex);
+            OnDeleteRowRequested?.Invoke(this, new DeleteRowRequestedEventArgs(_viewModel.RowIndex, _viewModel.RowId));
         };
 
         var border = new Border

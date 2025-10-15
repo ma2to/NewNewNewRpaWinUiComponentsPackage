@@ -83,6 +83,53 @@ internal sealed class DataGridSmartOperations : IDataGridSmartOperations
         return await SmartDeleteRowsAsync(new[] { rowIndex }, config, cancellationToken);
     }
 
+    public async Task<PublicSmartOperationResult> SmartDeleteRowsByIdAsync(
+        IEnumerable<string> rowIds,
+        PublicSmartOperationsConfig? config = null,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var cfg = config ?? _currentConfig;
+            _logger?.LogInformation("SmartDeleteRowsByIdAsync called for {Count} row IDs", rowIds.Count());
+
+            // Convert public config to internal
+            var internalConfig = MapToInternalConfig(cfg);
+
+            // Create internal command
+            var currentRowCount = _rowStore.GetRowCount();
+            var command = SmartDeleteRowsByIdInternalCommand.Create(
+                rowIds.ToList(),
+                internalConfig,
+                currentRowCount);
+
+            // Execute via internal service
+            var result = await _smartOperationService.SmartDeleteRowsByIdAsync(command, cancellationToken);
+
+            // CRITICAL FIX: Trigger UI refresh for Interactive mode with granular metadata
+            await TriggerUIRefreshWithMetadataAsync("SmartDeleteRows", result);
+
+            // Convert result to public
+            return MapToPublicResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "SmartDeleteRowsByIdAsync failed");
+            return PublicSmartOperationResult.Failure(
+                $"Smart delete by ID failed: {ex.Message}",
+                TimeSpan.Zero,
+                new[] { ex.Message });
+        }
+    }
+
+    public async Task<PublicSmartOperationResult> SmartDeleteRowByIdAsync(
+        string rowId,
+        PublicSmartOperationsConfig? config = null,
+        CancellationToken cancellationToken = default)
+    {
+        return await SmartDeleteRowsByIdAsync(new[] { rowId }, config, cancellationToken);
+    }
+
     public async Task<PublicSmartOperationResult> SmartAddRowsAsync(
         IEnumerable<IReadOnlyDictionary<string, object?>> rowsData,
         PublicSmartOperationsConfig? config = null,

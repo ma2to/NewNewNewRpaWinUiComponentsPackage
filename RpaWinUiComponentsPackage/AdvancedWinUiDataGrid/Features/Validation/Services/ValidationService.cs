@@ -815,6 +815,7 @@ internal sealed class ValidationService : IValidationService
             "PasteAsync" => Common.Models.ValidationMode.Batch,
             "SmartAddRowsAsync" => Common.Models.ValidationMode.Batch,
             "SmartDeleteRowsAsync" => Common.Models.ValidationMode.Batch,
+            "SmartDeleteRowsByIdAsync" => Common.Models.ValidationMode.Batch,
             "UpdateCellAsync" => Common.Models.ValidationMode.RealTime,
             "UpdateRowAsync" => Common.Models.ValidationMode.RealTime,
             "BeginEditAsync" => Common.Models.ValidationMode.RealTime,
@@ -866,6 +867,7 @@ internal sealed class ValidationService : IValidationService
             "PasteAsync" => _options.EnableBatchValidation,
             "SmartAddRowsAsync" => _options.EnableBatchValidation,
             "SmartDeleteRowsAsync" => _options.EnableBatchValidation,
+            "SmartDeleteRowsByIdAsync" => _options.EnableBatchValidation,
 
             // Real-time operations - check EnableRealTimeValidation
             "UpdateCellAsync" => _options.EnableRealTimeValidation,

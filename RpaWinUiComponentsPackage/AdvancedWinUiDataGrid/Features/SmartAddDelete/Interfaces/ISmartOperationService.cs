@@ -19,9 +19,14 @@ internal interface ISmartOperationService
     Task<RowManagementResult> SmartAddRowsAsync(SmartAddRowsInternalCommand command, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Smart delete rows with context-aware logic
+    /// Smart delete rows with context-aware logic (uses row indices)
     /// </summary>
     Task<RowManagementResult> SmartDeleteRowsAsync(SmartDeleteRowsInternalCommand command, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Smart delete rows by stable row IDs (recommended to avoid index shifting bugs)
+    /// </summary>
+    Task<RowManagementResult> SmartDeleteRowsByIdAsync(SmartDeleteRowsByIdInternalCommand command, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Auto-expand empty row maintenance

@@ -37,6 +37,13 @@ internal sealed record SmartDeleteRowsInternalCommand
     internal IProgress<RowManagementProgress>? ProgressReporter { get; init; }
     internal CancellationToken CancellationToken { get; init; } = default;
 
+    /// <summary>
+    /// PERFORMANCE: Skip automatic validation after delete for rapid operations.
+    /// When true, validation is skipped (user can manually trigger validation after bulk operations).
+    /// When false (default), validation runs with debounce to avoid blocking UI.
+    /// </summary>
+    internal bool SkipAutomaticValidation { get; init; } = false;
+
     internal static SmartDeleteRowsInternalCommand Create(
         IReadOnlyList<int> rowIndexesToDelete,
         RowManagementConfiguration configuration,
@@ -44,6 +51,38 @@ internal sealed record SmartDeleteRowsInternalCommand
         new()
         {
             RowIndexesToDelete = rowIndexesToDelete,
+            Configuration = configuration,
+            CurrentRowCount = currentRowCount
+        };
+}
+
+/// <summary>
+/// COMMAND PATTERN: Smart delete rows by ID internal command
+/// ROBUST: Uses stable row IDs instead of indices to avoid index shifting bugs
+/// </summary>
+internal sealed record SmartDeleteRowsByIdInternalCommand
+{
+    internal required IReadOnlyList<string> RowIdsToDelete { get; init; }
+    internal required RowManagementConfiguration Configuration { get; init; }
+    internal int CurrentRowCount { get; init; }
+    internal bool ForcePhysicalDelete { get; init; } = false;
+    internal IProgress<RowManagementProgress>? ProgressReporter { get; init; }
+    internal CancellationToken CancellationToken { get; init; } = default;
+
+    /// <summary>
+    /// PERFORMANCE: Skip automatic validation after delete for rapid operations.
+    /// When true, validation is skipped (user can manually trigger validation after bulk operations).
+    /// When false (default), validation runs with debounce to avoid blocking UI.
+    /// </summary>
+    internal bool SkipAutomaticValidation { get; init; } = false;
+
+    internal static SmartDeleteRowsByIdInternalCommand Create(
+        IReadOnlyList<string> rowIdsToDelete,
+        RowManagementConfiguration configuration,
+        int currentRowCount) =>
+        new()
+        {
+            RowIdsToDelete = rowIdsToDelete,
             Configuration = configuration,
             CurrentRowCount = currentRowCount
         };

@@ -54,6 +54,12 @@ public sealed class CellViewModel : ViewModelBase
     public int RowIndex { get; set; }
 
     /// <summary>
+    /// Gets or sets the unique row ID (from __rowId field in data).
+    /// This ID is stable across row operations (delete, sort, filter).
+    /// </summary>
+    public string? RowId { get; set; }
+
+    /// <summary>
     /// Gets or sets the column index of this cell in the grid (zero-based).
     /// </summary>
     public int ColumnIndex { get; set; }

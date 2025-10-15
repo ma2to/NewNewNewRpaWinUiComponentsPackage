@@ -24,8 +24,9 @@ public sealed class AdvancedDataGridControl : UserControl
     /// <summary>
     /// Event fired when the user requests to delete a row via the delete button in special column.
     /// The application should handle this event and call the facade's SmartDelete functionality.
+    /// Contains both rowIndex (for display) and rowId (for stable row identification).
     /// </summary>
-    public event EventHandler<int>? DeleteRowRequested;
+    public event EventHandler<DeleteRowRequestedEventArgs>? DeleteRowRequested;
 
     /// <summary>
     /// Event fired when the user changes row selection via the checkbox special column.
@@ -173,10 +174,10 @@ public sealed class AdvancedDataGridControl : UserControl
     /// <summary>
     /// Internal handler that forwards delete row requests from DataGridCellsView to public event.
     /// </summary>
-    private void OnDeleteRowRequestedInternal(object? sender, int rowIndex)
+    private void OnDeleteRowRequestedInternal(object? sender, DeleteRowRequestedEventArgs args)
     {
-        _logger?.LogInformation("Delete row requested for row index {RowIndex}", rowIndex);
-        DeleteRowRequested?.Invoke(this, rowIndex);
+        _logger?.LogInformation("Delete row requested for row index {RowIndex}, rowId {RowId}", args.RowIndex, args.RowId);
+        DeleteRowRequested?.Invoke(this, args);
     }
 
     /// <summary>

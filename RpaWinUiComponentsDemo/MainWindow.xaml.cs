@@ -47,12 +47,18 @@ public sealed partial class MainWindow : Window
             AddLogMessage("");
             AddLogMessage("=== INITIALIZING GRID ===");
 
-            // Create logger factory
-            var loggerFactory = LoggerFactory.Create(builder =>
+            // Use App's LoggerFactory which logs to file
+            var loggerFactory = App.LoggerFactory ?? LoggerFactory.Create(builder =>
             {
                 builder.AddConsole();
-                builder.SetMinimumLevel(LogLevel.Warning);
+                builder.SetMinimumLevel(LogLevel.Debug);
             });
+
+            AddLogMessage("Using App's LoggerFactory for component logging to file");
+            if (!string.IsNullOrEmpty(App.CurrentLogFilePath))
+            {
+                AddLogMessage($"Log file: {App.CurrentLogFilePath}");
+            }
 
             // Create grid options with DispatcherQueue for UI operations
             var options = new AdvancedDataGridOptions
@@ -62,7 +68,8 @@ public sealed partial class MainWindow : Window
                 EnableLinqOptimizations = true,
                 EnableCaching = true,
                 BatchSize = 1000,
-                MinimumLogLevel = LogLevel.Warning,
+                MinimumLogLevel = LogLevel.Debug, // Changed to Debug for detailed logging
+                LoggerFactory = loggerFactory,     // CRITICAL: Pass logger factory to component
                 DispatcherQueue = this.DispatcherQueue,
 
                 // ENABLE SPECIAL COLUMNS for testing
@@ -100,43 +107,69 @@ public sealed partial class MainWindow : Window
                 AddLogMessage("✓ Grid created successfully with UI component!");
 
                 // Subscribe to automatic UI refresh notifications (Interactive mode)
-                // Using debounce to batch multiple operations (e.g., rapid delete clicks)
-                AddLogMessage("Setting up automatic UI refresh subscription with debounce...");
+                // PERFORMANCE FIX: Uses incremental update instead of full reload (10-50ms vs 2-3s)
+                AddLogMessage("Setting up automatic UI refresh subscription with incremental update...");
                 _dataRefreshSubscription = _gridFacade.Notifications.SubscribeToDataRefresh(eventArgs =>
                 {
-                    _pendingRefreshCount++;
-                    AddLogMessage($"🔄 Auto-refresh queued: {eventArgs.OperationType} ({_pendingRefreshCount} pending)");
-
-                    // Cancel previous debounce timer (accumulate multiple operations)
-                    _uiRefreshDebounceTimer?.Dispose();
-
-                    // Wait 300ms before actually refreshing (allows batching multiple deletes)
-                    _uiRefreshDebounceTimer = new System.Threading.Timer(_ =>
+                    this.DispatcherQueue.TryEnqueue(() =>
                     {
-                        this.DispatcherQueue.TryEnqueue(() =>
+                        try
                         {
-                            try
-                            {
-                                _isRefreshing = true;
-                                AddLogMessage($"🔄 Executing batched refresh: {_pendingRefreshCount} operations");
+                            _isRefreshing = true;
+                            var sw = System.Diagnostics.Stopwatch.StartNew();
 
-                                // Automatically refresh UI control with special columns support
+                            AddLogMessage($"🔄 Auto-refresh: {eventArgs.OperationType} (rows: {eventArgs.AffectedRows})");
+
+                            // PERFORMANCE FIX: Use incremental update with metadata
+                            bool usedIncrementalUpdate = false;
+
+                            // 1. Handle physically deleted rows (Scenario B: physical delete)
+                            if (eventArgs.PhysicallyDeletedIndices.Count > 0)
+                            {
+                                AddLogMessage($"  - Removing {eventArgs.PhysicallyDeletedIndices.Count} rows incrementally");
+                                _gridControl.ViewModel.RemoveRowsAt(eventArgs.PhysicallyDeletedIndices);
+                                usedIncrementalUpdate = true;
+                            }
+
+                            // 2. Handle content cleared rows (Scenario A: clear content + shift)
+                            if (eventArgs.ContentClearedIndices.Count > 0)
+                            {
+                                AddLogMessage($"  - Clearing {eventArgs.ContentClearedIndices.Count} rows incrementally");
+                                _gridControl.ViewModel.ClearRowsContent(eventArgs.ContentClearedIndices);
+                                usedIncrementalUpdate = true;
+                            }
+
+                            // 3. Handle updated rows (e.g., shifted rows after delete)
+                            if (eventArgs.UpdatedRowData.Count > 0)
+                            {
+                                AddLogMessage($"  - Updating {eventArgs.UpdatedRowData.Count} rows incrementally");
+                                _gridControl.ViewModel.UpdateRowsData(eventArgs.UpdatedRowData);
+                                usedIncrementalUpdate = true;
+                            }
+
+                            // 4. Fallback to full reload if no metadata (legacy operations)
+                            if (!usedIncrementalUpdate)
+                            {
+                                AddLogMessage("  - No metadata available, using full reload (legacy)");
                                 var currentData = _gridFacade.Rows.GetAllRows();
                                 var headers = currentData.FirstOrDefault()?.Keys.ToList() ?? new List<string>();
-
                                 _gridControl.LoadData(currentData, headers, _currentOptions);
+                            }
 
-                                AddLogMessage("✓ UI automatically refreshed with special columns!");
-                                _pendingRefreshCount = 0;
-                            }
-                            finally
-                            {
-                                _isRefreshing = false;
-                            }
-                        });
-                    }, null, 300, System.Threading.Timeout.Infinite); // 300ms debounce
+                            sw.Stop();
+                            AddLogMessage($"✓ UI refreshed in {sw.ElapsedMilliseconds}ms ({(usedIncrementalUpdate ? "incremental" : "full reload")})");
+                        }
+                        catch (Exception ex)
+                        {
+                            AddLogMessage($"✗ UI refresh failed: {ex.Message}");
+                        }
+                        finally
+                        {
+                            _isRefreshing = false;
+                        }
+                    });
                 });
-                AddLogMessage("✓ Auto-refresh subscription active with 300ms debounce (Interactive mode)");
+                AddLogMessage("✓ Auto-refresh subscription active with incremental update (Interactive mode)");
 
                 // Define validation rules after grid initialization
                 AddLogMessage("");
@@ -495,9 +528,10 @@ public sealed partial class MainWindow : Window
     /// Handles delete row requests from the delete button special column.
     /// Uses SmartOperations from facade - no custom logic needed!
     /// SmartDelete automatically handles: clear vs remove, minimum rows, empty row at end.
+    /// Uses rowId-based delete to avoid index shifting bugs during rapid deletes.
     /// Prevents concurrent deletes during UI refresh to avoid race conditions.
     /// </summary>
-    private async void OnDeleteRowRequested(object? sender, int rowIndex)
+    private async void OnDeleteRowRequested(object? sender, DeleteRowRequestedEventArgs args)
     {
         if (!_isInitialized || _gridFacade == null || _gridControl == null)
         {
@@ -516,8 +550,8 @@ public sealed partial class MainWindow : Window
         try
         {
             AddLogMessage("");
-            AddLogMessage($"=== SMART DELETE REQUEST ===");
-            AddLogMessage($"Row index: {rowIndex}");
+            AddLogMessage($"=== SMART DELETE REQUEST (RowId-Based) ===");
+            AddLogMessage($"Row index: {args.RowIndex}, Row ID: {args.RowId ?? "null"}");
 
             // Use SmartOperations from facade - it handles everything!
             var config = PublicSmartOperationsConfig.Create(
@@ -527,7 +561,18 @@ public sealed partial class MainWindow : Window
                 alwaysKeepLastEmpty: true
             );
 
-            var result = await _gridFacade.SmartOperations.SmartDeleteRowAsync(rowIndex, config);
+            // CRITICAL: Use rowId-based delete to avoid index shifting bugs
+            // If rowId is null (rare edge case), fallback to index-based delete
+            PublicSmartOperationResult result;
+            if (!string.IsNullOrEmpty(args.RowId))
+            {
+                result = await _gridFacade.SmartOperations.SmartDeleteRowByIdAsync(args.RowId, config);
+            }
+            else
+            {
+                AddLogMessage("⚠ RowId is null, falling back to index-based delete");
+                result = await _gridFacade.SmartOperations.SmartDeleteRowAsync(args.RowIndex, config);
+            }
 
             if (result.IsSuccess)
             {

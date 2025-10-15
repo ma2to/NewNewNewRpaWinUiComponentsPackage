@@ -17,6 +17,11 @@ public partial class App : Application
     public static ILoggerFactory? LoggerFactory { get; private set; }
 
     /// <summary>
+    /// Current log file path for easy access
+    /// </summary>
+    public static string? CurrentLogFilePath { get; private set; }
+
+    /// <summary>
     /// Main window
     /// </summary>
     public static Window? MainWindow { get; private set; }
@@ -59,7 +64,12 @@ public partial class App : Application
         // Create logs directory if it doesn't exist
         var logDirectory = Path.Combine(Path.GetTempPath(), "RpaWinUiDemo");
         Directory.CreateDirectory(logDirectory);
-        
+
+        // Create timestamped log file
+        var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        var logFilePath = Path.Combine(logDirectory, $"DataGridDemo_{timestamp}.log");
+        CurrentLogFilePath = logFilePath; // Store for UI access
+
         LoggerFactory = Microsoft.Extensions.Logging.LoggerFactory.Create(builder =>
         {
             builder
@@ -69,13 +79,17 @@ public partial class App : Application
                     options.TimestampFormat = "yyyy-MM-dd HH:mm:ss.fff ";
                 })
                 .AddDebug()             // Debug output
+                .AddProvider(new SimpleFileLoggerProvider(logFilePath))  // FILE LOGGING
                 .SetMinimumLevel(LogLevel.Debug);  // CRITICAL: Ensure Debug level logs are processed
         });
-        
+
         // Test the logger immediately
         var testLogger = LoggerFactory.CreateLogger<App>();
+        testLogger.LogInformation("=".PadRight(80, '='));
         testLogger.LogInformation("[APP-SETUP] SENIOR DEVELOPER LOGGING - Comprehensive logging initialized");
+        testLogger.LogInformation("[APP-SETUP] Log file: {LogFilePath}", logFilePath);
         testLogger.LogDebug("[APP-SETUP] Log directory: {LogDirectory}", logDirectory);
         testLogger.LogDebug("[APP-SETUP] Logger factory type: {LoggerFactoryType}", LoggerFactory.GetType().Name);
+        testLogger.LogInformation("=".PadRight(80, '='));
     }
 }

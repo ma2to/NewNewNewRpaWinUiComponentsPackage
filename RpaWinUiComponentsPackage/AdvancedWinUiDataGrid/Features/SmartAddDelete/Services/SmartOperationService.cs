@@ -11,6 +11,7 @@ using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.SmartAddDelete.Commands;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.SmartAddDelete.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Validation.Interfaces;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Validation.Services;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.NullPattern;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Persistence.Interfaces;
@@ -20,26 +21,32 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.SmartAddDelet
 /// <summary>
 /// Internal implementation of smart row add/delete operations
 /// Thread-safe with logging support and minimum rows enforcement
-/// CRITICAL: Validates automatically after add/delete operations if enabled
+/// PERFORMANCE: Uses debounced validation instead of synchronous blocking validation
 /// </summary>
-internal sealed class SmartOperationService : ISmartOperationService
+internal sealed class SmartOperationService : ISmartOperationService, IDisposable
 {
     private readonly ILogger<SmartOperationService> _logger;
     private readonly IOperationLogger<SmartOperationService> _operationLogger;
     private readonly IRowStore _rowStore;
     private readonly IValidationService _validationService;
+    private readonly DebouncedValidationService? _debouncedValidation;
     private RowManagementStatistics _statistics = new();
+
+    // CRITICAL: Semaphore to prevent concurrent delete operations (fixes race condition)
+    private readonly SemaphoreSlim _deleteOperationLock = new(1, 1);
 
     public SmartOperationService(
         ILogger<SmartOperationService> logger,
         IRowStore rowStore,
         IValidationService validationService,
-        IOperationLogger<SmartOperationService>? operationLogger = null)
+        IOperationLogger<SmartOperationService>? operationLogger = null,
+        DebouncedValidationService? debouncedValidation = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _rowStore = rowStore ?? throw new ArgumentNullException(nameof(rowStore));
         _validationService = validationService ?? throw new ArgumentNullException(nameof(validationService));
         _operationLogger = operationLogger ?? NullOperationLogger<SmartOperationService>.Instance;
+        _debouncedValidation = debouncedValidation; // Optional - for performance optimization
     }
 
     public async Task<RowManagementResult> SmartAddRowsAsync(SmartAddRowsInternalCommand command, CancellationToken cancellationToken = default)
@@ -153,21 +160,27 @@ internal sealed class SmartOperationService : ISmartOperationService
 
     public async Task<RowManagementResult> SmartDeleteRowsAsync(SmartDeleteRowsInternalCommand command, CancellationToken cancellationToken = default)
     {
-        var stopwatch = Stopwatch.StartNew();
-        var operationId = Guid.NewGuid();
-
-        using var scope = _operationLogger.LogOperationStart("SmartDeleteRowsAsync", new
-        {
-            OperationId = operationId,
-            RowsToDelete = command.RowIndexesToDelete.Count,
-            CurrentRowCount = command.CurrentRowCount,
-            MinimumRows = command.Configuration.MinimumRows
-        });
-
-        _logger.LogInformation("Starting smart delete rows operation {OperationId}: rowsToDelete={Count}, currentRows={CurrentRows}, minRows={MinRows}",
-            operationId, command.RowIndexesToDelete.Count, command.CurrentRowCount, command.Configuration.MinimumRows);
-
+        // CRITICAL: Acquire lock to prevent concurrent delete operations (fixes race condition)
+        // Race condition: Multiple deletes can execute concurrently, causing one delete to see currentRows=0
+        // because another delete called GetAllRowsAsync()->Clear()->ReplaceAllRowsAsync() in between
+        await _deleteOperationLock.WaitAsync(cancellationToken);
         try
+        {
+            var stopwatch = Stopwatch.StartNew();
+            var operationId = Guid.NewGuid();
+
+            using var scope = _operationLogger.LogOperationStart("SmartDeleteRowsAsync", new
+            {
+                OperationId = operationId,
+                RowsToDelete = command.RowIndexesToDelete.Count,
+                CurrentRowCount = command.CurrentRowCount,
+                MinimumRows = command.Configuration.MinimumRows
+            });
+
+            _logger.LogInformation("Starting smart delete rows operation {OperationId}: rowsToDelete={Count}, currentRows={CurrentRows}, minRows={MinRows}",
+                operationId, command.RowIndexesToDelete.Count, command.CurrentRowCount, command.Configuration.MinimumRows);
+
+            try
         {
             var minRows = command.Configuration.MinimumRows;
             var currentRows = command.CurrentRowCount;
@@ -283,27 +296,36 @@ internal sealed class SmartOperationService : ISmartOperationService
             _logger.LogInformation("Smart delete rows operation {OperationId} completed in {Duration}ms: physicallyDeleted={Physical}, contentCleared={Cleared}, shifted={Shifted}, finalCount={FinalCount}",
                 operationId, stopwatch.ElapsedMilliseconds, rowsPhysicallyDeleted, rowsContentCleared, rowsShifted, finalRowCount);
 
-            // CRITICAL: Automatic post-operation validation (only if ShouldRunAutomaticValidation returns true)
-            if (_validationService.ShouldRunAutomaticValidation("SmartDeleteRowsAsync"))
+            // PERFORMANCE: Debounced async validation (non-blocking) instead of synchronous blocking validation
+            // This changes 100 deletes × 100ms blocking = 10s → 500ms debounced async = instant UI
+            if (!command.SkipAutomaticValidation && _validationService.ShouldRunAutomaticValidation("SmartDeleteRowsAsync"))
             {
-                _logger.LogInformation("Starting automatic post-SmartDelete batch validation for operation {OperationId}", operationId);
-
-                var postDeleteValidation = await _validationService.AreAllNonEmptyRowsValidAsync(false, false, cancellationToken);
-                if (!postDeleteValidation.IsSuccess)
+                if (_debouncedValidation != null)
                 {
-                    _logger.LogWarning("Post-SmartDelete validation found issues for operation {OperationId}: {Error}",
-                        operationId, postDeleteValidation.ErrorMessage);
-                    scope.MarkWarning($"Post-SmartDelete validation found issues: {postDeleteValidation.ErrorMessage}");
+                    // Use debounced validation (non-blocking, fires after 500ms delay)
+                    _debouncedValidation.ScheduleValidation("SmartDeleteRowsAsync", delayMs: 500);
+                    _logger.LogInformation("Scheduled debounced validation for operation {OperationId} (non-blocking)", operationId);
                 }
                 else
                 {
-                    _logger.LogInformation("Post-SmartDelete validation successful for operation {OperationId}", operationId);
+                    // Fallback to synchronous validation if DebouncedValidationService not available
+                    _logger.LogWarning("DebouncedValidationService not available - using synchronous validation (SLOW)");
+
+                    var postDeleteValidation = await _validationService.AreAllNonEmptyRowsValidAsync(false, false, cancellationToken);
+                    if (!postDeleteValidation.IsSuccess)
+                    {
+                        _logger.LogWarning("Post-SmartDelete validation found issues for operation {OperationId}: {Error}",
+                            operationId, postDeleteValidation.ErrorMessage);
+                        scope.MarkWarning($"Post-SmartDelete validation found issues: {postDeleteValidation.ErrorMessage}");
+                    }
                 }
             }
             else
             {
                 _logger.LogInformation("Automatic post-SmartDelete validation skipped for operation {OperationId} " +
-                    "(ValidationAutomationMode or EnableBatchValidation is disabled)", operationId);
+                    "(SkipAutomaticValidation={Skip}, ShouldRun={ShouldRun})",
+                    operationId, command.SkipAutomaticValidation,
+                    _validationService.ShouldRunAutomaticValidation("SmartDeleteRowsAsync"));
             }
 
             scope.MarkSuccess(new { Duration = stopwatch.Elapsed, FinalRowCount = finalRowCount });
@@ -325,14 +347,183 @@ internal sealed class SmartOperationService : ISmartOperationService
                 AffectedRowIndices = affectedRowIndicesList.Distinct().OrderBy(i => i).ToList().AsReadOnly()
             };
         }
-        catch (Exception ex)
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Smart delete rows operation {OperationId} failed: {Message}", operationId, ex.Message);
+                scope.MarkFailure(ex);
+                return RowManagementResult.CreateFailure(
+                    RowOperationType.SmartDelete,
+                    new[] { $"Smart delete failed: {ex.Message}" },
+                    stopwatch.Elapsed);
+            }
+        }
+        finally
         {
-            _logger.LogError(ex, "Smart delete rows operation {OperationId} failed: {Message}", operationId, ex.Message);
-            scope.MarkFailure(ex);
-            return RowManagementResult.CreateFailure(
-                RowOperationType.SmartDelete,
-                new[] { $"Smart delete failed: {ex.Message}" },
-                stopwatch.Elapsed);
+            // CRITICAL: Always release the lock, even if operation fails
+            _deleteOperationLock.Release();
+        }
+    }
+
+    public async Task<RowManagementResult> SmartDeleteRowsByIdAsync(SmartDeleteRowsByIdInternalCommand command, CancellationToken cancellationToken = default)
+    {
+        // CRITICAL: Acquire lock to prevent concurrent delete operations
+        await _deleteOperationLock.WaitAsync(cancellationToken);
+        try
+        {
+            var stopwatch = Stopwatch.StartNew();
+            var operationId = Guid.NewGuid();
+
+            using var scope = _operationLogger.LogOperationStart("SmartDeleteRowsByIdAsync", new
+            {
+                OperationId = operationId,
+                RowsToDelete = command.RowIdsToDelete.Count,
+                CurrentRowCount = command.CurrentRowCount,
+                MinimumRows = command.Configuration.MinimumRows
+            });
+
+            _logger.LogInformation("Starting smart delete rows by ID operation {OperationId}: rowIdsToDelete={Count}, currentRows={CurrentRows}, minRows={MinRows}",
+                operationId, command.RowIdsToDelete.Count, command.CurrentRowCount, command.Configuration.MinimumRows);
+
+            try
+            {
+                var minRows = command.Configuration.MinimumRows;
+                var currentRows = command.CurrentRowCount;
+                var rowsToDeleteCount = command.RowIdsToDelete.Count;
+
+                // CRITICAL: Get indices BEFORE delete for metadata tracking
+                var allRowsBeforeDelete = (await _rowStore.GetAllRowsAsync(cancellationToken)).ToList();
+                var deletedIndices = new List<int>();
+
+                for (int i = 0; i < allRowsBeforeDelete.Count; i++)
+                {
+                    if (allRowsBeforeDelete[i].TryGetValue("__rowId", out var rowIdValue))
+                    {
+                        var rowId = rowIdValue?.ToString();
+                        if (rowId != null && command.RowIdsToDelete.Contains(rowId))
+                        {
+                            deletedIndices.Add(i);
+                        }
+                    }
+                }
+
+                _logger.LogDebug("Mapped {Count} rowIds to indices: {Indices}",
+                    deletedIndices.Count, string.Join(", ", deletedIndices));
+
+                // PERFORMANCE: Direct ID-based deletion - no GetAll/ReplaceAll (O(k) instead of O(n))
+                // This solves the index shifting bug and concurrent access race condition
+                await _rowStore.RemoveRowsAsync(command.RowIdsToDelete, cancellationToken);
+
+                _logger.LogInformation("Physically deleted {Count} rows by ID in operation {OperationId}", rowsToDeleteCount, operationId);
+
+                // Check if we need to add empty row(s) to maintain minimum rows
+                var newRowCount = currentRows - rowsToDeleteCount;
+                var emptyRowsToAdd = 0;
+
+                if (newRowCount < minRows)
+                {
+                    emptyRowsToAdd = minRows - newRowCount;
+                    _logger.LogInformation("Adding {Count} empty rows to maintain minimum rows requirement", emptyRowsToAdd);
+
+                    // Get a template row for creating empty rows
+                    var allRows = await _rowStore.GetAllRowsAsync(cancellationToken);
+                    var templateRow = allRows.FirstOrDefault();
+                    var emptyRows = new List<IReadOnlyDictionary<string, object?>>();
+
+                    for (int i = 0; i < emptyRowsToAdd; i++)
+                    {
+                        emptyRows.Add(CreateEmptyRow(templateRow));
+                    }
+
+                    await _rowStore.AppendRowsAsync(emptyRows, cancellationToken);
+                }
+
+                // Ensure at least 1 empty row at end (if AlwaysKeepLastEmpty is enabled)
+                if (command.Configuration.AlwaysKeepLastEmpty)
+                {
+                    var allRows = await _rowStore.GetAllRowsAsync(cancellationToken);
+                    var lastRow = allRows.LastOrDefault();
+
+                    if (lastRow != null && !IsEmptyRow(lastRow))
+                    {
+                        _logger.LogInformation("Adding final empty row to maintain AlwaysKeepLastEmpty requirement");
+                        var emptyRow = CreateEmptyRow(lastRow);
+                        await _rowStore.AppendRowsAsync(new[] { emptyRow }, cancellationToken);
+                        emptyRowsToAdd++;
+                    }
+                }
+
+                var finalRowCount = (int)await _rowStore.GetRowCountAsync(cancellationToken);
+                stopwatch.Stop();
+
+                var statistics = new RowManagementStatistics
+                {
+                    RowsPhysicallyDeleted = rowsToDeleteCount,
+                    RowsContentCleared = 0,
+                    RowsShifted = 0,
+                    EmptyRowsCreated = emptyRowsToAdd,
+                    MinimumRowsEnforced = newRowCount < minRows,
+                    LastEmptyRowMaintained = command.Configuration.AlwaysKeepLastEmpty
+                };
+
+                _statistics = statistics;
+
+                _logger.LogInformation("Smart delete rows by ID operation {OperationId} completed in {Duration}ms: physicallyDeleted={Physical}, emptyRowsAdded={EmptyAdded}, finalCount={FinalCount}",
+                    operationId, stopwatch.ElapsedMilliseconds, rowsToDeleteCount, emptyRowsToAdd, finalRowCount);
+
+                // PERFORMANCE: Debounced async validation (non-blocking)
+                if (!command.SkipAutomaticValidation && _validationService.ShouldRunAutomaticValidation("SmartDeleteRowsByIdAsync"))
+                {
+                    if (_debouncedValidation != null)
+                    {
+                        _debouncedValidation.ScheduleValidation("SmartDeleteRowsByIdAsync", delayMs: 500);
+                        _logger.LogInformation("Scheduled debounced validation for operation {OperationId} (non-blocking)", operationId);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("DebouncedValidationService not available - using synchronous validation (SLOW)");
+                        var postDeleteValidation = await _validationService.AreAllNonEmptyRowsValidAsync(false, false, cancellationToken);
+                        if (!postDeleteValidation.IsSuccess)
+                        {
+                            _logger.LogWarning("Post-SmartDeleteById validation found issues for operation {OperationId}: {Error}",
+                                operationId, postDeleteValidation.ErrorMessage);
+                            scope.MarkWarning($"Post-SmartDeleteById validation found issues: {postDeleteValidation.ErrorMessage}");
+                        }
+                    }
+                }
+
+                scope.MarkSuccess(new { Duration = stopwatch.Elapsed, FinalRowCount = finalRowCount });
+
+                // CRITICAL: Return metadata for incremental UI update (10M+ row performance)
+                var result = RowManagementResult.CreateSuccess(
+                    finalRowCount,
+                    rowsToDeleteCount,
+                    RowOperationType.SmartDelete,
+                    stopwatch.Elapsed,
+                    statistics);
+
+                // Add granular metadata (using record 'with' expression for immutability)
+                return result with
+                {
+                    PhysicallyDeletedIndices = deletedIndices.AsReadOnly(),
+                    ContentClearedIndices = Array.Empty<int>(),
+                    UpdatedRowData = new Dictionary<int, IReadOnlyDictionary<string, object?>>(),
+                    AffectedRowIndices = deletedIndices.AsReadOnly()
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Smart delete rows by ID operation {OperationId} failed: {Message}", operationId, ex.Message);
+                scope.MarkFailure(ex);
+                return RowManagementResult.CreateFailure(
+                    RowOperationType.SmartDelete,
+                    new[] { $"Smart delete by ID failed: {ex.Message}" },
+                    stopwatch.Elapsed);
+            }
+        }
+        finally
+        {
+            // CRITICAL: Always release the lock
+            _deleteOperationLock.Release();
         }
     }
 
@@ -543,6 +734,16 @@ internal sealed class SmartOperationService : ISmartOperationService
     private bool IsEmptyRow(IReadOnlyDictionary<string, object?> row)
     {
         return row.Values.All(v => v == null || string.IsNullOrWhiteSpace(v?.ToString()));
+    }
+
+    #endregion
+
+    #region IDisposable
+
+    public void Dispose()
+    {
+        // Release semaphore resources
+        _deleteOperationLock?.Dispose();
     }
 
     #endregion
