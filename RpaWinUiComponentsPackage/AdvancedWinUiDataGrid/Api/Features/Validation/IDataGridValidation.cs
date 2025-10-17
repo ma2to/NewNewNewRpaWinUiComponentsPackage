@@ -83,14 +83,27 @@ public interface IDataGridValidation
     /// <summary>
     /// Gets validation alerts for a specific row.
     /// </summary>
-    /// <param name="rowIndex">Row index</param>
+    /// <param name="rowId">Unique stable row identifier</param>
     /// <returns>Validation alerts string</returns>
-    string GetValidationAlerts(int rowIndex);
+    string GetValidationAlerts(string rowId);
 
     /// <summary>
     /// Checks if a row has validation errors.
     /// </summary>
-    /// <param name="rowIndex">Row index</param>
+    /// <param name="rowId">Unique stable row identifier</param>
     /// <returns>True if row has validation errors</returns>
-    bool HasValidationErrors(int rowIndex);
+    bool HasValidationErrors(string rowId);
+
+    /// <summary>
+    /// Gets all validation errors from the most recent validation operation.
+    /// CRITICAL: Use this after validation to apply errors to UI ViewModels.
+    /// </summary>
+    /// <param name="onlyFiltered">Whether to get errors only for filtered rows</param>
+    /// <param name="onlyChecked">Whether to get errors only for checked rows</param>
+    /// <param name="cancellationToken">Cancellation token for operation</param>
+    /// <returns>List of validation errors with RowId and ColumnName for UI mapping</returns>
+    Task<IReadOnlyList<PublicValidationErrorViewModel>> GetValidationErrorsAsync(
+        bool onlyFiltered = false,
+        bool onlyChecked = false,
+        CancellationToken cancellationToken = default);
 }

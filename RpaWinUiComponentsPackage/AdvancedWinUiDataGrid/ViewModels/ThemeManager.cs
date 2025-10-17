@@ -22,6 +22,12 @@ public sealed class ThemeManager : ViewModelBase
     public event EventHandler? ThemeChanged;
 
     /// <summary>
+    /// Gets or sets the grid options for accessing checkbox styling and other configuration.
+    /// Used by UI controls to get checkbox appearance settings.
+    /// </summary>
+    public AdvancedDataGridOptions? Options { get; set; }
+
+    /// <summary>
     /// Creates a new ThemeManager instance.
     /// </summary>
     /// <param name="logger">Optional logger for diagnostics and troubleshooting</param>

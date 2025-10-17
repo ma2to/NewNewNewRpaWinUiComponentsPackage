@@ -143,8 +143,14 @@ public class SimpleVerificationTests : IDisposable
         var initialCount = grid.Rows.GetRowCount();
         _output.WriteLine($"Initial Count after import: {initialCount}");
 
-        // Act - Remove row at index 0
-        var removeResult = await grid.Rows.RemoveRowAsync(0);
+        // Act - Remove row at index 0 (convert index to rowId first)
+        var rowId = grid.Rows.GetRowIdByIndex(0);
+        if (rowId == null)
+        {
+            _output.WriteLine("Failed to get rowId for index 0");
+            return;
+        }
+        var removeResult = await grid.Rows.RemoveRowAsync(rowId);
 
         var finalCount = grid.Rows.GetRowCount();
         _output.WriteLine($"Final Count after remove: {finalCount}, Remove Success: {removeResult.IsSuccess}");

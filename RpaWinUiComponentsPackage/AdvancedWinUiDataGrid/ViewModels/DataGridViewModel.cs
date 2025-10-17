@@ -22,8 +22,9 @@ public sealed class DataGridViewModel : ViewModelBase
     // MEMORY LEAK FIX: Track event handlers to properly unsubscribe them
     private readonly List<(ColumnHeaderViewModel header, PropertyChangedEventHandler handler)> _headerHandlers = new();
 
-    // PERFORMANCE FIX #1: Debounce/Throttle resize events to prevent excessive UI rebuilds
-    private System.Threading.Timer? _columnResizeThrottle;
+    // PERFORMANCE CACHE: O(1) RowID→Index lookup for efficient RemoveRowsById operations
+    private readonly Dictionary<string, int> _rowIdToIndexCache = new();
+    private bool _cacheNeedsRebuild = true;
 
     /// <summary>
     /// ViewModel for the search panel (contains search text, case sensitivity, etc.)
@@ -308,8 +309,7 @@ public sealed class DataGridViewModel : ViewModelBase
     /// <summary>
     /// Synchronizes column width across header, filter, and all cells in that column
     /// Fires ColumnDefinitionsChanged event to notify UI controls to rebuild their layouts
-    /// PERFORMANCE FIX #1: Uses debounce/throttle to prevent excessive UI rebuilds during resize
-    /// CRITICAL FIX: Dispatches event to UI thread to prevent COMException
+    /// PERFORMANCE FIX: Uses realtime update with immediate UI rebuild for smooth resize
     /// </summary>
     /// <param name="columnName">Name of the column</param>
     /// <param name="newWidth">New width to apply</param>
@@ -322,27 +322,80 @@ public sealed class DataGridViewModel : ViewModelBase
             filter.Width = newWidth;
         }
 
-        // PERFORMANCE FIX #1: Debounce UI notification - only notify AFTER resize is complete
-        // This prevents rebuilding ALL views (HeadersRowView, DataGridCellsView, FilterRowView) on every mouse move
-        _columnResizeThrottle?.Dispose();
-        _columnResizeThrottle = new System.Threading.Timer(_ =>
+        // REALTIME UPDATE FIX: Trigger UI update immediately for smooth resize experience
+        // CRITICAL FIX: Dispatch to UI thread to prevent COMException
+        if (_dispatcherQueue != null)
         {
-            // CRITICAL FIX: Dispatch to UI thread to prevent COMException
-            // Timer callback runs on background thread, but ColumnDefinitions.Clear() must run on UI thread
-            if (_dispatcherQueue != null)
+            _dispatcherQueue.TryEnqueue(() =>
             {
-                _dispatcherQueue.TryEnqueue(() =>
-                {
-                    ColumnDefinitionsChanged?.Invoke(this, EventArgs.Empty);
-                });
-            }
-            else
-            {
-                // Fallback if no dispatcher available (should not happen in normal usage)
                 ColumnDefinitionsChanged?.Invoke(this, EventArgs.Empty);
-            }
-        }, null, 150, System.Threading.Timeout.Infinite); // 150ms debounce delay
+            });
+        }
+        else
+        {
+            // Fallback if no dispatcher available (should not happen in normal usage)
+            ColumnDefinitionsChanged?.Invoke(this, EventArgs.Empty);
+        }
     }
+
+    #region Performance Cache Management
+
+    /// <summary>
+    /// Ensures RowID→Index cache is valid. Rebuilds cache if dirty.
+    /// PERFORMANCE: O(n) rebuild cost, but only when cache is invalid.
+    /// After rebuild, all lookups are O(1).
+    /// </summary>
+    private void EnsureCacheIsValid()
+    {
+        if (!_cacheNeedsRebuild)
+        {
+            return; // Cache is fresh, no work needed
+        }
+
+        _rowIdToIndexCache.Clear();
+
+        for (int i = 0; i < Rows.Count; i++)
+        {
+            var rowId = Rows[i].Cells.FirstOrDefault()?.RowId;
+            if (!string.IsNullOrEmpty(rowId))
+            {
+                _rowIdToIndexCache[rowId] = i;
+            }
+        }
+
+        _cacheNeedsRebuild = false;
+        _logger?.LogDebug("RowID→Index cache rebuilt with {Count} entries", _rowIdToIndexCache.Count);
+    }
+
+    /// <summary>
+    /// Invalidates cache after data changes (sort, filter, delete, load).
+    /// Next RowID operation will trigger rebuild via EnsureCacheIsValid().
+    /// </summary>
+    private void InvalidateCache()
+    {
+        _cacheNeedsRebuild = true;
+        _logger?.LogDebug("RowID→Index cache invalidated");
+    }
+
+    /// <summary>
+    /// Finds row index by RowID using O(1) cache lookup.
+    /// PUBLIC API: Used by wrappers (DataGridRows, DataGridSelection, etc.)
+    /// </summary>
+    /// <param name="rowId">Unique stable row identifier</param>
+    /// <returns>Current row index or null if not found</returns>
+    public int? FindRowIndexByRowId(string rowId)
+    {
+        if (string.IsNullOrEmpty(rowId))
+        {
+            return null;
+        }
+
+        EnsureCacheIsValid();
+
+        return _rowIdToIndexCache.TryGetValue(rowId, out var index) ? index : null;
+    }
+
+    #endregion
 
     /// <summary>
     /// Loads data rows into the grid with support for special columns.
@@ -432,6 +485,9 @@ public sealed class DataGridViewModel : ViewModelBase
         // For 10M rows: 10M events → 1 event = MASSIVE speedup
         Rows.AddRange(rowViewModels);
 
+        // Invalidate cache after loading new data
+        InvalidateCache();
+
         _logger?.LogInformation("Rows loaded successfully with {SpecialCount} special columns per row",
             ColumnHeaders.Count(h => h.IsSpecialColumn));
     }
@@ -463,13 +519,69 @@ public sealed class DataGridViewModel : ViewModelBase
     #region Incremental Update Methods (Performance Optimization)
 
     /// <summary>
-    /// Removes rows at specified indices using incremental update.
+    /// Removes rows by their unique RowIDs using O(1) cache lookup.
+    /// PUBLIC API: This is the preferred method for row removal operations.
+    /// PERFORMANCE: Cache lookup O(1), then delegates to RemoveRowsAtIndices().
+    /// STABILITY: RowID never changes, safe to use after sort/filter operations.
+    /// </summary>
+    /// <param name="rowIds">Collection of unique row identifiers to remove</param>
+    public void RemoveRowsById(IReadOnlyList<string> rowIds)
+    {
+        if (rowIds == null || rowIds.Count == 0)
+        {
+            return;
+        }
+
+        _logger?.LogInformation("Removing {Count} rows by RowID", rowIds.Count);
+
+        EnsureCacheIsValid();
+
+        // Convert RowIDs to indices using O(1) cache lookup
+        var indices = new List<int>(rowIds.Count);
+        foreach (var rowId in rowIds)
+        {
+            if (_rowIdToIndexCache.TryGetValue(rowId, out var index))
+            {
+                indices.Add(index);
+            }
+            else
+            {
+                _logger?.LogWarning("RowID not found in cache: {RowId}", rowId);
+            }
+        }
+
+        if (indices.Count == 0)
+        {
+            _logger?.LogWarning("No valid RowIDs found, nothing to remove");
+            return;
+        }
+
+        // Delegate to private implementation that handles ObservableCollection.RemoveAt()
+        RemoveRowsAtIndices(indices);
+    }
+
+    /// <summary>
+    /// DEPRECATED: Removes rows at specified indices using incremental update.
+    /// USE RemoveRowsById() instead for RowID-based operations.
+    /// This method is kept for backward compatibility but will be removed in future versions.
+    /// </summary>
+    /// <param name="indices">Indices of rows to remove</param>
+    [Obsolete("Use RemoveRowsById() instead. RowIndex-based operations are unstable after sort/filter.")]
+    public void RemoveRowsAt(IReadOnlyList<int> indices)
+    {
+        RemoveRowsAtIndices(indices);
+    }
+
+    /// <summary>
+    /// PRIVATE: Removes rows at specified indices using incremental update.
     /// PERFORMANCE: 10-50ms instead of 2-3s full reload.
     /// MEMORY: Reuses existing ViewModels instead of creating new ones.
     /// CRITICAL: Indices must be in DESCENDING order to avoid index shifting bugs.
+    /// WHY PRIVATE: ObservableCollection.RemoveAt(index) requires index parameter.
+    /// PUBLIC API USES: RemoveRowsById() which converts RowID→Index via cache.
     /// </summary>
-    /// <param name="indices">Indices of rows to remove (must be sorted descending!)</param>
-    public void RemoveRowsAt(IReadOnlyList<int> indices)
+    /// <param name="indices">Indices of rows to remove (will be sorted descending)</param>
+    private void RemoveRowsAtIndices(IReadOnlyList<int> indices)
     {
         if (indices == null || indices.Count == 0)
         {
@@ -516,14 +628,66 @@ public sealed class DataGridViewModel : ViewModelBase
             }
         }
 
+        // Invalidate cache after removal (indices have changed)
+        InvalidateCache();
+
         _logger?.LogInformation("Rows removed successfully, remaining: {Count}", Rows.Count);
     }
 
     /// <summary>
-    /// Updates cell values for specified rows using incremental update.
+    /// Updates cell values for specified rows by RowID using O(1) cache lookup.
+    /// PUBLIC API: This is the preferred method for row update operations.
     /// PERFORMANCE: Updates only changed cells instead of rebuilding entire grid.
+    /// STABILITY: RowID never changes, safe to use after sort/filter operations.
+    /// </summary>
+    /// <param name="updates">Dictionary of RowID to new row data</param>
+    public void UpdateRowsById(IReadOnlyDictionary<string, IReadOnlyDictionary<string, object?>> updates)
+    {
+        if (updates == null || updates.Count == 0)
+        {
+            return;
+        }
+
+        _logger?.LogInformation("Updating {Count} rows by RowID", updates.Count);
+
+        EnsureCacheIsValid();
+
+        foreach (var (rowId, newRowData) in updates)
+        {
+            if (!_rowIdToIndexCache.TryGetValue(rowId, out var rowIndex))
+            {
+                _logger?.LogWarning("RowID not found in cache: {RowId}", rowId);
+                continue;
+            }
+
+            if (rowIndex < 0 || rowIndex >= Rows.Count)
+            {
+                _logger?.LogWarning("Invalid row index {Index} (total rows: {Total})", rowIndex, Rows.Count);
+                continue;
+            }
+
+            var rowVm = Rows[rowIndex];
+
+            // Update cell values for data columns (skip special columns)
+            foreach (var cell in rowVm.Cells.Where(c => c.SpecialType == SpecialColumnType.None))
+            {
+                if (newRowData.TryGetValue(cell.ColumnName, out var newValue))
+                {
+                    cell.Value = newValue;
+                }
+            }
+        }
+
+        _logger?.LogInformation("Rows updated successfully");
+    }
+
+    /// <summary>
+    /// DEPRECATED: Updates cell values for specified rows using incremental update.
+    /// USE UpdateRowsById() instead for RowID-based operations.
+    /// This method is kept for backward compatibility but will be removed in future versions.
     /// </summary>
     /// <param name="updates">Dictionary of row index to new row data</param>
+    [Obsolete("Use UpdateRowsById() instead. RowIndex-based operations are unstable after sort/filter.")]
     public void UpdateRowsData(IReadOnlyDictionary<int, IReadOnlyDictionary<string, object?>> updates)
     {
         if (updates == null || updates.Count == 0)
@@ -567,10 +731,56 @@ public sealed class DataGridViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Clears content of specified rows (sets all cell values to null).
+    /// Clears content of specified rows by RowID using O(1) cache lookup.
+    /// PUBLIC API: This is the preferred method for clearing row content.
     /// PERFORMANCE: Updates only affected cells instead of rebuilding entire grid.
+    /// STABILITY: RowID never changes, safe to use after sort/filter operations.
+    /// </summary>
+    /// <param name="rowIds">Collection of unique row identifiers to clear</param>
+    public void ClearRowsContentById(IReadOnlyList<string> rowIds)
+    {
+        if (rowIds == null || rowIds.Count == 0)
+        {
+            return;
+        }
+
+        _logger?.LogInformation("Clearing content of {Count} rows by RowID", rowIds.Count);
+
+        EnsureCacheIsValid();
+
+        foreach (var rowId in rowIds)
+        {
+            if (!_rowIdToIndexCache.TryGetValue(rowId, out var index))
+            {
+                _logger?.LogWarning("RowID not found in cache: {RowId}", rowId);
+                continue;
+            }
+
+            if (index < 0 || index >= Rows.Count)
+            {
+                _logger?.LogWarning("Invalid row index {Index} (total rows: {Total})", index, Rows.Count);
+                continue;
+            }
+
+            var rowVm = Rows[index];
+
+            // Clear values for data columns (skip special columns)
+            foreach (var cell in rowVm.Cells.Where(c => c.SpecialType == SpecialColumnType.None))
+            {
+                cell.Value = null;
+            }
+        }
+
+        _logger?.LogInformation("Rows content cleared successfully");
+    }
+
+    /// <summary>
+    /// DEPRECATED: Clears content of specified rows (sets all cell values to null).
+    /// USE ClearRowsContentById() instead for RowID-based operations.
+    /// This method is kept for backward compatibility but will be removed in future versions.
     /// </summary>
     /// <param name="indices">Indices of rows to clear</param>
+    [Obsolete("Use ClearRowsContentById() instead. RowIndex-based operations are unstable after sort/filter.")]
     public void ClearRowsContent(IReadOnlyList<int> indices)
     {
         if (indices == null || indices.Count == 0)
@@ -740,6 +950,168 @@ public sealed class DataGridViewModel : ViewModelBase
             }
         }
         return selected;
+    }
+
+    /// <summary>
+    /// Selects all rows in the grid by setting their checkbox column to checked.
+    /// USE CASE: Header checkbox "Select All" clicked.
+    /// </summary>
+    public void SelectAllRows()
+    {
+        _logger?.LogInformation("Selecting all {Count} rows", Rows.Count);
+
+        foreach (var row in Rows)
+        {
+            // Find checkbox cell and set it to selected
+            var checkboxCell = row.Cells.FirstOrDefault(c => c.SpecialType == Common.SpecialColumnType.Checkbox);
+            if (checkboxCell != null)
+            {
+                checkboxCell.IsRowSelected = true;
+            }
+        }
+
+        _logger?.LogInformation("All rows selected");
+    }
+
+    /// <summary>
+    /// Deselects all rows in the grid by setting their checkbox column to unchecked.
+    /// USE CASE: Header checkbox "Deselect All" clicked.
+    /// </summary>
+    public void DeselectAllRows()
+    {
+        _logger?.LogInformation("Deselecting all {Count} rows", Rows.Count);
+
+        foreach (var row in Rows)
+        {
+            // Find checkbox cell and set it to deselected
+            var checkboxCell = row.Cells.FirstOrDefault(c => c.SpecialType == Common.SpecialColumnType.Checkbox);
+            if (checkboxCell != null)
+            {
+                checkboxCell.IsRowSelected = false;
+            }
+        }
+
+        _logger?.LogInformation("All rows deselected");
+    }
+
+    #endregion
+
+    #region Validation Visualization
+
+    /// <summary>
+    /// Applies validation errors to cell ViewModels for visual display (red borders).
+    /// CRITICAL: This is the bridge between ValidationService (errors in store) and UI (red borders on cells).
+    /// Should be called after validation completes to show validation results in UI.
+    /// </summary>
+    /// <param name="validationErrors">List of validation errors from validation service</param>
+    public void ApplyValidationErrors(IReadOnlyList<PublicValidationErrorViewModel> validationErrors)
+    {
+        if (validationErrors == null)
+        {
+            _logger?.LogWarning("ApplyValidationErrors called with null errors list");
+            return;
+        }
+
+        _logger?.LogInformation("Applying {ErrorCount} validation errors to grid UI", validationErrors.Count);
+
+        // Group errors by (RowId, ColumnName) for O(1) lookup
+        var errorsByCell = validationErrors
+            .Where(e => !string.IsNullOrEmpty(e.RowId) && !string.IsNullOrEmpty(e.ColumnName))
+            .GroupBy(e => (e.RowId, e.ColumnName))
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        // Clear ALL existing validation errors first
+        foreach (var row in Rows)
+        {
+            foreach (var cell in row.Cells)
+            {
+                cell.IsValidationError = false;
+                cell.ValidationMessage = string.Empty;
+            }
+        }
+
+        _logger?.LogDebug("Cleared all existing validation errors from cells");
+
+        // Apply new validation errors to cells
+        int appliedCount = 0;
+        foreach (var row in Rows)
+        {
+            var rowId = row.Cells.FirstOrDefault()?.RowId;
+            if (string.IsNullOrEmpty(rowId))
+            {
+                continue;
+            }
+
+            // Apply errors to data cells
+            foreach (var cell in row.Cells.Where(c => c.SpecialType == Common.SpecialColumnType.None))
+            {
+                var key = (rowId, cell.ColumnName);
+                if (errorsByCell.TryGetValue(key, out var cellErrors) && cellErrors.Any())
+                {
+                    cell.IsValidationError = true;
+                    cell.ValidationMessage = string.Join("; ", cellErrors.Select(e => e.Message));
+                    appliedCount++;
+                    _logger?.LogDebug("Applied validation error to cell [{RowIndex}, {ColumnName}]: {Message}",
+                        cell.RowIndex, cell.ColumnName, cell.ValidationMessage);
+                }
+            }
+
+            // Update ValidationAlerts special column
+            var alertsCell = row.Cells.FirstOrDefault(c => c.SpecialType == Common.SpecialColumnType.ValidationAlerts);
+            if (alertsCell != null)
+            {
+                // Get all errors for this row (any column)
+                var allRowErrors = errorsByCell
+                    .Where(kvp => kvp.Key.RowId == rowId)
+                    .SelectMany(kvp => kvp.Value)
+                    .ToList();
+
+                if (allRowErrors.Any())
+                {
+                    // CRITICAL FIX: Format with column names for clarity
+                    // Format: "ColumnName: msg1; ColumnName: msg2; ..."
+                    // User requirement: Show column name to identify which field has validation error
+                    alertsCell.ValidationAlertMessage = string.Join("; ",
+                        allRowErrors.Select(e => $"{e.ColumnName}: {e.Message}"));
+                    _logger?.LogDebug("Updated ValidationAlerts column for row {RowIndex}: {Alerts}",
+                        row.RowIndex, alertsCell.ValidationAlertMessage);
+                }
+                else
+                {
+                    alertsCell.ValidationAlertMessage = null;
+                }
+            }
+        }
+
+        _logger?.LogInformation("Applied {AppliedCount} validation errors to {TotalCells} cells",
+            appliedCount, Rows.Sum(r => r.Cells.Count));
+    }
+
+    /// <summary>
+    /// Clears all validation errors from grid UI.
+    /// Resets IsValidationError flags and validation messages on all cells.
+    /// </summary>
+    public void ClearValidationErrors()
+    {
+        _logger?.LogInformation("Clearing all validation errors from grid UI");
+
+        foreach (var row in Rows)
+        {
+            foreach (var cell in row.Cells)
+            {
+                cell.IsValidationError = false;
+                cell.ValidationMessage = string.Empty;
+            }
+
+            // Clear ValidationAlerts column
+            var alertsCell = row.Cells.FirstOrDefault(c => c.SpecialType == Common.SpecialColumnType.ValidationAlerts);
+            if (alertsCell != null)
+            {
+                alertsCell.ValidationAlertMessage = null;
+            }
+        }
+
+        _logger?.LogInformation("Validation errors cleared from grid UI");
     }
 
     #endregion

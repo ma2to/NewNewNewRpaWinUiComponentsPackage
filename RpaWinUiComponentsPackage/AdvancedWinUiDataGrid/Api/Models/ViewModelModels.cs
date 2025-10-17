@@ -88,6 +88,12 @@ public sealed class PublicValidationErrorViewModel
     public int RowIndex { get; init; }
 
     /// <summary>
+    /// Unique stable row identifier (RowID) where error occurred.
+    /// CRITICAL: Use this for UI mapping as RowIndex changes after sort/filter.
+    /// </summary>
+    public string RowId { get; init; } = string.Empty;
+
+    /// <summary>
     /// Column name where error occurred
     /// </summary>
     public string ColumnName { get; init; } = string.Empty;

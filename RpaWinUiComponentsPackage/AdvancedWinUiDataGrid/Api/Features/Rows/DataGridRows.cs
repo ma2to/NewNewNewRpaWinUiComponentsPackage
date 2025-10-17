@@ -98,12 +98,22 @@ internal sealed class DataGridRows : IDataGridRows
         }
     }
 
-    public async Task<PublicResult> UpdateRowAsync(int rowIndex, IReadOnlyDictionary<string, object?> rowData, CancellationToken cancellationToken = default)
+    public async Task<PublicResult> UpdateRowAsync(string rowId, IReadOnlyDictionary<string, object?> rowData, CancellationToken cancellationToken = default)
     {
         try
         {
-            _logger?.LogInformation("Updating row {RowIndex} via Rows module", rowIndex);
-            await _rowStore.UpdateRowAsync(rowIndex, rowData, cancellationToken);
+            _logger?.LogInformation("Updating row {RowId} via Rows module", rowId);
+
+            var success = await _rowStore.UpdateRowByIdAsync(rowId, rowData, cancellationToken);
+
+            if (!success)
+            {
+                return new PublicResult
+                {
+                    IsSuccess = false,
+                    Message = $"Row {rowId} not found or update failed"
+                };
+            }
 
             // Trigger automatic UI refresh in Interactive mode
             await TriggerUIRefreshIfNeededAsync("UpdateRow", 1);
@@ -121,12 +131,22 @@ internal sealed class DataGridRows : IDataGridRows
         }
     }
 
-    public async Task<PublicResult> RemoveRowAsync(int rowIndex, CancellationToken cancellationToken = default)
+    public async Task<PublicResult> RemoveRowAsync(string rowId, CancellationToken cancellationToken = default)
     {
         try
         {
-            _logger?.LogInformation("Removing row {RowIndex} via Rows module", rowIndex);
-            await _rowStore.RemoveRowAsync(rowIndex, cancellationToken);
+            _logger?.LogInformation("Removing row {RowId} via Rows module", rowId);
+
+            var success = await _rowStore.RemoveRowByIdAsync(rowId, cancellationToken);
+
+            if (!success)
+            {
+                return new PublicResult
+                {
+                    IsSuccess = false,
+                    Message = $"Row {rowId} not found or removal failed"
+                };
+            }
 
             // Trigger automatic UI refresh in Interactive mode
             await TriggerUIRefreshIfNeededAsync("RemoveRow", 1);
@@ -144,21 +164,23 @@ internal sealed class DataGridRows : IDataGridRows
         }
     }
 
-    public async Task<PublicResult<int>> RemoveRowsAsync(IEnumerable<int> rowIndices, CancellationToken cancellationToken = default)
+    public async Task<PublicResult<int>> RemoveRowsAsync(IEnumerable<string> rowIds, CancellationToken cancellationToken = default)
     {
         try
         {
-            _logger?.LogInformation("Removing multiple rows via Rows module");
-            var count = await _rowStore.RemoveRowsAsync(rowIndices, cancellationToken);
+            var rowIdsList = rowIds.ToList();
+            _logger?.LogInformation("Removing {Count} rows via Rows module", rowIdsList.Count);
+
+            await _rowStore.RemoveRowsAsync(rowIdsList, cancellationToken);
 
             // Trigger automatic UI refresh in Interactive mode
-            await TriggerUIRefreshIfNeededAsync("RemoveRows", count);
+            await TriggerUIRefreshIfNeededAsync("RemoveRows", rowIdsList.Count);
 
             return new PublicResult<int>
             {
                 IsSuccess = true,
-                Message = $"Removed {count} rows successfully",
-                Data = count
+                Message = $"Removed {rowIdsList.Count} rows successfully",
+                Data = rowIdsList.Count
             };
         }
         catch (Exception ex)
@@ -276,6 +298,102 @@ internal sealed class DataGridRows : IDataGridRows
         {
             _logger?.LogError(ex, "DuplicateRow failed in Rows module");
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Gets the unique row ID for a row at the specified index.
+    /// USE CASE: User clicks on row in UI, UI event provides RowIndex, need to convert to stable RowID.
+    /// </summary>
+    /// <param name="rowIndex">Zero-based row index</param>
+    /// <returns>The unique row ID (from __rowId field) or null if not found</returns>
+    public string? GetRowIdByIndex(int rowIndex)
+    {
+        try
+        {
+            var rowData = _rowStore.GetRow(rowIndex);
+            if (rowData != null && rowData.TryGetValue("__rowId", out var rowIdValue))
+            {
+                return rowIdValue?.ToString();
+            }
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "GetRowIdByIndex failed for row {RowIndex}", rowIndex);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Gets the current row index for a row with the specified ID.
+    /// USE CASE: Have RowID from database, want to scroll/highlight row in UI.
+    /// </summary>
+    /// <param name="rowId">Unique row identifier</param>
+    /// <returns>Current zero-based row index or null if not found</returns>
+    public int? GetRowIndexById(string rowId)
+    {
+        try
+        {
+            // TODO: Implement efficient lookup when IRowStore supports RowID operations
+            // For now, linear search through all rows
+            var allRows = _rowStore.GetAllRows();
+            for (int i = 0; i < allRows.Count; i++)
+            {
+                if (allRows[i].TryGetValue("__rowId", out var rowIdValue))
+                {
+                    if (rowIdValue?.ToString() == rowId)
+                    {
+                        return i;
+                    }
+                }
+            }
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "GetRowIndexById failed for RowID {RowId}", rowId);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Gets the row ID of the currently selected row (if single selection).
+    /// USE CASE: Shortcut to avoid manual conversion in single-select scenarios.
+    /// </summary>
+    /// <returns>Row ID or null if no row selected</returns>
+    public string? GetSelectedRowId()
+    {
+        try
+        {
+            // TODO: Implement when selection tracking is available
+            _logger?.LogWarning("GetSelectedRowId() not yet implemented - requires selection tracking");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "GetSelectedRowId failed");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Gets the row IDs of all currently selected rows.
+    /// USE CASE: Shortcut for multi-select delete/update operations.
+    /// </summary>
+    /// <returns>Array of row IDs (empty array if no selection)</returns>
+    public string[] GetSelectedRowIds()
+    {
+        try
+        {
+            // TODO: Implement when selection tracking is available
+            _logger?.LogWarning("GetSelectedRowIds() not yet implemented - requires selection tracking");
+            return Array.Empty<string>();
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "GetSelectedRowIds failed");
+            return Array.Empty<string>();
         }
     }
 

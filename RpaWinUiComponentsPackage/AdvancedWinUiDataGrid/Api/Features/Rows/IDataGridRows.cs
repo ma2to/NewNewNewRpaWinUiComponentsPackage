@@ -33,29 +33,29 @@ public interface IDataGridRows
     Task<PublicResult> InsertRowAsync(int rowIndex, IReadOnlyDictionary<string, object?> rowData, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Updates a row at a specific index.
+    /// Updates a row by its unique identifier.
     /// </summary>
-    /// <param name="rowIndex">Row index to update</param>
+    /// <param name="rowId">Unique stable row identifier</param>
     /// <param name="rowData">New row data</param>
     /// <param name="cancellationToken">Cancellation token for operation</param>
     /// <returns>Result of the operation</returns>
-    Task<PublicResult> UpdateRowAsync(int rowIndex, IReadOnlyDictionary<string, object?> rowData, CancellationToken cancellationToken = default);
+    Task<PublicResult> UpdateRowAsync(string rowId, IReadOnlyDictionary<string, object?> rowData, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Removes a row at a specific index.
+    /// Removes a row by its unique identifier.
     /// </summary>
-    /// <param name="rowIndex">Row index to remove</param>
+    /// <param name="rowId">Unique stable row identifier</param>
     /// <param name="cancellationToken">Cancellation token for operation</param>
     /// <returns>Result of the operation</returns>
-    Task<PublicResult> RemoveRowAsync(int rowIndex, CancellationToken cancellationToken = default);
+    Task<PublicResult> RemoveRowAsync(string rowId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Removes multiple rows by indices.
+    /// Removes multiple rows by their unique identifiers.
     /// </summary>
-    /// <param name="rowIndices">Collection of row indices to remove</param>
+    /// <param name="rowIds">Collection of unique row identifiers to remove</param>
     /// <param name="cancellationToken">Cancellation token for operation</param>
     /// <returns>Result with count of removed rows</returns>
-    Task<PublicResult<int>> RemoveRowsAsync(IEnumerable<int> rowIndices, CancellationToken cancellationToken = default);
+    Task<PublicResult<int>> RemoveRowsAsync(IEnumerable<string> rowIds, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Clears all rows from the grid.
@@ -97,4 +97,34 @@ public interface IDataGridRows
     /// <param name="cancellationToken">Cancellation token for operation</param>
     /// <returns>Result with index of new row</returns>
     Task<PublicResult<int>> DuplicateRowAsync(int rowIndex, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets the unique row ID for a row at the specified index.
+    /// USE CASE: User clicks on row in UI, UI event provides RowIndex, need to convert to stable RowID.
+    /// </summary>
+    /// <param name="rowIndex">Zero-based row index</param>
+    /// <returns>The unique row ID (from __rowId field) or null if not found</returns>
+    string? GetRowIdByIndex(int rowIndex);
+
+    /// <summary>
+    /// Gets the current row index for a row with the specified ID.
+    /// USE CASE: Have RowID from database, want to scroll/highlight row in UI.
+    /// </summary>
+    /// <param name="rowId">Unique row identifier</param>
+    /// <returns>Current zero-based row index or null if not found</returns>
+    int? GetRowIndexById(string rowId);
+
+    /// <summary>
+    /// Gets the row ID of the currently selected row (if single selection).
+    /// USE CASE: Shortcut to avoid manual conversion in single-select scenarios.
+    /// </summary>
+    /// <returns>Row ID or null if no row selected</returns>
+    string? GetSelectedRowId();
+
+    /// <summary>
+    /// Gets the row IDs of all currently selected rows.
+    /// USE CASE: Shortcut for multi-select delete/update operations.
+    /// </summary>
+    /// <returns>Array of row IDs (empty array if no selection)</returns>
+    string[] GetSelectedRowIds();
 }

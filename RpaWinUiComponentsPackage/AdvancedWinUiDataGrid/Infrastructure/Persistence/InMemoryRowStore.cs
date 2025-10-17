@@ -256,12 +256,18 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
         _validationErrors.Clear();
         foreach (var error in results)
         {
-            var rowId = error.RowIndex;
-            if (!_validationErrors.ContainsKey(rowId))
+            var rowId = error.RowId;
+            if (string.IsNullOrEmpty(rowId))
+                continue; // Skip errors without RowId
+
+            if (!int.TryParse(rowId, out var rowIdInt))
+                continue; // Skip invalid RowId format
+
+            if (!_validationErrors.ContainsKey(rowIdInt))
             {
-                _validationErrors[rowId] = new List<ValidationError>();
+                _validationErrors[rowIdInt] = new List<ValidationError>();
             }
-            _validationErrors[rowId].Add(error);
+            _validationErrors[rowIdInt].Add(error);
         }
 
         _hasValidationState = true;
@@ -318,7 +324,11 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
             .SelectMany(list => list)
             .Where(error =>
             {
-                var row = _rows.GetValueOrDefault(error.RowIndex) ?? new Dictionary<string, object?>();
+                // Convert RowId back to int for lookup in _rows dictionary
+                if (!int.TryParse(error.RowId, out var rowIdInt))
+                    return false;
+
+                var row = _rows.GetValueOrDefault(rowIdInt) ?? new Dictionary<string, object?>();
                 return (!onlyFiltered || IsRowVisible(row)) &&
                        (!onlyChecked || IsRowChecked(row));
             })
@@ -371,6 +381,102 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
         }
 
         return Task.FromResult<IReadOnlyList<ValidationError>>(Array.Empty<ValidationError>());
+    }
+
+    /// <summary>
+    /// Get a specific row by RowID - IRowStore implementation (PRIMARY - stable identifier)
+    /// </summary>
+    public Task<IReadOnlyDictionary<string, object?>?> GetRowByIdAsync(
+        string rowId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(rowId) || !int.TryParse(rowId, out var rowIdInt))
+        {
+            _logger.LogWarning("Invalid RowID format: {RowId}", rowId);
+            return Task.FromResult<IReadOnlyDictionary<string, object?>?>(null);
+        }
+
+        if (_rows.TryGetValue(rowIdInt, out var row))
+        {
+            _logger.LogDebug("Retrieved row by RowID: {RowId}", rowId);
+            return Task.FromResult<IReadOnlyDictionary<string, object?>?>(row);
+        }
+
+        _logger.LogDebug("Row not found by RowID: {RowId}", rowId);
+        return Task.FromResult<IReadOnlyDictionary<string, object?>?>(null);
+    }
+
+    /// <summary>
+    /// Update a specific row by RowID - IRowStore implementation (PRIMARY - stable identifier)
+    /// </summary>
+    public Task<bool> UpdateRowByIdAsync(
+        string rowId,
+        IReadOnlyDictionary<string, object?> rowData,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() =>
+        {
+            if (string.IsNullOrEmpty(rowId) || !int.TryParse(rowId, out var rowIdInt))
+            {
+                _logger.LogWarning("Invalid RowID format: {RowId}", rowId);
+                return false;
+            }
+
+            lock (_modificationLock)
+            {
+                if (!_rows.TryGetValue(rowIdInt, out var oldRow))
+                {
+                    _logger.LogWarning("Row not found for update by RowID: {RowId}", rowId);
+                    return false;
+                }
+
+                // Preserve __rowId in updated data
+                var updatedRow = new Dictionary<string, object?>(rowData)
+                {
+                    ["__rowId"] = rowIdInt
+                };
+
+                if (_rows.TryUpdate(rowIdInt, updatedRow, oldRow))
+                {
+                    _logger.LogDebug("Updated row by RowID: {RowId}", rowId);
+                    return true;
+                }
+
+                _logger.LogWarning("Failed to update row by RowID: {RowId}", rowId);
+                return false;
+            }
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Remove a specific row by RowID - IRowStore implementation (PRIMARY - stable identifier)
+    /// </summary>
+    public Task<bool> RemoveRowByIdAsync(
+        string rowId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() =>
+        {
+            if (string.IsNullOrEmpty(rowId) || !int.TryParse(rowId, out var rowIdInt))
+            {
+                _logger.LogWarning("Invalid RowID format: {RowId}", rowId);
+                return false;
+            }
+
+            lock (_modificationLock)
+            {
+                if (_rows.TryRemove(rowIdInt, out _))
+                {
+                    // Also remove validation errors for this row
+                    _validationErrors.TryRemove(rowIdInt, out _);
+                    _logger.LogDebug("Removed row by RowID: {RowId}", rowId);
+                    return true;
+                }
+
+                _logger.LogDebug("Row not found for removal by RowID: {RowId}", rowId);
+                return false;
+            }
+        }, cancellationToken);
     }
 
     /// <summary>

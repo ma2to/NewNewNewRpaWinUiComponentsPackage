@@ -108,6 +108,19 @@ public interface IAdvancedDataGridFacade : IAsyncDisposable
     SmartOperations.IDataGridSmartOperations SmartOperations { get; }
 
     #endregion
+
+    #region UI Control Access
+
+    /// <summary>
+    /// Gets the UI control for the DataGrid (Interactive mode only).
+    /// In Interactive mode, the component manages its own ViewModel and UI control with automatic updates.
+    /// The UI control is pre-configured with event handlers and data binding.
+    /// </summary>
+    /// <returns>The AdvancedDataGridControl instance, or null if in Headless mode</returns>
+    /// <exception cref="InvalidOperationException">Thrown when called in Headless mode or when DispatcherQueue is not provided</exception>
+    UIControls.AdvancedDataGridControl? GetUIControl();
+
+    #endregion
 }
 
 /// <summary>

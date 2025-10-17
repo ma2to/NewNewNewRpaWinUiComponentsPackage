@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.ViewModels;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Persistence.Interfaces;
+using System.Linq;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIAdapters.WinUI;
 
@@ -102,6 +103,7 @@ internal sealed class InternalUIUpdateHandler : IDisposable
     /// <summary>
     /// Applies granular updates to the ViewModel based on event metadata.
     /// This is the core optimization that eliminates full rebuild for 10M+ rows.
+    /// FALLBACK: If no granular metadata is available, performs full reload from IRowStore.
     /// </summary>
     private void ApplyGranularUpdates(PublicDataRefreshEventArgs eventArgs)
     {
@@ -110,11 +112,18 @@ internal sealed class InternalUIUpdateHandler : IDisposable
 
         try
         {
+            bool hasGranularMetadata = eventArgs.PhysicallyDeletedIndices.Any() ||
+                                       eventArgs.ContentClearedIndices.Any() ||
+                                       eventArgs.UpdatedRowData.Any();
+
             // SCENARIO A: Physical delete → Remove rows from ViewModel
             // This fires NotifyCollectionChangedAction.Remove instead of Reset
             if (eventArgs.PhysicallyDeletedIndices.Any())
             {
                 _logger.LogDebug("Applying {Count} physical row deletions", eventArgs.PhysicallyDeletedIndices.Count);
+
+                // CRITICAL: Track if any invalid indices detected (indicates UI/Backend desync)
+                var hadInvalidIndex = false;
 
                 // Sort descending to avoid index shifting issues during removal
                 foreach (var deletedIndex in eventArgs.PhysicallyDeletedIndices.OrderByDescending(i => i))
@@ -128,7 +137,16 @@ internal sealed class InternalUIUpdateHandler : IDisposable
                     {
                         _logger.LogWarning("Invalid delete index {Index} (ViewModel has {Count} rows)",
                             deletedIndex, _viewModel.Rows.Count);
+                        hadInvalidIndex = true;
                     }
+                }
+
+                // CRITICAL FIX: If invalid index detected, UI and Backend are out of sync → full reload
+                if (hadInvalidIndex)
+                {
+                    _logger.LogWarning("Invalid indices detected - UI/Backend desynchronized - performing full reload to resync");
+                    PerformFullReload();
+                    return; // Exit early, full reload handles everything
                 }
             }
 
@@ -186,12 +204,65 @@ internal sealed class InternalUIUpdateHandler : IDisposable
                 }
             }
 
-            _logger.LogInformation("Granular UI updates completed successfully");
+            // FALLBACK: No granular metadata → Full reload from IRowStore
+            // This happens after Import, AddRow, or other operations that don't provide granular updates
+            if (!hasGranularMetadata)
+            {
+                _logger.LogInformation("No granular metadata available for operation {Op} - performing full reload from IRowStore",
+                    eventArgs.OperationType);
+
+                PerformFullReload();
+            }
+            else
+            {
+                _logger.LogInformation("Granular UI updates completed successfully");
+            }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to apply granular UI updates");
             // Don't rethrow - we want to be resilient to UI update failures
+        }
+    }
+
+    /// <summary>
+    /// Performs full reload of ViewModel from IRowStore.
+    /// Used as fallback when granular metadata is not available (e.g., after Import, AddRow).
+    /// </summary>
+    private void PerformFullReload()
+    {
+        if (_viewModel == null)
+            return;
+
+        try
+        {
+            _logger.LogDebug("Performing full reload from IRowStore...");
+
+            // Get all rows from backend
+            var allRows = _rowStore.GetAllRows();
+
+            if (allRows == null || allRows.Count == 0)
+            {
+                _logger.LogDebug("No data in IRowStore - clearing ViewModel");
+                _viewModel.InitializeColumns(new List<string>(), _options);
+                _viewModel.LoadRows(new List<Dictionary<string, object?>>());
+                return;
+            }
+
+            // Extract column headers from first row
+            var headers = allRows.First().Keys.ToList();
+
+            _logger.LogDebug("Reloading {RowCount} rows with {ColumnCount} columns", allRows.Count, headers.Count);
+
+            // Load data into ViewModel (InitializeColumns first, then LoadRows)
+            _viewModel.InitializeColumns(headers, _options);
+            _viewModel.LoadRows(allRows);
+
+            _logger.LogInformation("Full reload completed - loaded {RowCount} rows", allRows.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to perform full reload from IRowStore");
         }
     }
 

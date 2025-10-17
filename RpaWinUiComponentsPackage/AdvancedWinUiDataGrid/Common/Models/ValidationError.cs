@@ -8,9 +8,10 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
 internal class ValidationError
 {
     /// <summary>
-    /// Gets or sets the row index where the error occurred
+    /// Gets or sets the unique stable row identifier (PRIMARY - use this for all operations)
+    /// This ID remains stable across sort/filter/delete operations
     /// </summary>
-    public int RowIndex { get; init; }
+    public string RowId { get; set; } = string.Empty;
 
     /// <summary>
     /// Gets or sets the rule ID that triggered the error
@@ -54,14 +55,14 @@ internal class ValidationError
     /// <summary>
     /// Creates a new validation error
     /// </summary>
-    /// <param name="rowIndex">Row index</param>
+    /// <param name="rowId">Unique stable row identifier</param>
     /// <param name="ruleId">Rule ID</param>
     /// <param name="message">Error message</param>
     /// <param name="columnName">Column name</param>
     /// <param name="severity">Severity level</param>
     /// <returns>New validation error instance</returns>
     public static ValidationError Create(
-        int rowIndex,
+        string rowId,
         string ruleId,
         string message,
         string? columnName = null,
@@ -69,7 +70,7 @@ internal class ValidationError
     {
         return new ValidationError
         {
-            RowIndex = rowIndex,
+            RowId = rowId,
             RuleId = ruleId,
             Message = message,
             ColumnName = columnName,
@@ -85,9 +86,10 @@ internal class ValidationError
 internal class ValidationWarning
 {
     /// <summary>
-    /// Gets or sets the row index where the warning occurred
+    /// Gets or sets the unique stable row identifier (PRIMARY - use this for all operations)
+    /// This ID remains stable across sort/filter/delete operations
     /// </summary>
-    public int RowIndex { get; init; }
+    public string RowId { get; set; } = string.Empty;
 
     /// <summary>
     /// Gets or sets the rule ID that triggered the warning
@@ -122,20 +124,20 @@ internal class ValidationWarning
     /// <summary>
     /// Creates a new validation warning
     /// </summary>
-    /// <param name="rowIndex">Row index</param>
+    /// <param name="rowId">Unique stable row identifier</param>
     /// <param name="ruleId">Rule ID</param>
     /// <param name="message">Warning message</param>
     /// <param name="columnName">Column name</param>
     /// <returns>New validation warning instance</returns>
     public static ValidationWarning Create(
-        int rowIndex,
+        string rowId,
         string ruleId,
         string message,
         string? columnName = null)
     {
         return new ValidationWarning
         {
-            RowIndex = rowIndex,
+            RowId = rowId,
             RuleId = ruleId,
             Message = message,
             ColumnName = columnName,

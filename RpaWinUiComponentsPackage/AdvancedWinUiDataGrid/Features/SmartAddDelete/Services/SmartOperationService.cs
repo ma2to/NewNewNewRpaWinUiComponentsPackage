@@ -196,12 +196,15 @@ internal sealed class SmartOperationService : ISmartOperationService, IDisposabl
 
             // SMART DELETE LOGIC:
             // A) If currentRows <= minimumRows: clear content only + shift rows up
-            // B) If currentRows > minimumRows: physical delete (but keep 1 empty at end)
+            // B) If currentRows > minimumRows AND EnableSmartDelete: physical delete (but keep 1 empty at end)
+            // C) If EnableSmartDelete disabled: clear content instead of physical delete
+            // CRITICAL FIX: Always check minimum rows first to prevent deleting below minimum
 
-            if (currentRows <= minRows || !command.Configuration.EnableSmartDelete)
+            if (currentRows <= minRows)
             {
-                // Scenario A: Clear content + shift up
-                _logger.LogDebug("SmartDelete Scenario A: Clear content + shift (currentRows={Current} <= minRows={Min})", currentRows, minRows);
+                // Scenario A: Clear content + shift up (cannot delete below minimum)
+                // CRITICAL FIX: Don't add empty row for EACH delete - maintain minimum rows count
+                _logger.LogDebug("SmartDelete Scenario A: Clear content + maintain minimum (currentRows={Current} <= minRows={Min})", currentRows, minRows);
 
                 var allRows = (await _rowStore.GetAllRowsAsync(cancellationToken)).ToList();
                 var rowsToModify = allRows.ToList();
@@ -209,6 +212,7 @@ internal sealed class SmartOperationService : ISmartOperationService, IDisposabl
                 // Sort descending to avoid index shifting issues during iteration
                 var sortedIndicesToDelete = command.RowIndexesToDelete.OrderByDescending(i => i).ToList();
 
+                // CRITICAL FIX: Remove rows first WITHOUT adding empty rows in the loop
                 foreach (var rowIndex in sortedIndicesToDelete)
                 {
                     if (rowIndex < rowsToModify.Count)
@@ -218,30 +222,93 @@ internal sealed class SmartOperationService : ISmartOperationService, IDisposabl
                         affectedRowIndicesList.Add(rowIndex);
                         rowsContentCleared++;
 
-                        // Remove the row and add empty at end
+                        // Remove the row (DON'T add empty row here!)
                         rowsToModify.RemoveAt(rowIndex);
-                        var emptyRow = CreateEmptyRow(allRows.FirstOrDefault());
-                        rowsToModify.Add(emptyRow);
                         rowsShifted++;
-
-                        // Track shifted rows for granular UI update
-                        // All rows from deleted index to (count-1) have been shifted up by 1 position
-                        for (int shiftedIdx = rowIndex; shiftedIdx < rowsToModify.Count - 1; shiftedIdx++)
-                        {
-                            updatedRowDataDict[shiftedIdx] = rowsToModify[shiftedIdx];
-                            _logger.LogTrace("Tracked shifted row: index {Index}", shiftedIdx);
-                        }
                     }
                 }
 
-                _logger.LogDebug("Scenario A metadata: ContentCleared={Cleared}, UpdatedRows={Updated}, AffectedRows={Affected}",
-                    contentClearedList.Count, updatedRowDataDict.Count, affectedRowIndicesList.Count);
+                // CRITICAL FIX: After removing all rows, fill back to minimum rows
+                var currentCount = rowsToModify.Count;
+                var emptyRowsNeeded = minRows - currentCount;
+
+                if (emptyRowsNeeded > 0)
+                {
+                    var templateRow = allRows.FirstOrDefault() ?? rowsToModify.FirstOrDefault();
+                    for (int i = 0; i < emptyRowsNeeded; i++)
+                    {
+                        var emptyRow = CreateEmptyRow(templateRow);
+                        rowsToModify.Add(emptyRow);
+                    }
+                    _logger.LogDebug("Added {Count} empty rows to maintain minimum rows requirement", emptyRowsNeeded);
+                }
+
+                // Track shifted rows for granular UI update
+                for (int shiftedIdx = 0; shiftedIdx < rowsToModify.Count; shiftedIdx++)
+                {
+                    updatedRowDataDict[shiftedIdx] = rowsToModify[shiftedIdx];
+                }
+
+                _logger.LogDebug("Scenario A metadata: ContentCleared={Cleared}, EmptyRowsAdded={Empty}, UpdatedRows={Updated}",
+                    contentClearedList.Count, emptyRowsNeeded, updatedRowDataDict.Count);
+
+                await _rowStore.ReplaceAllRowsAsync(rowsToModify, cancellationToken);
+            }
+            else if (!command.Configuration.EnableSmartDelete)
+            {
+                // Scenario C: SmartDelete disabled - clear content instead of physical delete
+                // CRITICAL FIX: Don't add empty row for EACH delete - maintain current count
+                _logger.LogDebug("SmartDelete Scenario C: Clear content only (EnableSmartDelete=false, currentRows={Current} > minRows={Min})", currentRows, minRows);
+
+                var allRows = (await _rowStore.GetAllRowsAsync(cancellationToken)).ToList();
+                var rowsToModify = allRows.ToList();
+
+                // Sort descending to avoid index shifting issues during iteration
+                var sortedIndicesToDelete = command.RowIndexesToDelete.OrderByDescending(i => i).ToList();
+
+                // CRITICAL FIX: Remove rows first WITHOUT adding empty rows in the loop
+                foreach (var rowIndex in sortedIndicesToDelete)
+                {
+                    if (rowIndex < rowsToModify.Count)
+                    {
+                        // Track content cleared
+                        contentClearedList.Add(rowIndex);
+                        affectedRowIndicesList.Add(rowIndex);
+                        rowsContentCleared++;
+
+                        // Remove the row (DON'T add empty row here!)
+                        rowsToModify.RemoveAt(rowIndex);
+                        rowsShifted++;
+                    }
+                }
+
+                // CRITICAL FIX: After removing, add back empty rows to maintain current count
+                // (since EnableSmartDelete=false means we clear content, not physically delete)
+                var rowsRemoved = sortedIndicesToDelete.Count(i => i < allRows.Count);
+                var templateRow = allRows.FirstOrDefault() ?? rowsToModify.FirstOrDefault();
+
+                for (int i = 0; i < rowsRemoved; i++)
+                {
+                    var emptyRow = CreateEmptyRow(templateRow);
+                    rowsToModify.Add(emptyRow);
+                }
+
+                _logger.LogDebug("Added {Count} empty rows to maintain original count (clear content mode)", rowsRemoved);
+
+                // Track shifted rows for granular UI update
+                for (int shiftedIdx = 0; shiftedIdx < rowsToModify.Count; shiftedIdx++)
+                {
+                    updatedRowDataDict[shiftedIdx] = rowsToModify[shiftedIdx];
+                }
+
+                _logger.LogDebug("Scenario C metadata: ContentCleared={Cleared}, EmptyRowsAdded={Empty}, UpdatedRows={Updated}",
+                    contentClearedList.Count, rowsRemoved, updatedRowDataDict.Count);
 
                 await _rowStore.ReplaceAllRowsAsync(rowsToModify, cancellationToken);
             }
             else
             {
-                // Scenario B: Physical delete
+                // Scenario B: Physical delete (EnableSmartDelete=true AND currentRows > minRows)
                 _logger.LogDebug("SmartDelete Scenario B: Physical delete (currentRows={Current} > minRows={Min})", currentRows, minRows);
 
                 var allRows = (await _rowStore.GetAllRowsAsync(cancellationToken)).ToList();
@@ -388,7 +455,6 @@ internal sealed class SmartOperationService : ISmartOperationService, IDisposabl
             {
                 var minRows = command.Configuration.MinimumRows;
                 var currentRows = command.CurrentRowCount;
-                var rowsToDeleteCount = command.RowIdsToDelete.Count;
 
                 // CRITICAL: Get indices BEFORE delete for metadata tracking
                 var allRowsBeforeDelete = (await _rowStore.GetAllRowsAsync(cancellationToken)).ToList();
@@ -409,46 +475,109 @@ internal sealed class SmartOperationService : ISmartOperationService, IDisposabl
                 _logger.LogDebug("Mapped {Count} rowIds to indices: {Indices}",
                     deletedIndices.Count, string.Join(", ", deletedIndices));
 
-                // PERFORMANCE: Direct ID-based deletion - no GetAll/ReplaceAll (O(k) instead of O(n))
-                // This solves the index shifting bug and concurrent access race condition
-                await _rowStore.RemoveRowsAsync(command.RowIdsToDelete, cancellationToken);
+                // CRITICAL FIX: Use ACTUAL deleted count (not command count which may include non-existent IDs)
+                var actualDeletedCount = deletedIndices.Count;
 
-                _logger.LogInformation("Physically deleted {Count} rows by ID in operation {OperationId}", rowsToDeleteCount, operationId);
-
-                // Check if we need to add empty row(s) to maintain minimum rows
-                var newRowCount = currentRows - rowsToDeleteCount;
-                var emptyRowsToAdd = 0;
-
-                if (newRowCount < minRows)
+                // CRITICAL FIX: Early exit if no rows found - prevent adding empty rows for non-existent deletes
+                if (actualDeletedCount == 0)
                 {
-                    emptyRowsToAdd = minRows - newRowCount;
-                    _logger.LogInformation("Adding {Count} empty rows to maintain minimum rows requirement", emptyRowsToAdd);
+                    _logger.LogWarning("No rows found with provided IDs - operation skipped (no changes made)");
+                    stopwatch.Stop();
+                    scope.MarkSuccess(new { Duration = stopwatch.Elapsed, RowsDeleted = 0, Message = "No matching rows found" });
 
-                    // Get a template row for creating empty rows
-                    var allRows = await _rowStore.GetAllRowsAsync(cancellationToken);
-                    var templateRow = allRows.FirstOrDefault();
-                    var emptyRows = new List<IReadOnlyDictionary<string, object?>>();
-
-                    for (int i = 0; i < emptyRowsToAdd; i++)
-                    {
-                        emptyRows.Add(CreateEmptyRow(templateRow));
-                    }
-
-                    await _rowStore.AppendRowsAsync(emptyRows, cancellationToken);
+                    return RowManagementResult.CreateSuccess(
+                        currentRows,
+                        0,
+                        RowOperationType.SmartDelete,
+                        stopwatch.Elapsed,
+                        new RowManagementStatistics());
                 }
 
-                // Ensure at least 1 empty row at end (if AlwaysKeepLastEmpty is enabled)
-                if (command.Configuration.AlwaysKeepLastEmpty)
-                {
-                    var allRows = await _rowStore.GetAllRowsAsync(cancellationToken);
-                    var lastRow = allRows.LastOrDefault();
+                // CRITICAL FIX: Calculate newRowCount using ACTUAL deleted count
+                var newRowCount = currentRows - actualDeletedCount;
+                var rowsPhysicallyDeleted = 0;
+                var rowsContentCleared = 0;
+                var emptyRowsCreated = 0;
+                var contentClearedList = new List<int>();
+                var updatedRowDataDict = new Dictionary<int, IReadOnlyDictionary<string, object?>>();
 
-                    if (lastRow != null && !IsEmptyRow(lastRow))
+                // SMART DELETE LOGIC: Check if we'll go below minimum
+                if (newRowCount < minRows)
+                {
+                    // SCENARIO A: CLEAR CONTENT MODE (can't physically delete below minimum)
+                    _logger.LogDebug("SmartDeleteById Scenario A: Clear content + maintain minimum (newRowCount={New} < minRows={Min})",
+                        newRowCount, minRows);
+
+                    var rowsToKeep = allRowsBeforeDelete.ToList();
+
+                    // Remove rows in-memory (sort descending to avoid index shifting)
+                    foreach (var index in deletedIndices.OrderByDescending(i => i))
                     {
-                        _logger.LogInformation("Adding final empty row to maintain AlwaysKeepLastEmpty requirement");
-                        var emptyRow = CreateEmptyRow(lastRow);
-                        await _rowStore.AppendRowsAsync(new[] { emptyRow }, cancellationToken);
-                        emptyRowsToAdd++;
+                        if (index < rowsToKeep.Count)
+                        {
+                            contentClearedList.Add(index);
+                            rowsToKeep.RemoveAt(index);
+                            rowsContentCleared++;
+                        }
+                    }
+
+                    // Fill to minimum rows
+                    var templateRow = allRowsBeforeDelete.FirstOrDefault() ?? rowsToKeep.FirstOrDefault();
+                    while (rowsToKeep.Count < minRows)
+                    {
+                        rowsToKeep.Add(CreateEmptyRow(templateRow));
+                        emptyRowsCreated++;
+                    }
+
+                    // Ensure last row is empty
+                    if (command.Configuration.AlwaysKeepLastEmpty && rowsToKeep.Count > 0)
+                    {
+                        var lastRow = rowsToKeep.Last();
+                        if (!IsEmptyRow(lastRow))
+                        {
+                            rowsToKeep.Add(CreateEmptyRow(templateRow));
+                            emptyRowsCreated++;
+                            _logger.LogDebug("Added final empty row to maintain AlwaysKeepLastEmpty requirement");
+                        }
+                    }
+
+                    // Track shifted rows for granular UI update
+                    for (int i = 0; i < rowsToKeep.Count; i++)
+                    {
+                        updatedRowDataDict[i] = rowsToKeep[i];
+                    }
+
+                    _logger.LogDebug("Scenario A metadata: ContentCleared={Cleared}, EmptyRowsAdded={Empty}, UpdatedRows={Updated}",
+                        contentClearedList.Count, emptyRowsCreated, updatedRowDataDict.Count);
+
+                    await _rowStore.ReplaceAllRowsAsync(rowsToKeep, cancellationToken);
+                }
+                else
+                {
+                    // SCENARIO B: PHYSICAL DELETE MODE (above minimum, can physically delete)
+                    _logger.LogDebug("SmartDeleteById Scenario B: Physical delete (newRowCount={New} >= minRows={Min})",
+                        newRowCount, minRows);
+
+                    // PERFORMANCE: Direct ID-based deletion - O(k) instead of O(n)
+                    await _rowStore.RemoveRowsAsync(command.RowIdsToDelete, cancellationToken);
+                    rowsPhysicallyDeleted = actualDeletedCount;
+
+                    _logger.LogInformation("Physically deleted {Count} rows by ID in operation {OperationId}",
+                        actualDeletedCount, operationId);
+
+                    // Ensure last row is empty
+                    if (command.Configuration.AlwaysKeepLastEmpty)
+                    {
+                        var allRows = await _rowStore.GetAllRowsAsync(cancellationToken);
+                        var lastRow = allRows.LastOrDefault();
+
+                        if (lastRow != null && !IsEmptyRow(lastRow))
+                        {
+                            _logger.LogInformation("Adding final empty row to maintain AlwaysKeepLastEmpty requirement");
+                            var emptyRow = CreateEmptyRow(lastRow);
+                            await _rowStore.AppendRowsAsync(new[] { emptyRow }, cancellationToken);
+                            emptyRowsCreated++;
+                        }
                     }
                 }
 
@@ -457,18 +586,18 @@ internal sealed class SmartOperationService : ISmartOperationService, IDisposabl
 
                 var statistics = new RowManagementStatistics
                 {
-                    RowsPhysicallyDeleted = rowsToDeleteCount,
-                    RowsContentCleared = 0,
+                    RowsPhysicallyDeleted = rowsPhysicallyDeleted,
+                    RowsContentCleared = rowsContentCleared,
                     RowsShifted = 0,
-                    EmptyRowsCreated = emptyRowsToAdd,
+                    EmptyRowsCreated = emptyRowsCreated,
                     MinimumRowsEnforced = newRowCount < minRows,
                     LastEmptyRowMaintained = command.Configuration.AlwaysKeepLastEmpty
                 };
 
                 _statistics = statistics;
 
-                _logger.LogInformation("Smart delete rows by ID operation {OperationId} completed in {Duration}ms: physicallyDeleted={Physical}, emptyRowsAdded={EmptyAdded}, finalCount={FinalCount}",
-                    operationId, stopwatch.ElapsedMilliseconds, rowsToDeleteCount, emptyRowsToAdd, finalRowCount);
+                _logger.LogInformation("Smart delete rows by ID operation {OperationId} completed in {Duration}ms: physicallyDeleted={Physical}, contentCleared={Cleared}, emptyRowsCreated={Empty}, finalCount={FinalCount}",
+                    operationId, stopwatch.ElapsedMilliseconds, rowsPhysicallyDeleted, rowsContentCleared, emptyRowsCreated, finalRowCount);
 
                 // PERFORMANCE: Debounced async validation (non-blocking)
                 if (!command.SkipAutomaticValidation && _validationService.ShouldRunAutomaticValidation("SmartDeleteRowsByIdAsync"))
@@ -496,19 +625,34 @@ internal sealed class SmartOperationService : ISmartOperationService, IDisposabl
                 // CRITICAL: Return metadata for incremental UI update (10M+ row performance)
                 var result = RowManagementResult.CreateSuccess(
                     finalRowCount,
-                    rowsToDeleteCount,
+                    actualDeletedCount,
                     RowOperationType.SmartDelete,
                     stopwatch.Elapsed,
                     statistics);
 
-                // Add granular metadata (using record 'with' expression for immutability)
-                return result with
+                // Add granular metadata based on scenario
+                if (newRowCount < minRows)
                 {
-                    PhysicallyDeletedIndices = deletedIndices.AsReadOnly(),
-                    ContentClearedIndices = Array.Empty<int>(),
-                    UpdatedRowData = new Dictionary<int, IReadOnlyDictionary<string, object?>>(),
-                    AffectedRowIndices = deletedIndices.AsReadOnly()
-                };
+                    // Scenario A: Content cleared + shifted rows
+                    return result with
+                    {
+                        PhysicallyDeletedIndices = Array.Empty<int>(),
+                        ContentClearedIndices = contentClearedList.AsReadOnly(),
+                        UpdatedRowData = updatedRowDataDict,
+                        AffectedRowIndices = contentClearedList.AsReadOnly()
+                    };
+                }
+                else
+                {
+                    // Scenario B: Physical delete
+                    return result with
+                    {
+                        PhysicallyDeletedIndices = deletedIndices.AsReadOnly(),
+                        ContentClearedIndices = Array.Empty<int>(),
+                        UpdatedRowData = new Dictionary<int, IReadOnlyDictionary<string, object?>>(),
+                        AffectedRowIndices = deletedIndices.AsReadOnly()
+                    };
+                }
             }
             catch (Exception ex)
             {
@@ -726,6 +870,14 @@ internal sealed class SmartOperationService : ISmartOperationService, IDisposabl
         var emptyRow = new Dictionary<string, object?>();
         foreach (var key in templateRow.Keys)
         {
+            // CRITICAL FIX: Skip __rowId field - let InMemoryRowStore assign new unique ID
+            // Problem: If __rowId is set to null, subsequent deletes on this row will fail
+            // because CellViewModel.RowId will be null → fallback to index-based delete → Scenario A (clear content)
+            if (key == "__rowId")
+            {
+                continue; // Skip __rowId, InMemoryRowStore.AddRangeAsync will assign new ID
+            }
+
             emptyRow[key] = null;
         }
         return emptyRow;
@@ -733,7 +885,11 @@ internal sealed class SmartOperationService : ISmartOperationService, IDisposabl
 
     private bool IsEmptyRow(IReadOnlyDictionary<string, object?> row)
     {
-        return row.Values.All(v => v == null || string.IsNullOrWhiteSpace(v?.ToString()));
+        // CRITICAL: Ignore __rowId field - it's an identifier, not data
+        // A row is empty if ALL data fields (excluding __rowId) are null or whitespace
+        return row
+            .Where(kvp => kvp.Key != "__rowId")
+            .All(kvp => kvp.Value == null || string.IsNullOrWhiteSpace(kvp.Value?.ToString()));
     }
 
     #endregion

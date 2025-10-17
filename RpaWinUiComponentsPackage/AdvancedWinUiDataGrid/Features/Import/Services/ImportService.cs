@@ -7,6 +7,7 @@ using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.Int
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.NullPattern;
 using System.Collections.Concurrent;
 using System.Data;
+using System.Linq;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Import.Services;
 
@@ -24,10 +25,12 @@ internal sealed class ImportService : IImportService
     private readonly IValidationService _validationService;
     private readonly Infrastructure.Persistence.Interfaces.IRowStore _rowStore;
     private readonly AdvancedDataGridOptions _options;
+    private readonly UIAdapters.WinUI.UiNotificationService? _uiNotificationService;
 
     /// <summary>
     /// ImportService constructor
     /// Initializes all dependencies and null pattern for operation logger
+    /// CRITICAL: UiNotificationService is optional (null for Headless mode)
     /// </summary>
     public ImportService(
         ILogger<ImportService> logger,
@@ -35,13 +38,15 @@ internal sealed class ImportService : IImportService
         IValidationService validationService,
         Infrastructure.Persistence.Interfaces.IRowStore rowStore,
         AdvancedDataGridOptions options,
-        IOperationLogger<ImportService>? operationLogger = null)
+        IOperationLogger<ImportService>? operationLogger = null,
+        UIAdapters.WinUI.UiNotificationService? uiNotificationService = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _importLogger = importLogger ?? throw new ArgumentNullException(nameof(importLogger));
         _validationService = validationService ?? throw new ArgumentNullException(nameof(validationService));
         _rowStore = rowStore ?? throw new ArgumentNullException(nameof(rowStore));
         _options = options ?? throw new ArgumentNullException(nameof(options));
+        _uiNotificationService = uiNotificationService; // Optional - null in Headless mode
 
         // If operation logger is not provided, use null pattern (no logging)
         _operationLogger = operationLogger ?? NullOperationLogger<ImportService>.Instance;
@@ -109,6 +114,39 @@ internal sealed class ImportService : IImportService
             }
 
             _logger.LogInformation("Data successfully stored for operation {OperationId}", operationId);
+
+            // CRITICAL FIX: Enforce minimum rows + last empty row requirement after import
+            // This ensures imported data respects grid configuration constraints
+            await EnsureMinimumRowsAndLastEmptyAsync(operationId, cancellationToken);
+
+            // CRITICAL: Fire UI refresh event after successful import (Interactive mode only)
+            // This triggers InternalUIUpdateHandler to reload ViewModel from IRowStore
+            if (_uiNotificationService != null)
+            {
+                _logger.LogInformation("Firing UI refresh event for {RowCount} imported rows", processedRows.Count);
+
+                // Create refresh event with empty granular metadata (Import doesn't have granular updates)
+                // InternalUIUpdateHandler will detect missing metadata and perform full reload
+                var firstRow = processedRows.FirstOrDefault();
+                var columnCount = firstRow != null ? firstRow.Keys.Count() : 0;
+
+                var refreshEvent = new PublicDataRefreshEventArgs
+                {
+                    AffectedRows = processedRows.Count,
+                    ColumnCount = columnCount,
+                    OperationType = "Import",
+                    RefreshTime = DateTime.UtcNow,
+                    PhysicallyDeletedIndices = Array.Empty<int>(),
+                    ContentClearedIndices = Array.Empty<int>(),
+                    UpdatedRowData = new Dictionary<int, IReadOnlyDictionary<string, object?>>()
+                };
+
+                await _uiNotificationService.NotifyDataRefreshWithMetadataAsync(refreshEvent);
+            }
+            else
+            {
+                _logger.LogDebug("UiNotificationService not available (Headless mode) - skipping UI refresh");
+            }
 
             // CRITICAL: Automatic post-import validation (only if ShouldRunAutomaticValidation returns true)
             bool validationPassed = true;
@@ -402,5 +440,108 @@ internal sealed class ImportService : IImportService
         return genericArgs.Length == 2 &&
                genericArgs[0] == typeof(string) &&
                genericArgs[1] == typeof(object);
+    }
+
+    /// <summary>
+    /// CRITICAL FIX: Ensures minimum rows + last empty row requirements after import
+    /// This prevents grid from having fewer than minimum rows or missing final empty row
+    /// </summary>
+    private async Task EnsureMinimumRowsAndLastEmptyAsync(Guid operationId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var currentRows = await _rowStore.GetAllRowsAsync(cancellationToken);
+            var currentCount = currentRows.Count();
+
+            // CRITICAL: Use default row management configuration (MinimumRows=50, AlwaysKeepLastEmpty=true)
+            // These are the same defaults used by SmartOperations feature
+            var minRows = 50; // Default from RowManagementConfiguration
+            var alwaysKeepLastEmpty = true; // Default from RowManagementConfiguration
+
+            _logger.LogDebug("Ensuring minimum rows after import: current={Current}, minimum={Min}",
+                currentCount, minRows);
+
+            var rowsToAdd = new List<IReadOnlyDictionary<string, object?>>();
+
+            // Step 1: Fill to minimum rows if needed
+            if (currentCount < minRows)
+            {
+                var emptyRowsNeeded = minRows - currentCount;
+                _logger.LogInformation("Import resulted in {Current} rows, adding {Empty} empty rows to reach minimum {Min}",
+                    currentCount, emptyRowsNeeded, minRows);
+
+                var templateRow = currentRows.FirstOrDefault();
+                for (int i = 0; i < emptyRowsNeeded; i++)
+                {
+                    rowsToAdd.Add(CreateEmptyRow(templateRow));
+                }
+            }
+
+            // Step 2: Ensure last row is empty (if AlwaysKeepLastEmpty is enabled)
+            if (alwaysKeepLastEmpty)
+            {
+                // Check last row after potential additions
+                var finalRows = currentRows.ToList();
+                finalRows.AddRange(rowsToAdd);
+
+                if (finalRows.Count > 0)
+                {
+                    var lastRow = finalRows.Last();
+                    if (!IsEmptyRow(lastRow))
+                    {
+                        _logger.LogInformation("Last row after import is not empty - adding final empty row");
+                        rowsToAdd.Add(CreateEmptyRow(lastRow));
+                    }
+                }
+            }
+
+            // Apply additions if needed
+            if (rowsToAdd.Count > 0)
+            {
+                await _rowStore.AppendRowsAsync(rowsToAdd, cancellationToken);
+                _logger.LogInformation("Added {Count} empty rows after import to maintain grid requirements",
+                    rowsToAdd.Count);
+            }
+            else
+            {
+                _logger.LogDebug("No empty rows needed - grid requirements already met");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to ensure minimum rows after import for operation {OperationId}", operationId);
+            // Don't throw - this is a best-effort operation, import already succeeded
+        }
+    }
+
+    /// <summary>
+    /// Creates an empty row based on template structure
+    /// </summary>
+    private IReadOnlyDictionary<string, object?> CreateEmptyRow(IReadOnlyDictionary<string, object?>? templateRow)
+    {
+        if (templateRow == null)
+            return new Dictionary<string, object?>();
+
+        var emptyRow = new Dictionary<string, object?>();
+        foreach (var key in templateRow.Keys)
+        {
+            // CRITICAL: Skip __rowId - let IRowStore assign new unique ID
+            if (key == "__rowId")
+                continue;
+
+            emptyRow[key] = null;
+        }
+        return emptyRow;
+    }
+
+    /// <summary>
+    /// Checks if a row is empty (all data fields null/whitespace, ignoring __rowId)
+    /// </summary>
+    private bool IsEmptyRow(IReadOnlyDictionary<string, object?> row)
+    {
+        // CRITICAL: Ignore __rowId field - it's an identifier, not data
+        return row
+            .Where(kvp => kvp.Key != "__rowId")
+            .All(kvp => kvp.Value == null || string.IsNullOrWhiteSpace(kvp.Value?.ToString()));
     }
 }

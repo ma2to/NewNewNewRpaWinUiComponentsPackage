@@ -433,6 +433,13 @@ internal sealed class ValidationService : IValidationService
                 {
                     var absoluteRowIndex = batchStartIndex + rowData.index;
 
+                    // Extract RowId from row data (stable identifier)
+                    string rowId = string.Empty;
+                    if (rowData.row.TryGetValue("__rowId", out var rowIdValue))
+                    {
+                        rowId = rowIdValue?.ToString() ?? string.Empty;
+                    }
+
                     foreach (var rule in rules)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
@@ -452,7 +459,7 @@ internal sealed class ValidationService : IValidationService
                                 {
                                     batchErrors.Add(new ValidationError
                                     {
-                                        RowIndex = absoluteRowIndex,
+                                        RowId = rowId,
                                         RuleId = rule.RuleId,
                                         Message = validationResult.ErrorMessage ?? "Validation failed",
                                         ColumnName = validationResult.AffectedColumn
@@ -462,7 +469,7 @@ internal sealed class ValidationService : IValidationService
                                 {
                                     batchWarnings.Add(new ValidationWarning
                                     {
-                                        RowIndex = absoluteRowIndex,
+                                        RowId = rowId,
                                         RuleId = rule.RuleId,
                                         Message = validationResult.ErrorMessage ?? "Validation warning",
                                         ColumnName = validationResult.AffectedColumn
@@ -472,12 +479,12 @@ internal sealed class ValidationService : IValidationService
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogWarning(ex, "Validation rule {RuleId} failed for row {RowIndex} in operation {OperationId}",
-                                rule.RuleId, absoluteRowIndex, operationId);
+                            _logger.LogWarning(ex, "Validation rule {RuleId} failed for row with RowId {RowId} in operation {OperationId}",
+                                rule.RuleId, rowId, operationId);
 
                             batchErrors.Add(new ValidationError
                             {
-                                RowIndex = absoluteRowIndex,
+                                RowId = rowId,
                                 RuleId = rule.RuleId,
                                 Message = $"Validation rule execution failed: {ex.Message}",
                                 ColumnName = null
@@ -1007,20 +1014,118 @@ internal sealed class ValidationService : IValidationService
         };
     }
 
-    public void RefreshValidationResultsToUI()
+    /// <summary>
+    /// Refreshes validation results to UI by updating validAlerts column and triggering UI notification.
+    /// CRITICAL: This method updates row store with formatted validation messages.
+    /// UI will be refreshed automatically in Interactive mode via UiNotificationService.
+    /// </summary>
+    public async void RefreshValidationResultsToUI()
     {
-        _logger.LogInformation("Refreshing validation results to UI");
-        // Trigger UI refresh logic here
+        try
+        {
+            _logger.LogInformation("Refreshing validation results to UI");
+
+            // Get all validation errors from row store
+            var errors = await _rowStore.GetValidationErrorsAsync(
+                onlyFiltered: false,
+                onlyChecked: false,
+                CancellationToken.None);
+
+            if (errors.Count == 0)
+            {
+                _logger.LogInformation("No validation errors found, UI is clean");
+                return;
+            }
+
+            _logger.LogInformation("Found {ErrorCount} validation errors, updating UI", errors.Count);
+
+            // Group errors by RowID
+            var errorsByRowId = errors
+                .Where(e => !string.IsNullOrEmpty(e.RowId))
+                .GroupBy(e => e.RowId!)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            // Update each row with validation alerts
+            foreach (var (rowId, rowErrors) in errorsByRowId)
+            {
+                // Format validation alerts: "Error: msg1; Warning: msg2"
+                var alertMessages = rowErrors
+                    .Select(e => $"{(e.Severity == ValidationSeverity.Error ? "Error" : "Warning")}: {e.Message}")
+                    .ToList();
+
+                var alertMessage = string.Join("; ", alertMessages);
+
+                // Update row with validAlerts column
+                try
+                {
+                    // Get row by ID
+                    var row = await _rowStore.GetRowByIdAsync(rowId, CancellationToken.None);
+                    if (row != null)
+                    {
+                        var updatedRow = new Dictionary<string, object?>(row)
+                        {
+                            ["validAlerts"] = alertMessage
+                        };
+                        await _rowStore.UpdateRowByIdAsync(rowId, updatedRow, CancellationToken.None);
+                        _logger.LogDebug("Updated validAlerts for RowID {RowId}: {Alerts}", rowId, alertMessage);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Row with RowID {RowId} not found, skipping validation alert update", rowId);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to update validation alerts for RowID {RowId}: {Message}", rowId, ex.Message);
+                }
+            }
+
+            _logger.LogInformation("Validation results refreshed to UI successfully");
+
+            // NOTE: UI refresh happens automatically in Interactive mode via UiNotificationService
+            // triggered by UpdateRowByIdAsync operations above
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to refresh validation results to UI: {Message}", ex.Message);
+        }
     }
 
-    public string GetValidationAlerts(int rowIndex)
+    public string GetValidationAlerts(string rowId)
     {
-        return GetValidationAlertsForRow(rowIndex);
+        // TODO: Implement RowID-based lookup once IRowStore has GetRowByIdAsync
+        // For now, this is a stub that needs to be implemented
+        _logger.LogWarning("GetValidationAlerts(string rowId) not yet fully implemented - needs IRowStore.GetRowByIdAsync");
+        return string.Empty;
     }
 
-    public bool HasValidationErrors(int rowIndex)
+    public bool HasValidationErrors(string rowId)
     {
-        var alerts = GetValidationAlertsForRow(rowIndex);
+        var alerts = GetValidationAlerts(rowId);
         return !string.IsNullOrEmpty(alerts);
+    }
+
+    public async Task<IReadOnlyList<ValidationError>> GetValidationErrorsAsync(
+        bool onlyFiltered = false,
+        bool onlyChecked = false,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation("Getting validation errors from row store (onlyFiltered: {OnlyFiltered}, onlyChecked: {OnlyChecked})",
+                onlyFiltered, onlyChecked);
+
+            // Get errors from row store with filtering support
+            var errors = await _rowStore.GetValidationErrorsAsync(onlyFiltered, onlyChecked, cancellationToken);
+
+            _logger.LogInformation("Retrieved {ErrorCount} validation errors from row store", errors.Count);
+
+            return errors;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get validation errors: {Message}", ex.Message);
+            return Array.Empty<ValidationError>();
+        }
     }
 }

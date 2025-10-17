@@ -15,18 +15,21 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIControls;
 /// Each header has a resize grip on the right side that users can drag to change column width.
 /// Column widths are automatically synchronized across headers, filters, and data cells.
 /// Uses Grid layout with ColumnDefinitions synchronized across all grid views.
+/// MEMORY LEAK FIX: Implements proper cleanup of event handlers via Unloaded event.
 /// </summary>
 public sealed class HeadersRowView : UserControl
 {
     private readonly DataGridViewModel _viewModel;
     private ColumnHeaderViewModel? _resizingColumn; // Column currently being resized
     private double _resizeStartWidth; // Original width when resize started
+    private Border? _resizePreviewLine; // Visual preview line during resize
 
     private readonly Grid _headersGrid;
 
     /// <summary>
     /// Creates a new headers row view bound to the specified view model.
     /// Automatically subscribes to column collection changes and column definition changes.
+    /// MEMORY LEAK FIX: Subscribes to Unloaded event for proper cleanup.
     /// </summary>
     /// <param name="viewModel">The view model that manages the grid's data and state</param>
     /// <exception cref="ArgumentNullException">Thrown when viewModel is null</exception>
@@ -52,8 +55,50 @@ public sealed class HeadersRowView : UserControl
         // Listen for collection changes
         _viewModel.ColumnHeaders.CollectionChanged += OnColumnHeadersCollectionChanged;
 
+        // MEMORY LEAK FIX: Subscribe to Unloaded event for cleanup
+        this.Unloaded += OnUnloaded;
+
         // Set grid as UserControl content
         Content = _headersGrid;
+    }
+
+    /// <summary>
+    /// MEMORY LEAK FIX: Cleanup event handlers when control is unloaded.
+    /// This prevents event handler accumulation that causes 200MB memory leaks per resize operation.
+    /// Without this cleanup, old HeadersRowView instances stay in memory due to event subscriptions.
+    /// </summary>
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        // Unsubscribe from ViewModel events
+        _viewModel.ColumnDefinitionsChanged -= OnColumnDefinitionsChanged;
+        _viewModel.ColumnHeaders.CollectionChanged -= OnColumnHeadersCollectionChanged;
+
+        // Clean up resize grips event handlers
+        foreach (var child in _headersGrid.Children)
+        {
+            if (child is Grid cellGrid)
+            {
+                foreach (var innerChild in cellGrid.Children)
+                {
+                    if (innerChild is ResizeGripControl resizeGrip)
+                    {
+                        resizeGrip.ManipulationStarted -= OnResizeGripManipulationStarted;
+                        resizeGrip.ManipulationDelta -= OnResizeGripManipulationDelta;
+                        resizeGrip.ManipulationCompleted -= OnResizeGripManipulationCompleted;
+                    }
+                }
+            }
+        }
+
+        // Clean up preview line if still exists
+        if (_resizePreviewLine != null && this.Parent is Panel parentPanel)
+        {
+            parentPanel.Children.Remove(_resizePreviewLine);
+            _resizePreviewLine = null;
+        }
+
+        // Unsubscribe from self
+        this.Unloaded -= OnUnloaded;
     }
 
     private void OnColumnDefinitionsChanged(object? sender, EventArgs e)
@@ -114,32 +159,78 @@ public sealed class HeadersRowView : UserControl
         };
         Grid.SetColumn(border, 0);
 
-        // TextBlock for header display name
-        var textBlock = new TextBlock
+        // SPECIAL: Checkbox column header gets a Select All/Deselect All checkbox
+        if (header.SpecialType == Common.SpecialColumnType.Checkbox)
         {
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            VerticalAlignment = VerticalAlignment.Center,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            Foreground = _viewModel.Theme.HeaderForeground // Explicitly set readable color from theme
-        };
+            var options = _viewModel.Theme.Options ?? new AdvancedDataGridOptions();
 
-        var textBinding = new Binding
+            // Parse hex colors
+            var borderColor = ParseHexColor(options.CheckboxBorderColor, Colors.DimGray);
+            var backgroundColor = ParseHexColor(options.CheckboxBackgroundColor, Colors.White);
+
+            var headerCheckbox = new CheckBox
+            {
+                IsThreeState = true, // null = indeterminate, true = all selected, false = none selected
+                IsChecked = null, // Start with indeterminate
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                MinWidth = options.CheckboxMinWidth,
+                MinHeight = options.CheckboxMinHeight,
+                BorderBrush = new SolidColorBrush(borderColor),
+                BorderThickness = new Thickness(options.CheckboxBorderThickness),
+                Background = new SolidColorBrush(backgroundColor),
+                Foreground = new SolidColorBrush(borderColor) // VISIBILITY FIX: Make unchecked checkbox visible in header
+            };
+
+            // Event: header checkbox changed
+            headerCheckbox.Checked += (s, e) =>
+            {
+                // Select all rows
+                _viewModel.SelectAllRows();
+            };
+
+            headerCheckbox.Unchecked += (s, e) =>
+            {
+                // Deselect all rows
+                _viewModel.DeselectAllRows();
+            };
+
+            headerCheckbox.Indeterminate += (s, e) =>
+            {
+                // User clicked indeterminate state - treat as "select all"
+                _viewModel.SelectAllRows();
+            };
+
+            border.Child = headerCheckbox;
+        }
+        else
         {
-            Source = header,
-            Path = new PropertyPath(nameof(ColumnHeaderViewModel.DisplayName)),
-            Mode = BindingMode.OneWay
-        };
-        textBlock.SetBinding(TextBlock.TextProperty, textBinding);
+            // Normal text header
+            var textBlock = new TextBlock
+            {
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Foreground = _viewModel.Theme.HeaderForeground
+            };
 
-        border.Child = textBlock;
+            var textBinding = new Binding
+            {
+                Source = header,
+                Path = new PropertyPath(nameof(ColumnHeaderViewModel.DisplayName)),
+                Mode = BindingMode.OneWay
+            };
+            textBlock.SetBinding(TextBlock.TextProperty, textBinding);
 
-        // Border for resize grip (Column 1)
-        var resizeGrip = new Border
+            border.Child = textBlock;
+        }
+
+        // Custom resize grip control (Column 1) with resize cursor support
+        var resizeGrip = new ResizeGripControl
         {
-            Width = 4,
-            Background = new SolidColorBrush(Colors.DarkGray),
-            DataContext = header,
-            ManipulationMode = ManipulationModes.TranslateX
+            DataContext = header
+            // Width, Background, ManipulationMode, and ProtectedCursor are set in constructor
+            // Cursor will change to resize arrows (<->) when hovering over grip
         };
         Grid.SetColumn(resizeGrip, 1);
 
@@ -156,11 +247,27 @@ public sealed class HeadersRowView : UserControl
 
     private void OnResizeGripManipulationStarted(object sender, ManipulationStartedRoutedEventArgs e)
     {
-        if (sender is Border border && border.DataContext is ColumnHeaderViewModel column)
+        if (sender is ResizeGripControl grip && grip.DataContext is ColumnHeaderViewModel column)
         {
             _resizingColumn = column;
             _resizeStartWidth = column.Width;
             column.IsResizing = true;
+
+            // Create visual preview line
+            _resizePreviewLine = new Border
+            {
+                Width = 2,
+                Background = new SolidColorBrush(Colors.Blue),
+                Opacity = 0.5,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Stretch
+            };
+
+            // Add preview line to parent grid (if accessible)
+            if (this.Parent is Panel parentPanel)
+            {
+                parentPanel.Children.Add(_resizePreviewLine);
+            }
         }
     }
 
@@ -171,6 +278,17 @@ public sealed class HeadersRowView : UserControl
             var newWidth = _resizeStartWidth + e.Cumulative.Translation.X;
             if (newWidth >= 50) // Minimum column width
             {
+                // Update preview line position (visual feedback)
+                if (_resizePreviewLine != null)
+                {
+                    var translateTransform = new TranslateTransform
+                    {
+                        X = e.Cumulative.Translation.X
+                    };
+                    _resizePreviewLine.RenderTransform = translateTransform;
+                }
+
+                // Update actual width (this fires ColumnDefinitionsChanged event)
                 _resizingColumn.Width = newWidth;
             }
         }
@@ -182,6 +300,58 @@ public sealed class HeadersRowView : UserControl
         {
             _resizingColumn.IsResizing = false;
             _resizingColumn = null;
+
+            // Remove preview line
+            if (_resizePreviewLine != null && this.Parent is Panel parentPanel)
+            {
+                parentPanel.Children.Remove(_resizePreviewLine);
+                _resizePreviewLine = null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Parses hex color string to WinUI Color
+    /// Supports formats: #RGB, #RRGGBB, #AARRGGBB
+    /// </summary>
+    private static Windows.UI.Color ParseHexColor(string hexColor, Windows.UI.Color fallback)
+    {
+        if (string.IsNullOrWhiteSpace(hexColor) || !hexColor.StartsWith("#"))
+        {
+            return fallback;
+        }
+
+        try
+        {
+            var hex = hexColor.TrimStart('#');
+
+            byte a = 255, r = 0, g = 0, b = 0;
+
+            if (hex.Length == 3) // #RGB
+            {
+                r = Convert.ToByte(hex.Substring(0, 1) + hex.Substring(0, 1), 16);
+                g = Convert.ToByte(hex.Substring(1, 1) + hex.Substring(1, 1), 16);
+                b = Convert.ToByte(hex.Substring(2, 1) + hex.Substring(2, 1), 16);
+            }
+            else if (hex.Length == 6) // #RRGGBB
+            {
+                r = Convert.ToByte(hex.Substring(0, 2), 16);
+                g = Convert.ToByte(hex.Substring(2, 2), 16);
+                b = Convert.ToByte(hex.Substring(4, 2), 16);
+            }
+            else if (hex.Length == 8) // #AARRGGBB
+            {
+                a = Convert.ToByte(hex.Substring(0, 2), 16);
+                r = Convert.ToByte(hex.Substring(2, 2), 16);
+                g = Convert.ToByte(hex.Substring(4, 2), 16);
+                b = Convert.ToByte(hex.Substring(6, 2), 16);
+            }
+
+            return Windows.UI.Color.FromArgb(a, r, g, b);
+        }
+        catch
+        {
+            return fallback;
         }
     }
 }

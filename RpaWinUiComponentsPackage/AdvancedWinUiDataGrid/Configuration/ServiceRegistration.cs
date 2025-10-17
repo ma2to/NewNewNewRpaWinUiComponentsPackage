@@ -126,10 +126,28 @@ internal static class ServiceRegistration
             services.TryAddSingleton<UIAdapters.WinUI.UiNotificationService>();
             services.TryAddSingleton<UIAdapters.WinUI.GridViewModelAdapter>();
 
-            // CRITICAL: InternalUIUpdateHandler for automatic granular updates (10M+ row performance)
-            // ONLY registered in Interactive mode - Headless mode does not need automatic UI updates
+            // CRITICAL: Register DataGridViewModel and AdvancedDataGridControl for Interactive mode
+            // This enables InternalUIUpdateHandler to access the ViewModel and auto-update UI
             if (options.OperationMode == PublicDataGridOperationMode.Interactive)
             {
+                // Register shared ViewModel (singleton - one ViewModel per facade instance)
+                services.TryAddSingleton(sp =>
+                {
+                    var dispatcher = sp.GetRequiredService<Microsoft.UI.Dispatching.DispatcherQueue>();
+                    var logger = sp.GetService<ILogger<ViewModels.DataGridViewModel>>();
+                    return new ViewModels.DataGridViewModel(logger, dispatcher);
+                });
+
+                // Register UI control (singleton - one UI control per facade instance)
+                services.TryAddSingleton(sp =>
+                {
+                    var viewModel = sp.GetRequiredService<ViewModels.DataGridViewModel>();
+                    var logger = sp.GetService<ILogger<UIControls.AdvancedDataGridControl>>();
+                    return new UIControls.AdvancedDataGridControl(viewModel, logger);
+                });
+
+                // CRITICAL: InternalUIUpdateHandler for automatic granular updates (10M+ row performance)
+                // Now it has access to the shared ViewModel from DI
                 services.TryAddSingleton<UIAdapters.WinUI.InternalUIUpdateHandler>();
             }
         }

@@ -20,6 +20,7 @@ public sealed partial class AdvancedDataGridFacade : IAdvancedDataGridFacade
     private readonly DispatcherQueue? _dispatcher;
     private readonly UIAdapters.WinUI.UiNotificationService? _uiNotificationService;
     private readonly UIAdapters.WinUI.GridViewModelAdapter? _gridViewModelAdapter;
+    private readonly UIAdapters.WinUI.InternalUIUpdateHandler? _internalUIUpdateHandler;
     private readonly Features.Color.ThemeService _themeService;
     private bool _disposed;
 
@@ -166,6 +167,10 @@ public sealed partial class AdvancedDataGridFacade : IAdvancedDataGridFacade
         // Obtain GridViewModelAdapter (available if DispatcherQueue provided)
         _gridViewModelAdapter = serviceProvider.GetService<UIAdapters.WinUI.GridViewModelAdapter>();
 
+        // CRITICAL: Obtain InternalUIUpdateHandler to enable automatic UI updates in Interactive mode
+        // This MUST be resolved to activate the handler and subscribe to OnDataRefreshed events
+        _internalUIUpdateHandler = serviceProvider.GetService<UIAdapters.WinUI.InternalUIUpdateHandler>();
+
         // Obtain ThemeService (always available)
         _themeService = serviceProvider.GetRequiredService<Features.Color.ThemeService>();
 
@@ -214,6 +219,45 @@ public sealed partial class AdvancedDataGridFacade : IAdvancedDataGridFacade
         }
     }
 
+    #region UI Control Access
+
+    /// <summary>
+    /// Gets the UI control for the DataGrid (Interactive mode only).
+    /// In Interactive mode, the component manages its own ViewModel and UI control with automatic updates.
+    /// </summary>
+    /// <returns>The AdvancedDataGridControl instance, or null if in Headless mode</returns>
+    /// <exception cref="InvalidOperationException">Thrown when called in Headless mode or when DispatcherQueue is not provided</exception>
+    public UIControls.AdvancedDataGridControl? GetUIControl()
+    {
+        ThrowIfDisposed();
+
+        if (_options.OperationMode != PublicDataGridOperationMode.Interactive)
+        {
+            _logger.LogWarning("GetUIControl() called in {Mode} mode - UI control is only available in Interactive mode", _options.OperationMode);
+            return null;
+        }
+
+        if (_dispatcher == null)
+        {
+            _logger.LogError("GetUIControl() called but DispatcherQueue was not provided - UI control requires DispatcherQueue");
+            throw new InvalidOperationException("UI control requires DispatcherQueue. Provide DispatcherQueue in AdvancedDataGridOptions when creating facade.");
+        }
+
+        // Get UI control from DI container
+        var uiControl = _serviceProvider.GetService<UIControls.AdvancedDataGridControl>();
+
+        if (uiControl == null)
+        {
+            _logger.LogError("Failed to retrieve UI control from DI container - this should not happen in Interactive mode");
+            throw new InvalidOperationException("UI control not registered in DI container. This is an internal error.");
+        }
+
+        _logger.LogInformation("UI control retrieved successfully");
+        return uiControl;
+    }
+
+    #endregion
+
     #region Disposal
 
     /// <summary>
@@ -227,6 +271,9 @@ public sealed partial class AdvancedDataGridFacade : IAdvancedDataGridFacade
 
             try
             {
+                // Dispose InternalUIUpdateHandler first (unsubscribe from events)
+                _internalUIUpdateHandler?.Dispose();
+
                 // Dispose of service provider if it's disposable
                 if (_serviceProvider is IDisposable disposableProvider)
                 {

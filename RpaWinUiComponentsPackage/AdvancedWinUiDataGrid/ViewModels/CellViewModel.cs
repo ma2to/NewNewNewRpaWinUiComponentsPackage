@@ -263,11 +263,24 @@ public sealed class CellViewModel : ViewModelBase
 
     /// <summary>
     /// Update cell visual appearance based on current state
-    /// Priority: ValidationError > ValidationSuccess > SearchFound > Selected > Default
+    /// Priority: ValidationError+Selected (combined) > ValidationError > ValidationSuccess > SearchFound > Selected > Default
     /// Uses ThemeManager colors if available, otherwise falls back to hardcoded colors
+    /// SPECIAL CASE: When both ValidationError and Selected are true, use selection background with validation error border/text
     /// </summary>
     private void UpdateCellAppearance()
     {
+        // SPECIAL CASE: Validation error + Selection combined
+        // User requirement: Show selection background (blue) with validation error border and text (red)
+        // This allows distinguishing both states simultaneously
+        if (IsValidationError && IsSelected)
+        {
+            BorderBrush = _themeManager?.ValidationErrorBorder ?? new SolidColorBrush(Colors.Red);
+            BackgroundBrush = _themeManager?.MultiSelectionBackground ?? new SolidColorBrush(Color.FromArgb(30, 0, 120, 215)); // Selection blue
+            ForegroundBrush = _themeManager?.ValidationErrorForeground ?? new SolidColorBrush(Colors.Red);
+            BorderThickness = 2.0;
+            return;
+        }
+
         if (IsValidationError)
         {
             BorderBrush = _themeManager?.ValidationErrorBorder ?? new SolidColorBrush(Colors.Red);

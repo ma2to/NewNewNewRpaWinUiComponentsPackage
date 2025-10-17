@@ -12,14 +12,48 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIControls;
 /// This is the main content area of the grid where data is displayed.
 /// Handles cell selection (single, multi-select with Ctrl, range selection with drag).
 /// Uses Grid layout with ColumnDefinitions synchronized with headers and filters for proper column alignment.
+/// MEMORY LEAK FIX: Implements proper event handler cleanup to prevent duplicate subscriptions.
 /// </summary>
-public sealed class DataGridCellsView : UserControl
+public sealed class DataGridCellsView : UserControl, IDisposable
 {
     private readonly DataGridViewModel _viewModel;
 
     private readonly ScrollViewer _scrollViewer;
     private readonly StackPanel _rowsPanel;
     private bool _isMouseDown; // Tracks whether mouse is pressed for drag selection
+    private bool _disposed;
+
+    /// <summary>
+    /// Holds cleanup actions for a row control to properly unsubscribe event handlers
+    /// </summary>
+    private sealed class RowControlData
+    {
+        public DataGridRowViewModel Row { get; }
+        public NotifyCollectionChangedEventHandler? CellsChangedHandler { get; set; }
+        public List<Action> CleanupActions { get; } = new();
+
+        public RowControlData(DataGridRowViewModel row)
+        {
+            Row = row;
+        }
+
+        public void Cleanup()
+        {
+            // Unsubscribe from row.Cells collection changes
+            if (CellsChangedHandler != null && Row.Cells != null)
+            {
+                Row.Cells.CollectionChanged -= CellsChangedHandler;
+                CellsChangedHandler = null;
+            }
+
+            // Execute all cleanup actions (unsubscribe from cell control events)
+            foreach (var action in CleanupActions)
+            {
+                action?.Invoke();
+            }
+            CleanupActions.Clear();
+        }
+    }
 
     /// <summary>
     /// Event fired when user requests to delete a row via delete button.
@@ -117,6 +151,8 @@ public sealed class DataGridCellsView : UserControl
                     .FirstOrDefault(g => g.DataContext == row);
                 if (controlToRemove != null)
                 {
+                    // MEMORY LEAK FIX: Cleanup event handlers before removing
+                    CleanupRowControl(controlToRemove);
                     _rowsPanel.Children.Remove(controlToRemove);
                 }
             }
@@ -131,10 +167,39 @@ public sealed class DataGridCellsView : UserControl
 
     private void RebuildAllRows()
     {
+        // MEMORY LEAK FIX: Cleanup all event handlers before clearing
+        CleanupAllRows();
+
         _rowsPanel.Children.Clear();
         foreach (var row in _viewModel.Rows)
         {
             _rowsPanel.Children.Add(CreateRowControl(row));
+        }
+    }
+
+    /// <summary>
+    /// Cleans up all event handlers for all rows to prevent memory leaks
+    /// </summary>
+    private void CleanupAllRows()
+    {
+        foreach (var child in _rowsPanel.Children.OfType<Grid>())
+        {
+            if (child.Tag is RowControlData rowData)
+            {
+                rowData.Cleanup();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Cleans up event handlers for a specific row control
+    /// </summary>
+    private void CleanupRowControl(Grid rowGrid)
+    {
+        if (rowGrid?.Tag is RowControlData rowData)
+        {
+            rowData.Cleanup();
+            rowGrid.Tag = null;
         }
     }
 
@@ -146,6 +211,10 @@ public sealed class DataGridCellsView : UserControl
             Margin = new Thickness(0, 0, 0, 2),
             DataContext = row
         };
+
+        // MEMORY LEAK FIX: Create cleanup tracking for this row
+        var rowData = new RowControlData(row);
+        rowGrid.Tag = rowData;
 
         // Add column definitions from ViewModel
         var definitions = _viewModel.CreateColumnDefinitions();
@@ -164,16 +233,25 @@ public sealed class DataGridCellsView : UserControl
             {
                 var specialControl = new SpecialColumnCellControl(cell);
 
-                // Subscribe to special column events
-                specialControl.OnRowSelectionChanged += (rowIndex, isSelected) =>
+                // Subscribe to special column events and track for cleanup
+                Action<int, bool> selectionHandler = (rowIndex, isSelected) =>
                 {
                     HandleRowSelectionChanged(rowIndex, isSelected);
                 };
+                specialControl.OnRowSelectionChanged += selectionHandler;
 
-                specialControl.OnDeleteRowRequested += (sender, args) =>
+                EventHandler<DeleteRowRequestedEventArgs> deleteHandler = (sender, args) =>
                 {
                     HandleDeleteRowRequested(args);
                 };
+                specialControl.OnDeleteRowRequested += deleteHandler;
+
+                // Store cleanup actions
+                rowData.CleanupActions.Add(() =>
+                {
+                    specialControl.OnRowSelectionChanged -= selectionHandler;
+                    specialControl.OnDeleteRowRequested -= deleteHandler;
+                });
 
                 Grid.SetColumn(specialControl, cell.ColumnIndex);
                 rowGrid.Children.Add(specialControl);
@@ -187,13 +265,22 @@ public sealed class DataGridCellsView : UserControl
                 normalCellControl.CellSelected += OnCellSelected;
                 normalCellControl.CellPointerEntered += OnCellPointerEntered;
 
+                // Store cleanup actions
+                rowData.CleanupActions.Add(() =>
+                {
+                    normalCellControl.CellSelected -= OnCellSelected;
+                    normalCellControl.CellPointerEntered -= OnCellPointerEntered;
+                });
+
                 Grid.SetColumn(normalCellControl, cell.ColumnIndex);
                 rowGrid.Children.Add(normalCellControl);
             }
         }
 
-        // Listen for changes to the Cells collection
-        row.Cells.CollectionChanged += (s, e) => OnCellsCollectionChanged(rowGrid, row.Cells, e);
+        // Listen for changes to the Cells collection and track handler for cleanup
+        NotifyCollectionChangedEventHandler cellsHandler = (s, e) => OnCellsCollectionChanged(rowGrid, row.Cells, e);
+        row.Cells.CollectionChanged += cellsHandler;
+        rowData.CellsChangedHandler = cellsHandler;
 
         return rowGrid;
     }
@@ -220,6 +307,9 @@ public sealed class DataGridCellsView : UserControl
     {
         if (e.Action == NotifyCollectionChangedAction.Add && e.NewItems != null)
         {
+            // Get the RowControlData to track new event handlers
+            var rowData = rowGrid.Tag as RowControlData;
+
             foreach (CellViewModel cell in e.NewItems)
             {
                 // Use SpecialColumnCellControl for special columns, CellControl for normal data columns
@@ -227,16 +317,25 @@ public sealed class DataGridCellsView : UserControl
                 {
                     var specialControl = new SpecialColumnCellControl(cell);
 
-                    // Subscribe to special column events
-                    specialControl.OnRowSelectionChanged += (rowIndex, isSelected) =>
+                    // Subscribe to special column events and track for cleanup
+                    Action<int, bool> selectionHandler = (rowIndex, isSelected) =>
                     {
                         HandleRowSelectionChanged(rowIndex, isSelected);
                     };
+                    specialControl.OnRowSelectionChanged += selectionHandler;
 
-                    specialControl.OnDeleteRowRequested += (sender, args) =>
+                    EventHandler<DeleteRowRequestedEventArgs> deleteHandler = (sender, args) =>
                     {
                         HandleDeleteRowRequested(args);
                     };
+                    specialControl.OnDeleteRowRequested += deleteHandler;
+
+                    // Store cleanup actions
+                    rowData?.CleanupActions.Add(() =>
+                    {
+                        specialControl.OnRowSelectionChanged -= selectionHandler;
+                        specialControl.OnDeleteRowRequested -= deleteHandler;
+                    });
 
                     Grid.SetColumn(specialControl, cell.ColumnIndex);
                     rowGrid.Children.Add(specialControl);
@@ -248,6 +347,13 @@ public sealed class DataGridCellsView : UserControl
                     // Wire up selection events
                     normalCellControl.CellSelected += OnCellSelected;
                     normalCellControl.CellPointerEntered += OnCellPointerEntered;
+
+                    // Store cleanup actions
+                    rowData?.CleanupActions.Add(() =>
+                    {
+                        normalCellControl.CellSelected -= OnCellSelected;
+                        normalCellControl.CellPointerEntered -= OnCellPointerEntered;
+                    });
 
                     Grid.SetColumn(normalCellControl, cell.ColumnIndex);
                     rowGrid.Children.Add(normalCellControl);
@@ -263,12 +369,14 @@ public sealed class DataGridCellsView : UserControl
                     .FirstOrDefault(cc => cc.ViewModel == cell);
                 if (controlToRemove != null)
                 {
+                    // Note: Individual cell cleanup is handled by parent row cleanup
                     rowGrid.Children.Remove(controlToRemove);
                 }
             }
         }
         else if (e.Action == NotifyCollectionChangedAction.Reset)
         {
+            // Note: Cleanup is handled by parent row cleanup when row is removed
             rowGrid.Children.Clear();
         }
     }
@@ -293,6 +401,34 @@ public sealed class DataGridCellsView : UserControl
         if (_isMouseDown)
         {
             _viewModel.UpdateRangeSelection(cell);
+        }
+    }
+
+    /// <summary>
+    /// Disposes the DataGridCellsView and cleans up all event handlers
+    /// </summary>
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+
+        // Cleanup all row event handlers
+        CleanupAllRows();
+
+        // Unsubscribe from ViewModel events
+        if (_viewModel != null)
+        {
+            _viewModel.Rows.CollectionChanged -= OnRowsCollectionChanged;
+            _viewModel.ColumnDefinitionsChanged -= OnColumnDefinitionsChanged;
+        }
+
+        // Unsubscribe from ScrollViewer events
+        if (_scrollViewer != null)
+        {
+            _scrollViewer.PointerPressed -= OnPointerPressed;
+            _scrollViewer.PointerReleased -= OnPointerReleased;
         }
     }
 }

@@ -213,6 +213,41 @@ public class AdvancedDataGridOptions
     public double MaximumColumnWidth { get; set; } = 500.0;
 
     /// <summary>
+    /// Gets or sets the checkbox border color (hex format: #RRGGBB or #AARRGGBB)
+    /// Used for checkbox special column styling
+    /// Default: #333333 (DarkGray - clearly visible on white background)
+    /// </summary>
+    public string CheckboxBorderColor { get; set; } = "#333333";
+
+    /// <summary>
+    /// Gets or sets the checkbox border thickness in pixels
+    /// Used for checkbox special column styling
+    /// Default: 2.0
+    /// </summary>
+    public double CheckboxBorderThickness { get; set; } = 2.0;
+
+    /// <summary>
+    /// Gets or sets the checkbox background color (hex format: #RRGGBB or #AARRGGBB)
+    /// Used for checkbox special column styling
+    /// Default: #FFFFFF (White)
+    /// </summary>
+    public string CheckboxBackgroundColor { get; set; } = "#FFFFFF";
+
+    /// <summary>
+    /// Gets or sets the minimum checkbox width in pixels
+    /// Used for checkbox special column styling
+    /// Default: 20.0
+    /// </summary>
+    public double CheckboxMinWidth { get; set; } = 20.0;
+
+    /// <summary>
+    /// Gets or sets the minimum checkbox height in pixels
+    /// Used for checkbox special column styling
+    /// Default: 20.0
+    /// </summary>
+    public double CheckboxMinHeight { get; set; } = 20.0;
+
+    /// <summary>
     /// Gets or sets the initial column definitions
     /// </summary>
     public List<PublicColumnDefinition> InitialColumns { get; set; } = new();
@@ -324,6 +359,11 @@ public class AdvancedDataGridOptions
             MaximumRowHeight = this.MaximumRowHeight,
             MinimumColumnWidth = this.MinimumColumnWidth,
             MaximumColumnWidth = this.MaximumColumnWidth,
+            CheckboxBorderColor = this.CheckboxBorderColor,
+            CheckboxBorderThickness = this.CheckboxBorderThickness,
+            CheckboxBackgroundColor = this.CheckboxBackgroundColor,
+            CheckboxMinWidth = this.CheckboxMinWidth,
+            CheckboxMinHeight = this.CheckboxMinHeight,
             InitialColumns = new List<PublicColumnDefinition>(this.InitialColumns),
             CustomProperties = new Dictionary<string, object?>(this.CustomProperties),
             RowStoreFactory = this.RowStoreFactory,

@@ -155,7 +155,39 @@ internal interface IRowStore
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Get a specific row by index
+    /// Get a specific row by RowID (PRIMARY - stable identifier)
+    /// </summary>
+    /// <param name="rowId">Unique stable row identifier</param>
+    /// <param name="cancellationToken">Cancellation token for async operations</param>
+    /// <returns>Row data or null if not found</returns>
+    Task<IReadOnlyDictionary<string, object?>?> GetRowByIdAsync(
+        string rowId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Update a specific row by RowID (PRIMARY - stable identifier)
+    /// </summary>
+    /// <param name="rowId">Unique stable row identifier</param>
+    /// <param name="rowData">New row data</param>
+    /// <param name="cancellationToken">Cancellation token for async operations</param>
+    /// <returns>True if updated successfully</returns>
+    Task<bool> UpdateRowByIdAsync(
+        string rowId,
+        IReadOnlyDictionary<string, object?> rowData,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Remove a specific row by RowID (PRIMARY - stable identifier)
+    /// </summary>
+    /// <param name="rowId">Unique stable row identifier</param>
+    /// <param name="cancellationToken">Cancellation token for async operations</param>
+    /// <returns>True if removed successfully</returns>
+    Task<bool> RemoveRowByIdAsync(
+        string rowId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Get a specific row by index (DEPRECATED - use GetRowByIdAsync for stability)
     /// </summary>
     /// <param name="rowIndex">Row index (0-based)</param>
     /// <param name="cancellationToken">Cancellation token for async operations</param>
@@ -165,7 +197,7 @@ internal interface IRowStore
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Update a specific row by index
+    /// Update a specific row by index (DEPRECATED - use UpdateRowByIdAsync for stability)
     /// </summary>
     /// <param name="rowIndex">Row index (0-based)</param>
     /// <param name="rowData">New row data</param>

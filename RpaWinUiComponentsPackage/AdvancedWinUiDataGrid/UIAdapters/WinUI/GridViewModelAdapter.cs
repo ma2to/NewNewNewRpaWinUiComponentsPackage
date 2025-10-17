@@ -96,7 +96,7 @@ internal sealed class GridViewModelAdapter
         {
             var viewModels = validationErrors.Select(error => new ValidationErrorViewModel
             {
-                RowIndex = error.RowIndex,
+                RowId = error.RowId,
                 ColumnName = error.ColumnName ?? string.Empty,
                 Message = error.Message,
                 Severity = error.Severity.ToString(),
@@ -231,7 +231,7 @@ internal sealed class ColumnViewModel
 /// </summary>
 internal sealed class ValidationErrorViewModel
 {
-    public int RowIndex { get; set; }
+    public string RowId { get; set; } = string.Empty;
     public string ColumnName { get; set; } = string.Empty;
     public string Message { get; set; } = string.Empty;
     public string Severity { get; set; } = string.Empty;

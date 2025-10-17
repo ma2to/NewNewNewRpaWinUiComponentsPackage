@@ -50,6 +50,12 @@ internal sealed class DataGridValidation : IDataGridValidation
             _logger?.LogInformation("Validating all rows with statistics via Validation module (onlyFiltered: {OnlyFiltered}, onlyChecked: {OnlyChecked})",
                 onlyFiltered, onlyChecked);
             var result = await _validationService.ValidateAllWithStatisticsAsync(onlyFiltered, onlyChecked, cancellationToken);
+
+            // CRITICAL FIX: Refresh validation results to UI after validation completes
+            // This updates validAlerts column and cell borders for validation errors
+            _logger?.LogInformation("Validation completed, refreshing UI to show validation results");
+            _validationService.RefreshValidationResultsToUI();
+
             // Return directly since it's already the public type
             return result;
         }
@@ -153,28 +159,62 @@ internal sealed class DataGridValidation : IDataGridValidation
         }
     }
 
-    public string GetValidationAlerts(int rowIndex)
+    public string GetValidationAlerts(string rowId)
     {
         try
         {
-            return _validationService.GetValidationAlerts(rowIndex);
+            return _validationService.GetValidationAlerts(rowId);
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "GetValidationAlerts failed in Validation module for row {RowIndex}", rowIndex);
+            _logger?.LogError(ex, "GetValidationAlerts failed in Validation module for RowID {RowId}", rowId);
             throw;
         }
     }
 
-    public bool HasValidationErrors(int rowIndex)
+    public bool HasValidationErrors(string rowId)
     {
         try
         {
-            return _validationService.HasValidationErrors(rowIndex);
+            return _validationService.HasValidationErrors(rowId);
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "HasValidationErrors check failed in Validation module for row {RowIndex}", rowIndex);
+            _logger?.LogError(ex, "HasValidationErrors check failed in Validation module for RowID {RowId}", rowId);
+            throw;
+        }
+    }
+
+    public async Task<IReadOnlyList<PublicValidationErrorViewModel>> GetValidationErrorsAsync(
+        bool onlyFiltered = false,
+        bool onlyChecked = false,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger?.LogInformation("Getting validation errors via Validation module (onlyFiltered: {OnlyFiltered}, onlyChecked: {OnlyChecked})",
+                onlyFiltered, onlyChecked);
+
+            // Get internal errors from validation service
+            var internalErrors = await _validationService.GetValidationErrorsAsync(onlyFiltered, onlyChecked, cancellationToken);
+
+            // Map internal ValidationError to public PublicValidationErrorViewModel
+            var publicErrors = internalErrors.Select(error => new PublicValidationErrorViewModel
+            {
+                RowIndex = 0, // Will be set by UI layer if needed
+                RowId = error.RowId,
+                ColumnName = error.ColumnName ?? string.Empty,
+                Message = error.Message,
+                Severity = error.Severity.ToString(),
+                ErrorCode = error.ErrorCode
+            }).ToList();
+
+            _logger?.LogInformation("Retrieved {ErrorCount} validation errors from Validation module", publicErrors.Count);
+            return publicErrors;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "GetValidationErrors failed in Validation module");
             throw;
         }
     }

@@ -182,10 +182,11 @@ public sealed class AdvancedDataGridControl : UserControl
 
     /// <summary>
     /// Internal handler that forwards row selection changes from DataGridCellsView to public event.
+    /// PERFORMANCE: Changed to DEBUG level to reduce log volume (was 30% of all logs in production)
     /// </summary>
     private void OnRowSelectionChangedInternal(object? sender, (int rowIndex, bool isSelected) e)
     {
-        _logger?.LogInformation("Row selection changed: row {RowIndex} -> {IsSelected}", e.rowIndex, e.isSelected);
+        _logger?.LogDebug("Row selection changed: row {RowIndex} -> {IsSelected}", e.rowIndex, e.isSelected);
         RowSelectionChanged?.Invoke(this, e);
     }
 

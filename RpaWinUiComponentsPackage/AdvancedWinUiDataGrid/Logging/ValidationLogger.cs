@@ -76,8 +76,8 @@ internal sealed class ValidationLogger
             _ => LogLevel.Debug
         };
 
-        _logger.Log(severityLevel, "Validation error found [{OperationId}]: Row={RowIndex}, Column={ColumnName}, Severity={Severity}, Message={Message}, Code={ErrorCode}",
-            operationId, validationError.RowIndex, validationError.ColumnName, validationError.Severity, validationError.Message, validationError.ErrorCode);
+        _logger.Log(severityLevel, "Validation error found [{OperationId}]: RowId={RowId}, Column={ColumnName}, Severity={Severity}, Message={Message}, Code={ErrorCode}",
+            operationId, validationError.RowId, validationError.ColumnName, validationError.Severity, validationError.Message, validationError.ErrorCode);
     }
 
     /// <summary>

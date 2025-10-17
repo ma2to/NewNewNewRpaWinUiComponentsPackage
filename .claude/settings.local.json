@@ -34,7 +34,11 @@
       "Bash(do if ! grep -q \"ILogger\\|_logger\" \"$file\")",
       "Bash(then echo \"$file\")",
       "Bash(dotnet test:*)",
-      "Read(//c/Users/patro/**)"
+      "Read(//c/Users/patro/**)",
+      "Bash(powershell -Command \"Get-Content ''RpaWinUiComponentsPackage\\TempLog\\DataGridDemo_20251016_160208.log'' | Select-String -Pattern ''Sub-views initialized|Rebuild'' | Select-Object -First 20\")",
+      "Bash(powershell -Command:*)",
+      "Bash(Select-String -Pattern \"error|warning|Build succeeded|Build FAILED\")",
+      "Bash(Select-Object -First 20)"
     ],
     "deny": [],
     "ask": []

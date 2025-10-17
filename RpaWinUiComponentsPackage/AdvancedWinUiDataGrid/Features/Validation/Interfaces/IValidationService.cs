@@ -153,6 +153,19 @@ internal interface IValidationService
     Task<Result<bool>> ValidateAllAsync(bool onlyFiltered = false, bool onlyChecked = false, CancellationToken cancellationToken = default);
     Task<PublicValidationResultWithStatistics> ValidateAllWithStatisticsAsync(bool onlyFiltered = false, bool onlyChecked = false, CancellationToken cancellationToken = default);
     void RefreshValidationResultsToUI();
-    string GetValidationAlerts(int rowIndex);
-    bool HasValidationErrors(int rowIndex);
+    string GetValidationAlerts(string rowId);
+    bool HasValidationErrors(string rowId);
+
+    /// <summary>
+    /// Gets all validation errors from the most recent validation operation.
+    /// CRITICAL: Use this to retrieve errors for UI visualization (red borders, alerts).
+    /// </summary>
+    /// <param name="onlyFiltered">Whether to get errors only for filtered rows</param>
+    /// <param name="onlyChecked">Whether to get errors only for checked rows</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>List of validation errors with RowId and ColumnName</returns>
+    Task<IReadOnlyList<ValidationError>> GetValidationErrorsAsync(
+        bool onlyFiltered = false,
+        bool onlyChecked = false,
+        CancellationToken cancellationToken = default);
 }
