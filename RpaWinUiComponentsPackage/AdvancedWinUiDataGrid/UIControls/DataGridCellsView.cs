@@ -67,6 +67,12 @@ public sealed class DataGridCellsView : UserControl, IDisposable
     public event EventHandler<(int rowIndex, bool isSelected)>? RowSelectionChanged;
 
     /// <summary>
+    /// Event fired when user completes editing a cell (presses Enter).
+    /// Used to trigger auto-expand when last row is edited.
+    /// </summary>
+    public event EventHandler<CellViewModel>? CellEditCompleted;
+
+    /// <summary>
     /// Creates a new data grid cells view bound to the specified view model.
     /// Automatically subscribes to row collection changes and column definition changes.
     /// </summary>
@@ -261,15 +267,17 @@ public sealed class DataGridCellsView : UserControl, IDisposable
                 // Normal data cell with editing support
                 var normalCellControl = new CellControl(cell);
 
-                // Wire up selection events
+                // Wire up selection and edit events
                 normalCellControl.CellSelected += OnCellSelected;
                 normalCellControl.CellPointerEntered += OnCellPointerEntered;
+                normalCellControl.CellEditCompleted += OnCellEditCompleted;
 
                 // Store cleanup actions
                 rowData.CleanupActions.Add(() =>
                 {
                     normalCellControl.CellSelected -= OnCellSelected;
                     normalCellControl.CellPointerEntered -= OnCellPointerEntered;
+                    normalCellControl.CellEditCompleted -= OnCellEditCompleted;
                 });
 
                 Grid.SetColumn(normalCellControl, cell.ColumnIndex);
@@ -344,15 +352,17 @@ public sealed class DataGridCellsView : UserControl, IDisposable
                 {
                     var normalCellControl = new CellControl(cell);
 
-                    // Wire up selection events
+                    // Wire up selection and edit events
                     normalCellControl.CellSelected += OnCellSelected;
                     normalCellControl.CellPointerEntered += OnCellPointerEntered;
+                    normalCellControl.CellEditCompleted += OnCellEditCompleted;
 
                     // Store cleanup actions
                     rowData?.CleanupActions.Add(() =>
                     {
                         normalCellControl.CellSelected -= OnCellSelected;
                         normalCellControl.CellPointerEntered -= OnCellPointerEntered;
+                        normalCellControl.CellEditCompleted -= OnCellEditCompleted;
                     });
 
                     Grid.SetColumn(normalCellControl, cell.ColumnIndex);
@@ -402,6 +412,13 @@ public sealed class DataGridCellsView : UserControl, IDisposable
         {
             _viewModel.UpdateRangeSelection(cell);
         }
+    }
+
+    private void OnCellEditCompleted(object? sender, CellViewModel cell)
+    {
+        // Forward cell edit completion to parent control
+        // This allows the application layer to trigger auto-expand when last row is edited
+        CellEditCompleted?.Invoke(this, cell);
     }
 
     /// <summary>

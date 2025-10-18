@@ -6,6 +6,8 @@ using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Persistence
 using System.Collections.Concurrent;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.NullPattern;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIAdapters.WinUI;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Filter.Services;
 
@@ -14,6 +16,7 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Filter.Servic
 /// Thread-safe bez per-operation mutable fields
 /// Podporuje multiple filtre s ConcurrentBag for thread-safe operácie
 /// Loguje všetky filter operácie s operation scope for tracking
+/// CRITICAL: Now triggers UI refresh events in Interactive mode via UiNotificationService
 /// </summary>
 internal sealed class FilterService : IFilterService
 {
@@ -22,21 +25,25 @@ internal sealed class FilterService : IFilterService
     private readonly AdvancedDataGridOptions _options;
     private readonly ConcurrentBag<FilterCriteria> _activeFilters;
     private readonly IOperationLogger<FilterService> _operationLogger;
+    private readonly UiNotificationService? _uiNotificationService;
 
     /// <summary>
     /// Konštruktor FilterService
     /// Inicializuje všetky závislosti a nastavuje null pattern for optional operation logger
     /// Vytvára prázdnu ConcurrentBag for thread-safe ukladanie aktívnych filtrov
+    /// CRITICAL: UiNotificationService is optional - only used in Interactive mode for automatic UI refresh
     /// </summary>
     public FilterService(
         ILogger<FilterService> logger,
         IRowStore rowStore,
         AdvancedDataGridOptions options,
+        UiNotificationService? uiNotificationService = null,
         IOperationLogger<FilterService>? operationLogger = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _rowStore = rowStore ?? throw new ArgumentNullException(nameof(rowStore));
         _options = options ?? throw new ArgumentNullException(nameof(options));
+        _uiNotificationService = uiNotificationService;
         _activeFilters = new ConcurrentBag<FilterCriteria>();
 
         // Použijeme null pattern ak logger nie je poskytnutý
@@ -101,24 +108,46 @@ internal sealed class FilterService : IFilterService
                 "for operation {OperationId}",
                 _activeFilters.Count, operationId);
 
-            // Aplikujeme filter na dáta a získame počet matchujúcich riadkov
-            var filteredCount = await ApplyFiltersToDataAsync(operationId);
+            // ✅ CRITICAL FIX: Apply filter criteria to IRowStore - builds filtered view index
+            _logger.LogInformation("Applying filter criteria to IRowStore for operation {OperationId}", operationId);
+            _rowStore.SetFilterCriteria(_activeFilters.ToArray());
+
+            // Get filtered count from IRowStore (O(1) - uses cached filtered view index)
+            var filteredCount = (int)await _rowStore.GetRowCountAsync(onlyFiltered: true, default);
+            var totalRows = (int)await _rowStore.GetRowCountAsync(onlyFiltered: false, default);
 
             // Zalogujeme metriky filter operácie
             _operationLogger.LogFilterOperation(
                 filterType: $"{@operator}",
                 filterName: columnName,
-                totalRows: (int)await _rowStore.GetRowCountAsync(default),
+                totalRows: totalRows,
                 matchingRows: filteredCount,
                 duration: stopwatch.Elapsed);
 
             _logger.LogInformation("Filter applied successfully in {Duration}ms for operation {OperationId}. " +
-                "Visible rows: {FilteredCount}, Active filters: {ActiveFilterCount}",
-                stopwatch.ElapsedMilliseconds, operationId, filteredCount, _activeFilters.Count);
+                "Visible rows: {FilteredCount}/{TotalRows}, Active filters: {ActiveFilterCount}",
+                stopwatch.ElapsedMilliseconds, operationId, filteredCount, totalRows, _activeFilters.Count);
+
+            // ✅ CRITICAL FIX: Trigger UI refresh event in Interactive mode
+            if (_options.OperationMode == PublicDataGridOperationMode.Interactive && _uiNotificationService != null)
+            {
+                var eventArgs = new PublicDataRefreshEventArgs
+                {
+                    AffectedRows = filteredCount,
+                    ColumnCount = 0,
+                    OperationType = "ApplyFilter",
+                    RefreshTime = DateTime.UtcNow,
+                    RequiresFullReload = true // Filter changes entire view
+                };
+
+                _logger.LogInformation("Triggering UI refresh for filter operation {OperationId}", operationId);
+                await _uiNotificationService.NotifyDataRefreshWithMetadataAsync(eventArgs);
+            }
 
             scope.MarkSuccess(new
             {
                 FilteredCount = filteredCount,
+                TotalRows = totalRows,
                 ColumnName = columnName,
                 Operator = @operator,
                 ActiveFilterCount = _activeFilters.Count,

@@ -52,4 +52,24 @@ internal interface ISmartOperationService
         int endRowIndex,
         string columnName,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// UNIVERSAL 3-STEP CLEANUP: Remove empty rows from middle, ensure minRows, ensure last empty
+    /// Used internally by Import, CopyPaste and other features for consistent cleanup
+    /// STEP 1: Remove ALL empty rows (streaming O(n))
+    /// STEP 2: Ensure minRows (fill with empty rows at end)
+    /// STEP 3: Ensure last row is empty (independent of minRows check)
+    /// </summary>
+    Task EnsureMinRowsAndLastEmptyAsync(
+        RowManagementConfiguration config,
+        IReadOnlyDictionary<string, object?>? templateRow = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// PUBLIC API VERSION: 3-step cleanup that can be called from public API facade
+    /// Wraps internal helper with proper command pattern and result mapping
+    /// </summary>
+    Task<RowManagementResult> EnsureMinRowsAndLastEmptyPublicAsync(
+        RowManagementConfiguration config,
+        CancellationToken cancellationToken = default);
 }

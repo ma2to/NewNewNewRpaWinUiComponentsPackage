@@ -325,8 +325,29 @@ internal sealed class ComponentLifecycleManager : IComponentLifecycleManager
     {
         _logger.LogInformation("Initializing core components");
 
-        // Initialize core business components
-        // For now placeholder - we will expand when services are implemented
+        // CRITICAL: Initialize grid with one empty row if store is empty
+        // This ensures the grid always has at least one empty row on startup
+        var rowStore = _serviceProvider.GetService<Infrastructure.Persistence.Interfaces.IRowStore>();
+        var options = _serviceProvider.GetService<AdvancedDataGridOptions>();
+
+        if (rowStore != null && options != null)
+        {
+            // Get column names from InitialColumns in AdvancedDataGridOptions
+            var columnNames = options.InitialColumns?
+                .Select(c => c.Name)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .ToList() ?? new List<string>();
+
+            if (columnNames.Any())
+            {
+                _logger.LogInformation("Ensuring initial empty row with {ColumnCount} columns", columnNames.Count);
+                await rowStore.EnsureInitialEmptyRowAsync(columnNames, cancellationToken);
+            }
+            else
+            {
+                _logger.LogWarning("No columns configured - skipping initial empty row creation");
+            }
+        }
 
         await Task.CompletedTask;
         cancellationToken.ThrowIfCancellationRequested();

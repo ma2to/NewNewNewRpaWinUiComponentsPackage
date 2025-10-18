@@ -1,23 +1,38 @@
+using System;
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Persistence.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
 using System.Runtime.CompilerServices;
+// ULID support for infinite row capacity (Ulid is in System namespace from Cysharp.Ulid package)
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Persistence;
 
 /// <summary>
 /// In-memory implementation of IRowStore for high-performance data operations
+/// ULID-BASED: Uses ULID (Universally Unique Lexicographically Sortable Identifier) for row IDs
+/// - Provides practically infinite capacity (2^128 vs 2^31 for int)
+/// - Timestamp-based sorting enables efficient GetLastRowAsync O(n)
+/// - Thread-safe generation without Interlocked counter
 /// </summary>
 internal sealed class InMemoryRowStore : Interfaces.IRowStore
 {
     private readonly ILogger<InMemoryRowStore> _logger;
-    private readonly ConcurrentDictionary<int, IReadOnlyDictionary<string, object?>> _rows = new();
-    private readonly ConcurrentDictionary<int, List<ValidationError>> _validationErrors = new();
+
+    // ULID MIGRATION: Changed from ConcurrentDictionary<int, ...> to ConcurrentDictionary<string, ...>
+    private readonly ConcurrentDictionary<string, IReadOnlyDictionary<string, object?>> _rows = new();
+    private readonly ConcurrentDictionary<string, List<ValidationError>> _validationErrors = new();
     private readonly object _modificationLock = new();
-    private volatile int _nextRowId = 0;
+    // ULID MIGRATION: No _nextRowId needed - each Ulid.NewUlid() is unique
     private IReadOnlyList<object> _filterCriteria = Array.Empty<object>();
     private bool _hasValidationState = false;
+
+    // FILTERED VIEW SUPPORT - Performance-optimized filtered data access
+    // CRITICAL: These fields enable O(1) filtered index lookups and efficient filtered data retrieval
+    private IReadOnlyList<object>? _activeFilterCriteria; // Active filter criteria
+    private List<string>? _filteredRowIds; // Cached filtered row IDs (ULID strings)
+    private Dictionary<int, int>? _filteredToOriginalIndexMap; // Maps filtered index → original index
+    private readonly object _filterLock = new(); // Thread-safe filter operations
 
     public InMemoryRowStore(ILogger<InMemoryRowStore> logger)
     {
@@ -55,6 +70,7 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
 
     /// <summary>
     /// Removes rows by condition
+    /// ULID MIGRATION: Use string keys for dictionary
     /// </summary>
     public async Task<int> RemoveRowsAsync(
         Func<IReadOnlyDictionary<string, object?>, bool> predicate,
@@ -66,7 +82,8 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
 
             lock (_modificationLock)
             {
-                var keysToRemove = new List<int>();
+                // ULID MIGRATION: List<string> instead of List<int>
+                var keysToRemove = new List<string>();
 
                 foreach (var kvp in _rows)
                 {
@@ -94,6 +111,7 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
 
     /// <summary>
     /// Clears all rows
+    /// ULID MIGRATION: No _nextRowId reset needed (ULID is self-managed)
     /// </summary>
     public async Task ClearAsync(CancellationToken cancellationToken = default)
     {
@@ -103,7 +121,7 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
             {
                 var count = _rows.Count;
                 _rows.Clear();
-                _nextRowId = 0;
+                // ULID MIGRATION: No _nextRowId reset needed - each Ulid.NewUlid() is unique
                 _logger.LogDebug("Cleared all rows: {ClearedCount} rows removed", count);
             }
         }, cancellationToken);
@@ -111,6 +129,7 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
 
     /// <summary>
     /// Adds multiple rows in batch
+    /// ULID MIGRATION: Uses Ulid.NewUlid() for thread-safe unique ID generation
     /// </summary>
     public async Task<int> AddRangeAsync(
         IEnumerable<IReadOnlyDictionary<string, object?>> rows,
@@ -126,7 +145,8 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    var rowId = Interlocked.Increment(ref _nextRowId);
+                    // ULID MIGRATION: Generate ULID string (timestamp-based, lexicographically sortable)
+                    var rowId = Ulid.NewUlid().ToString();
                     var rowWithId = new Dictionary<string, object?>(row)
                     {
                         ["__rowId"] = rowId
@@ -176,10 +196,32 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
 
     /// <summary>
     /// Get row count - IRowStore implementation
+    /// PERFORMANCE: O(1) for total count, O(1) for filtered count (uses cached _filteredRowIds.Count)
+    /// </summary>
+    public Task<long> GetRowCountAsync(
+        bool onlyFiltered,
+        CancellationToken cancellationToken = default)
+    {
+        if (!onlyFiltered || _filteredRowIds == null)
+        {
+            // Return total row count
+            return Task.FromResult((long)_rows.Count);
+        }
+
+        // Return filtered row count (O(1) - uses cached count)
+        lock (_filterLock)
+        {
+            var count = _filteredRowIds?.Count ?? 0;
+            return Task.FromResult((long)count);
+        }
+    }
+
+    /// <summary>
+    /// Get row count - IRowStore implementation (backward compatibility overload)
     /// </summary>
     public Task<long> GetRowCountAsync(CancellationToken cancellationToken = default)
     {
-        return Task.FromResult((long)_rows.Count);
+        return GetRowCountAsync(onlyFiltered: false, cancellationToken);
     }
 
     /// <summary>
@@ -193,12 +235,45 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
 
     /// <summary>
     /// Get all rows - IRowStore implementation
+    /// PERFORMANCE: O(n) for all rows, O(f) for filtered rows where f = filtered count
+    /// </summary>
+    public Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> GetAllRowsAsync(
+        bool onlyFiltered,
+        CancellationToken cancellationToken = default)
+    {
+        if (!onlyFiltered || _filteredRowIds == null)
+        {
+            // Return all rows (no filter active or not requested)
+            var rows = _rows.Values.ToList();
+            return Task.FromResult<IReadOnlyList<IReadOnlyDictionary<string, object?>>>(rows);
+        }
+
+        // Return filtered view - use cached filtered row IDs for O(f) performance
+        lock (_filterLock)
+        {
+            var filteredRows = new List<IReadOnlyDictionary<string, object?>>(_filteredRowIds.Count);
+            foreach (var rowId in _filteredRowIds)
+            {
+                if (_rows.TryGetValue(rowId, out var row))
+                {
+                    filteredRows.Add(row);
+                }
+            }
+
+            _logger.LogDebug("Retrieved {FilteredCount} filtered rows out of {TotalCount} total rows",
+                filteredRows.Count, _rows.Count);
+
+            return Task.FromResult<IReadOnlyList<IReadOnlyDictionary<string, object?>>>(filteredRows);
+        }
+    }
+
+    /// <summary>
+    /// Get all rows - IRowStore implementation (backward compatibility overload)
     /// </summary>
     public Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> GetAllRowsAsync(
         CancellationToken cancellationToken = default)
     {
-        var rows = _rows.Values.ToList();
-        return Task.FromResult<IReadOnlyList<IReadOnlyDictionary<string, object?>>>(rows);
+        return GetAllRowsAsync(onlyFiltered: false, cancellationToken);
     }
 
     /// <summary>
@@ -233,6 +308,39 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
     }
 
     /// <summary>
+    /// Ensures the grid has at least one empty row on initialization.
+    /// Called during grid creation - only adds a row if store is completely empty.
+    /// </summary>
+    public async Task EnsureInitialEmptyRowAsync(
+        IEnumerable<string> columnNames,
+        CancellationToken cancellationToken = default)
+    {
+        var currentCount = await GetRowCountAsync(cancellationToken);
+
+        if (currentCount == 0)
+        {
+            _logger.LogInformation("Grid is empty - creating initial empty row with {ColumnCount} columns", columnNames.Count());
+
+            // Create empty row with all columns set to null
+            var emptyRow = new Dictionary<string, object?> { ["__rowId"] = Ulid.NewUlid().ToString() };
+            foreach (var columnName in columnNames)
+            {
+                if (columnName != "__rowId")
+                {
+                    emptyRow[columnName] = null;
+                }
+            }
+
+            await AppendRowsAsync(new[] { emptyRow }, cancellationToken);
+            _logger.LogInformation("Initial empty row created successfully");
+        }
+        else
+        {
+            _logger.LogDebug("Grid already has {Count} rows - skipping initial empty row creation", currentCount);
+        }
+    }
+
+    /// <summary>
     /// Insert rows at position - IRowStore implementation
     /// </summary>
     public async Task InsertRowsAsync(
@@ -246,6 +354,7 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
 
     /// <summary>
     /// Write validation results - IRowStore implementation
+    /// ULID MIGRATION: Works with string row IDs directly
     /// </summary>
     public Task WriteValidationResultsAsync(
         IEnumerable<ValidationError> results,
@@ -260,14 +369,12 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
             if (string.IsNullOrEmpty(rowId))
                 continue; // Skip errors without RowId
 
-            if (!int.TryParse(rowId, out var rowIdInt))
-                continue; // Skip invalid RowId format
-
-            if (!_validationErrors.ContainsKey(rowIdInt))
+            // ULID MIGRATION: Use string rowId directly (no int.TryParse needed)
+            if (!_validationErrors.ContainsKey(rowId))
             {
-                _validationErrors[rowIdInt] = new List<ValidationError>();
+                _validationErrors[rowId] = new List<ValidationError>();
             }
-            _validationErrors[rowIdInt].Add(error);
+            _validationErrors[rowId].Add(error);
         }
 
         _hasValidationState = true;
@@ -288,6 +395,7 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
     /// <summary>
     /// Check if all non-empty rows are valid - IRowStore implementation
     /// Supports filtering by both filtered state and checked state
+    /// ULID MIGRATION: GetRowId now returns string? (nullable)
     /// </summary>
     public Task<bool> AreAllNonEmptyRowsMarkedValidAsync(
         bool onlyFiltered,
@@ -302,8 +410,13 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
             .Where(row => !onlyChecked || IsRowChecked(row))
             .Where(row => !IsRowEmpty(row));
 
+        // ULID MIGRATION: GetRowId returns string? so handle null case
         var allValid = !_validationErrors.Any() ||
-                       rowsToCheck.All(row => !_validationErrors.ContainsKey(GetRowId(row)));
+                       rowsToCheck.All(row =>
+                       {
+                           var rowId = GetRowId(row);
+                           return rowId == null || !_validationErrors.ContainsKey(rowId);
+                       });
 
         _logger.LogDebug("Checked validation state: onlyFiltered={OnlyFiltered}, onlyChecked={OnlyChecked}, allValid={AllValid}",
             onlyFiltered, onlyChecked, allValid);
@@ -314,6 +427,7 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
     /// <summary>
     /// Get validation errors - IRowStore implementation
     /// Supports filtering by both filtered state and checked state
+    /// ULID MIGRATION: Use string rowId directly for dictionary lookup
     /// </summary>
     public Task<IReadOnlyList<ValidationError>> GetValidationErrorsAsync(
         bool onlyFiltered = false,
@@ -324,11 +438,11 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
             .SelectMany(list => list)
             .Where(error =>
             {
-                // Convert RowId back to int for lookup in _rows dictionary
-                if (!int.TryParse(error.RowId, out var rowIdInt))
+                // ULID MIGRATION: Use string rowId directly (no int.TryParse)
+                if (string.IsNullOrEmpty(error.RowId))
                     return false;
 
-                var row = _rows.GetValueOrDefault(rowIdInt) ?? new Dictionary<string, object?>();
+                var row = _rows.GetValueOrDefault(error.RowId) ?? new Dictionary<string, object?>();
                 return (!onlyFiltered || IsRowVisible(row)) &&
                        (!onlyChecked || IsRowChecked(row));
             })
@@ -349,12 +463,59 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
     }
 
     /// <summary>
-    /// Set filter criteria - IRowStore implementation
+    /// Set filter criteria and build filtered view index - IRowStore implementation
+    /// PERFORMANCE: O(n) where n = total rows. Builds index once, subsequent filtered access is O(1) per row.
+    /// CRITICAL: This is the core of filtered view support - builds cached index for efficient access
     /// </summary>
-    public void SetFilterCriteria(IReadOnlyList<object> filterCriteria)
+    public void SetFilterCriteria(IReadOnlyList<object>? filterCriteria)
     {
-        _filterCriteria = filterCriteria ?? Array.Empty<object>();
-        _logger.LogDebug("Filter criteria updated: {Count} filters", _filterCriteria.Count);
+        lock (_filterLock)
+        {
+            _filterCriteria = filterCriteria ?? Array.Empty<object>();
+            _activeFilterCriteria = filterCriteria;
+
+            if (filterCriteria == null || filterCriteria.Count == 0)
+            {
+                // No filters - clear filtered view index
+                _filteredRowIds = null;
+                _filteredToOriginalIndexMap = null;
+                _logger.LogInformation("Filter criteria cleared - no active filters");
+                return;
+            }
+
+            // Build filtered view index - O(n) operation but cached for subsequent O(1) access
+            _logger.LogInformation("Building filtered view index for {FilterCount} filters over {TotalRows} rows",
+                filterCriteria.Count, _rows.Count);
+
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+            _filteredRowIds = new List<string>();
+            _filteredToOriginalIndexMap = new Dictionary<int, int>();
+
+            // Get all rows as ordered list (need deterministic ordering for index mapping)
+            var allRows = _rows.ToList(); // List<KeyValuePair<string, IReadOnlyDictionary>>
+            int filteredIdx = 0;
+
+            for (int originalIdx = 0; originalIdx < allRows.Count; originalIdx++)
+            {
+                var rowKvp = allRows[originalIdx];
+                var row = rowKvp.Value;
+
+                // Check if row matches ALL filter criteria (AND logic)
+                if (RowMatchesAllFilters(row, filterCriteria))
+                {
+                    var rowId = rowKvp.Key; // ULID string
+                    _filteredRowIds.Add(rowId);
+                    _filteredToOriginalIndexMap[filteredIdx] = originalIdx;
+                    filteredIdx++;
+                }
+            }
+
+            stopwatch.Stop();
+
+            _logger.LogInformation("Filtered view index built: {FilteredCount}/{TotalCount} rows match filters (took {Duration}ms)",
+                _filteredRowIds.Count, allRows.Count, stopwatch.ElapsedMilliseconds);
+        }
     }
 
     /// <summary>
@@ -366,16 +527,56 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
     }
 
     /// <summary>
+    /// Clear filter criteria and filtered view index - IRowStore implementation
+    /// Equivalent to SetFilterCriteria(null)
+    /// </summary>
+    public void ClearFilterCriteria()
+    {
+        SetFilterCriteria(null);
+    }
+
+    /// <summary>
+    /// Map filtered row index to original row index - IRowStore implementation
+    /// CRITICAL FOR EDITS: When user edits cell in filtered view, we need correct original index
+    /// PERFORMANCE: O(1) dictionary lookup
+    /// </summary>
+    /// <param name="filteredIndex">Index in filtered view (0-based)</param>
+    /// <returns>Index in original dataset, or null if not found or no filter active</returns>
+    public int? MapFilteredIndexToOriginalIndex(int filteredIndex)
+    {
+        lock (_filterLock)
+        {
+            if (_filteredToOriginalIndexMap == null)
+            {
+                // No filter active - indices are the same
+                return filteredIndex;
+            }
+
+            if (_filteredToOriginalIndexMap.TryGetValue(filteredIndex, out var originalIndex))
+            {
+                _logger.LogDebug("Mapped filtered index {FilteredIndex} → original index {OriginalIndex}",
+                    filteredIndex, originalIndex);
+                return originalIndex;
+            }
+
+            _logger.LogWarning("Failed to map filtered index {FilteredIndex} - index out of range", filteredIndex);
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Get validation errors for specific row - IRowStore implementation
+    /// ULID MIGRATION: Use string rowId directly
     /// </summary>
     public Task<IReadOnlyList<ValidationError>> GetValidationErrorsForRowAsync(
         string rowId,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrEmpty(rowId) || !int.TryParse(rowId, out var rowIdInt))
+        if (string.IsNullOrEmpty(rowId))
             return Task.FromResult<IReadOnlyList<ValidationError>>(Array.Empty<ValidationError>());
 
-        if (_validationErrors.TryGetValue(rowIdInt, out var errors))
+        // ULID MIGRATION: Use string rowId directly (no int.TryParse)
+        if (_validationErrors.TryGetValue(rowId, out var errors))
         {
             return Task.FromResult<IReadOnlyList<ValidationError>>(errors.ToList());
         }
@@ -385,18 +586,20 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
 
     /// <summary>
     /// Get a specific row by RowID - IRowStore implementation (PRIMARY - stable identifier)
+    /// ULID MIGRATION: Use string rowId directly
     /// </summary>
     public Task<IReadOnlyDictionary<string, object?>?> GetRowByIdAsync(
         string rowId,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrEmpty(rowId) || !int.TryParse(rowId, out var rowIdInt))
+        if (string.IsNullOrEmpty(rowId))
         {
-            _logger.LogWarning("Invalid RowID format: {RowId}", rowId);
+            _logger.LogWarning("Invalid RowID: null or empty");
             return Task.FromResult<IReadOnlyDictionary<string, object?>?>(null);
         }
 
-        if (_rows.TryGetValue(rowIdInt, out var row))
+        // ULID MIGRATION: Use string rowId directly (no int.TryParse)
+        if (_rows.TryGetValue(rowId, out var row))
         {
             _logger.LogDebug("Retrieved row by RowID: {RowId}", rowId);
             return Task.FromResult<IReadOnlyDictionary<string, object?>?>(row);
@@ -408,6 +611,7 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
 
     /// <summary>
     /// Update a specific row by RowID - IRowStore implementation (PRIMARY - stable identifier)
+    /// ULID MIGRATION: Use string rowId directly, preserve ULID
     /// </summary>
     public Task<bool> UpdateRowByIdAsync(
         string rowId,
@@ -416,27 +620,28 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
     {
         return Task.Run(() =>
         {
-            if (string.IsNullOrEmpty(rowId) || !int.TryParse(rowId, out var rowIdInt))
+            if (string.IsNullOrEmpty(rowId))
             {
-                _logger.LogWarning("Invalid RowID format: {RowId}", rowId);
+                _logger.LogWarning("Invalid RowID: null or empty");
                 return false;
             }
 
             lock (_modificationLock)
             {
-                if (!_rows.TryGetValue(rowIdInt, out var oldRow))
+                // ULID MIGRATION: Use string rowId directly (no int.TryParse)
+                if (!_rows.TryGetValue(rowId, out var oldRow))
                 {
                     _logger.LogWarning("Row not found for update by RowID: {RowId}", rowId);
                     return false;
                 }
 
-                // Preserve __rowId in updated data
+                // Preserve __rowId (ULID string) in updated data
                 var updatedRow = new Dictionary<string, object?>(rowData)
                 {
-                    ["__rowId"] = rowIdInt
+                    ["__rowId"] = rowId  // Preserve ULID
                 };
 
-                if (_rows.TryUpdate(rowIdInt, updatedRow, oldRow))
+                if (_rows.TryUpdate(rowId, updatedRow, oldRow))
                 {
                     _logger.LogDebug("Updated row by RowID: {RowId}", rowId);
                     return true;
@@ -450,6 +655,7 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
 
     /// <summary>
     /// Remove a specific row by RowID - IRowStore implementation (PRIMARY - stable identifier)
+    /// ULID MIGRATION: Use string rowId directly
     /// </summary>
     public Task<bool> RemoveRowByIdAsync(
         string rowId,
@@ -457,18 +663,19 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
     {
         return Task.Run(() =>
         {
-            if (string.IsNullOrEmpty(rowId) || !int.TryParse(rowId, out var rowIdInt))
+            if (string.IsNullOrEmpty(rowId))
             {
-                _logger.LogWarning("Invalid RowID format: {RowId}", rowId);
+                _logger.LogWarning("Invalid RowID: null or empty");
                 return false;
             }
 
             lock (_modificationLock)
             {
-                if (_rows.TryRemove(rowIdInt, out _))
+                // ULID MIGRATION: Use string rowId directly (no int.TryParse)
+                if (_rows.TryRemove(rowId, out _))
                 {
                     // Also remove validation errors for this row
-                    _validationErrors.TryRemove(rowIdInt, out _);
+                    _validationErrors.TryRemove(rowId, out _);
                     _logger.LogDebug("Removed row by RowID: {RowId}", rowId);
                     return true;
                 }
@@ -481,6 +688,7 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
 
     /// <summary>
     /// Remove rows by IDs - IRowStore implementation
+    /// ULID MIGRATION: Use string rowIds directly
     /// </summary>
     public Task RemoveRowsAsync(
         IEnumerable<string> rowIds,
@@ -495,30 +703,36 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    if (!int.TryParse(rowId, out var rowIdInt))
+                    if (string.IsNullOrEmpty(rowId))
                         continue;
 
-                    if (_rows.TryRemove(rowIdInt, out _))
+                    // ULID MIGRATION: Use string rowId directly (no int.TryParse)
+                    if (_rows.TryRemove(rowId, out _))
                     {
                         // Also remove validation errors for this row
-                        _validationErrors.TryRemove(rowIdInt, out _);
+                        _validationErrors.TryRemove(rowId, out _);
                         removedCount++;
                     }
                 }
 
-                _logger.LogInformation("Removed {RemovedCount} of {RequestedCount} rows", removedCount, rowIds.Count());
+                _logger.LogInformation("Removed {RemovedCount} of {RequestedCount} rows",
+                    removedCount, rowIds.Count());
             }
         }, cancellationToken);
     }
 
     /// <summary>
-    /// Get a specific row by index - IRowStore implementation
+    /// Get a specific row by index - IRowStore implementation (DEPRECATED - use GetRowByIdAsync)
+    /// ULID MIGRATION: ULID strings are lexicographically sortable by timestamp
     /// </summary>
     public Task<IReadOnlyDictionary<string, object?>?> GetRowAsync(
         int rowIndex,
         CancellationToken cancellationToken = default)
     {
-        var allRows = _rows.Values.OrderBy(r => GetOrAssignRowId(r)).ToList();
+        // ULID MIGRATION: Sort by ULID string (lexicographically sortable by timestamp)
+        var allRows = _rows.Values
+            .OrderBy(r => r.TryGetValue("__rowId", out var id) ? id?.ToString() : "")
+            .ToList();
 
         if (rowIndex < 0 || rowIndex >= allRows.Count)
         {
@@ -529,7 +743,8 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
     }
 
     /// <summary>
-    /// Update a specific row by index - IRowStore implementation
+    /// Update a specific row by index - IRowStore implementation (DEPRECATED - use UpdateRowByIdAsync)
+    /// ULID MIGRATION: Sort by ULID string for index-based access
     /// </summary>
     public Task<bool> UpdateRowAsync(
         int rowIndex,
@@ -540,7 +755,10 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
         {
             lock (_modificationLock)
             {
-                var allRows = _rows.Values.OrderBy(r => GetOrAssignRowId(r)).ToList();
+                // ULID MIGRATION: Sort by ULID string (lexicographically sortable)
+                var allRows = _rows.Values
+                    .OrderBy(r => r.TryGetValue("__rowId", out var id) ? id?.ToString() : "")
+                    .ToList();
 
                 if (rowIndex < 0 || rowIndex >= allRows.Count)
                 {
@@ -550,7 +768,7 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
                 var oldRow = allRows[rowIndex];
                 var rowId = GetRowId(oldRow);
 
-                if (rowId >= 0 && _rows.TryUpdate(rowId, rowData, oldRow))
+                if (rowId != null && _rows.TryUpdate(rowId, rowData, oldRow))
                 {
                     _logger.LogDebug("Updated row at index {RowIndex}", rowIndex);
                     return true;
@@ -604,25 +822,44 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
             (kvp.Value is string str && string.IsNullOrWhiteSpace(str)));
     }
 
-    private int GetRowId(IReadOnlyDictionary<string, object?> row)
+    /// <summary>
+    /// ULID MIGRATION: Get row ID from row data (string ULID or legacy int converted to string)
+    /// Returns null if no valid ID found
+    /// </summary>
+    private string? GetRowId(IReadOnlyDictionary<string, object?> row)
     {
-        if (row.TryGetValue("__rowId", out var rowIdValue) && rowIdValue is int rowId)
+        if (row.TryGetValue("__rowId", out var rowIdValue))
         {
-            return rowId;
+            // Primary: string ULID
+            if (rowIdValue is string rowId && !string.IsNullOrEmpty(rowId))
+                return rowId;
+
+            // Legacy support: int rowId converted to string
+            if (rowIdValue is int intId)
+                return intId.ToString();
         }
-        return -1;
+        return null;
     }
 
-    private int GetOrAssignRowId(IReadOnlyDictionary<string, object?> row)
+    /// <summary>
+    /// ULID MIGRATION: Get existing row ID or generate new ULID
+    /// Always returns non-null string (either existing or newly generated ULID)
+    /// </summary>
+    private string GetOrAssignRowId(IReadOnlyDictionary<string, object?> row)
     {
-        // Try to get existing row ID
-        if (row.TryGetValue("__rowId", out var rowIdValue) && rowIdValue is int existingId)
+        if (row.TryGetValue("__rowId", out var rowIdValue))
         {
-            return existingId;
+            // Prefer existing string ULID
+            if (rowIdValue is string existingId && !string.IsNullOrEmpty(existingId))
+                return existingId;
+
+            // Legacy int support - convert to string
+            if (rowIdValue is int intId)
+                return intId.ToString();
         }
 
-        // Assign new row ID
-        return Interlocked.Increment(ref _nextRowId);
+        // Generate new ULID (thread-safe, timestamp-based, lexicographically sortable)
+        return Ulid.NewUlid().ToString();
     }
 
     #endregion
@@ -647,28 +884,64 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
         await InsertRowsAsync(new[] { rowData }, rowIndex, cancellationToken);
     }
 
+    /// <summary>
+    /// DEPRECATED: Use RemoveRowByIdAsync instead
+    /// ULID MIGRATION: Sort by ULID to get row by index, then remove by ID
+    /// </summary>
     public async Task RemoveRowAsync(int rowIndex, CancellationToken cancellationToken = default)
     {
         await Task.Run(() =>
         {
-            _rows.TryRemove(rowIndex, out _);
+            lock (_modificationLock)
+            {
+                var allRows = _rows.Values
+                    .OrderBy(r => r.TryGetValue("__rowId", out var id) ? id?.ToString() : "")
+                    .ToList();
+
+                if (rowIndex >= 0 && rowIndex < allRows.Count)
+                {
+                    var row = allRows[rowIndex];
+                    var rowId = GetRowId(row);
+                    if (rowId != null)
+                    {
+                        _rows.TryRemove(rowId, out _);
+                    }
+                }
+            }
         }, cancellationToken);
     }
 
+    /// <summary>
+    /// DEPRECATED: Use RemoveRowsAsync(IEnumerable<string> rowIds) instead
+    /// ULID MIGRATION: Sort by ULID to map indices to IDs, then remove
+    /// </summary>
     public async Task<int> RemoveRowsAsync(IEnumerable<int> rowIndices, CancellationToken cancellationToken = default)
     {
         return await Task.Run(() =>
         {
-            var indices = rowIndices.ToList();
-            var removed = 0;
-            foreach (var index in indices)
+            lock (_modificationLock)
             {
-                if (_rows.TryRemove(index, out _))
+                var allRows = _rows.Values
+                    .OrderBy(r => r.TryGetValue("__rowId", out var id) ? id?.ToString() : "")
+                    .ToList();
+
+                var indices = rowIndices.ToList();
+                var removed = 0;
+
+                foreach (var index in indices)
                 {
-                    removed++;
+                    if (index >= 0 && index < allRows.Count)
+                    {
+                        var row = allRows[index];
+                        var rowId = GetRowId(row);
+                        if (rowId != null && _rows.TryRemove(rowId, out _))
+                        {
+                            removed++;
+                        }
+                    }
                 }
+                return removed;
             }
-            return removed;
         }, cancellationToken);
     }
 
@@ -677,11 +950,19 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
         await ClearAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// DEPRECATED: Use GetRowByIdAsync instead
+    /// ULID MIGRATION: Sort by ULID to get row by index
+    /// </summary>
     public IReadOnlyDictionary<string, object?>? GetRow(int rowIndex)
     {
-        if (rowIndex >= 0 && rowIndex < _rows.Count)
+        var allRows = _rows.Values
+            .OrderBy(r => r.TryGetValue("__rowId", out var id) ? id?.ToString() : "")
+            .ToList();
+
+        if (rowIndex >= 0 && rowIndex < allRows.Count)
         {
-            return _rows[rowIndex];
+            return allRows[rowIndex];
         }
         return null;
     }
@@ -700,6 +981,252 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
     {
         return rowIndex >= 0 && rowIndex < _rows.Count;
     }
+
+    /// <summary>
+    /// Get last row (row with max ULID = most recent timestamp)
+    /// ULID MIGRATION: ULID is lexicographically sortable by timestamp, so Max() returns most recent
+    /// Performance: O(n) for dictionary key enumeration (acceptable for this critical operation)
+    /// CRITICAL: Used by 3-step cleanup to check if last row is empty
+    /// </summary>
+    public Task<IReadOnlyDictionary<string, object?>?> GetLastRowAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (_rows.IsEmpty)
+            return Task.FromResult<IReadOnlyDictionary<string, object?>?>(null);
+
+        // ULID strings are lexicographically sortable by timestamp
+        // Max ULID string = most recent row (last inserted)
+        var maxRowId = _rows.Keys.Max();
+        _rows.TryGetValue(maxRowId, out var row);
+
+        _logger.LogDebug("Retrieved last row with ULID rowId {RowId}", maxRowId);
+        return Task.FromResult<IReadOnlyDictionary<string, object?>?>(row);
+    }
+
+    #region Filter Matching Logic
+
+    /// <summary>
+    /// Checks if row matches ALL active filter criteria (AND logic)
+    /// </summary>
+    private bool RowMatchesAllFilters(IReadOnlyDictionary<string, object?> row, IReadOnlyList<object> filterCriteria)
+    {
+        foreach (var criteriaObj in filterCriteria)
+        {
+            // Cast to FilterCriteria (assuming FilterService passes FilterCriteria objects as "object")
+            // WORKAROUND: Since we can't reference FilterCriteria type here (circular dependency),
+            // we use duck typing via dynamic or reflection
+            // For now, we'll use a simplified approach: check if criteriaObj has the expected properties
+
+            // Extract filter properties using reflection or dynamic
+            var criteriaType = criteriaObj.GetType();
+            var columnNameProp = criteriaType.GetProperty("ColumnName");
+            var operatorProp = criteriaType.GetProperty("Operator");
+            var valueProp = criteriaType.GetProperty("Value");
+
+            if (columnNameProp == null || operatorProp == null || valueProp == null)
+            {
+                _logger.LogWarning("Invalid filter criteria object - missing required properties");
+                continue;
+            }
+
+            var columnName = columnNameProp.GetValue(criteriaObj) as string;
+            var operatorValue = operatorProp.GetValue(criteriaObj); // Enum value
+            var filterValue = valueProp.GetValue(criteriaObj);
+
+            if (string.IsNullOrEmpty(columnName))
+                continue;
+
+            // Get cell value from row
+            if (!row.TryGetValue(columnName, out var cellValue))
+            {
+                cellValue = null; // Column doesn't exist - treat as null
+            }
+
+            // Apply filter operator
+            if (!CellMatchesFilter(cellValue, operatorValue, filterValue))
+            {
+                return false; // Row doesn't match this filter → exclude row
+            }
+        }
+
+        return true; // Row matches all filters
+    }
+
+    /// <summary>
+    /// Checks if cell value matches specific filter criteria
+    /// Supports all FilterOperator enum values
+    /// </summary>
+    private bool CellMatchesFilter(object? cellValue, object operatorEnum, object? filterValue)
+    {
+        // Get operator name (enum ToString)
+        var operatorName = operatorEnum.ToString();
+
+        switch (operatorName)
+        {
+            case "Equals":
+                return ValuesAreEqual(cellValue, filterValue);
+
+            case "NotEquals":
+                return !ValuesAreEqual(cellValue, filterValue);
+
+            case "Contains":
+                return StringContains(cellValue, filterValue);
+
+            case "NotContains":
+                return !StringContains(cellValue, filterValue);
+
+            case "StartsWith":
+                return StringStartsWith(cellValue, filterValue);
+
+            case "EndsWith":
+                return StringEndsWith(cellValue, filterValue);
+
+            case "GreaterThan":
+                return CompareValues(cellValue, filterValue) > 0;
+
+            case "GreaterThanOrEqual":
+                return CompareValues(cellValue, filterValue) >= 0;
+
+            case "LessThan":
+                return CompareValues(cellValue, filterValue) < 0;
+
+            case "LessThanOrEqual":
+                return CompareValues(cellValue, filterValue) <= 0;
+
+            case "IsNull":
+                return cellValue == null;
+
+            case "IsNotNull":
+                return cellValue != null;
+
+            case "IsEmpty":
+                return IsValueEmpty(cellValue);
+
+            case "IsNotEmpty":
+                return !IsValueEmpty(cellValue);
+
+            default:
+                _logger.LogWarning("Unknown filter operator: {Operator}", operatorName);
+                return false;
+        }
+    }
+
+    private bool ValuesAreEqual(object? cellValue, object? filterValue)
+    {
+        if (cellValue == null && filterValue == null)
+            return true;
+        if (cellValue == null || filterValue == null)
+            return false;
+
+        // Direct equality check first
+        if (cellValue.Equals(filterValue))
+            return true;
+
+        // String comparison (case-insensitive)
+        var cellStr = cellValue.ToString();
+        var filterStr = filterValue.ToString();
+        return string.Equals(cellStr, filterStr, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool StringContains(object? cellValue, object? filterValue)
+    {
+        if (cellValue == null || filterValue == null)
+            return false;
+
+        var cellStr = cellValue.ToString() ?? "";
+        var filterStr = filterValue.ToString() ?? "";
+        return cellStr.Contains(filterStr, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool StringStartsWith(object? cellValue, object? filterValue)
+    {
+        if (cellValue == null || filterValue == null)
+            return false;
+
+        var cellStr = cellValue.ToString() ?? "";
+        var filterStr = filterValue.ToString() ?? "";
+        return cellStr.StartsWith(filterStr, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool StringEndsWith(object? cellValue, object? filterValue)
+    {
+        if (cellValue == null || filterValue == null)
+            return false;
+
+        var cellStr = cellValue.ToString() ?? "";
+        var filterStr = filterValue.ToString() ?? "";
+        return cellStr.EndsWith(filterStr, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private int CompareValues(object? cellValue, object? filterValue)
+    {
+        if (cellValue == null && filterValue == null)
+            return 0;
+        if (cellValue == null)
+            return -1;
+        if (filterValue == null)
+            return 1;
+
+        // Try numeric comparison first
+        if (TryGetNumericValue(cellValue, out var cellNumeric) &&
+            TryGetNumericValue(filterValue, out var filterNumeric))
+        {
+            return cellNumeric.CompareTo(filterNumeric);
+        }
+
+        // Try DateTime comparison
+        if (TryGetDateTimeValue(cellValue, out var cellDate) &&
+            TryGetDateTimeValue(filterValue, out var filterDate))
+        {
+            return cellDate.CompareTo(filterDate);
+        }
+
+        // Fallback to string comparison
+        var cellStr = cellValue.ToString() ?? "";
+        var filterStr = filterValue.ToString() ?? "";
+        return string.Compare(cellStr, filterStr, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool TryGetNumericValue(object value, out decimal numericValue)
+    {
+        numericValue = 0;
+
+        if (value is decimal d) { numericValue = d; return true; }
+        if (value is double dbl) { numericValue = (decimal)dbl; return true; }
+        if (value is float f) { numericValue = (decimal)f; return true; }
+        if (value is long l) { numericValue = l; return true; }
+        if (value is int i) { numericValue = i; return true; }
+        if (value is short s) { numericValue = s; return true; }
+        if (value is byte b) { numericValue = b; return true; }
+        if (value is string str) { return decimal.TryParse(str, out numericValue); }
+
+        return false;
+    }
+
+    private bool TryGetDateTimeValue(object value, out DateTime dateTimeValue)
+    {
+        dateTimeValue = default;
+
+        if (value is DateTime dt) { dateTimeValue = dt; return true; }
+        if (value is DateTimeOffset dto) { dateTimeValue = dto.DateTime; return true; }
+        if (value is string str) { return DateTime.TryParse(str, out dateTimeValue); }
+
+        return false;
+    }
+
+    private bool IsValueEmpty(object? value)
+    {
+        if (value == null)
+            return true;
+        if (value is string s)
+            return string.IsNullOrWhiteSpace(s);
+        if (value is System.Collections.ICollection c)
+            return c.Count == 0;
+
+        return false;
+    }
+
+    #endregion
 
     #endregion
 }

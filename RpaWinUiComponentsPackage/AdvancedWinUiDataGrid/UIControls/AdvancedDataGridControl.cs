@@ -34,6 +34,12 @@ public sealed class AdvancedDataGridControl : UserControl
     /// </summary>
     public event EventHandler<(int rowIndex, bool isSelected)>? RowSelectionChanged;
 
+    /// <summary>
+    /// Event fired when the user completes editing a cell (presses Enter).
+    /// The application can handle this event to trigger auto-expand when the last row is edited.
+    /// </summary>
+    public event EventHandler<CellViewModel>? CellEditCompleted;
+
     private SearchPanelView? _searchPanelView;
     private FilterRowView? _filterRowView;
     private HeadersRowView? _headersRowView;
@@ -166,6 +172,7 @@ public sealed class AdvancedDataGridControl : UserControl
         _dataCellsView = new DataGridCellsView(ViewModel);
         _dataCellsView.DeleteRowRequested += OnDeleteRowRequestedInternal;
         _dataCellsView.RowSelectionChanged += OnRowSelectionChangedInternal;
+        _dataCellsView.CellEditCompleted += OnCellEditCompletedInternal;
         _dataCellsContainer.Child = _dataCellsView;
 
         _logger?.LogInformation("Sub-views initialized successfully");
@@ -188,6 +195,16 @@ public sealed class AdvancedDataGridControl : UserControl
     {
         _logger?.LogDebug("Row selection changed: row {RowIndex} -> {IsSelected}", e.rowIndex, e.isSelected);
         RowSelectionChanged?.Invoke(this, e);
+    }
+
+    /// <summary>
+    /// Internal handler that forwards cell edit completion from DataGridCellsView to public event.
+    /// This event is used to trigger auto-expand when the last row is edited.
+    /// </summary>
+    private void OnCellEditCompletedInternal(object? sender, CellViewModel cell)
+    {
+        _logger?.LogInformation("Cell edit completed: row {RowIndex}, column {ColumnName}", cell.RowIndex, cell.ColumnName);
+        CellEditCompleted?.Invoke(this, cell);
     }
 
     /// <summary>

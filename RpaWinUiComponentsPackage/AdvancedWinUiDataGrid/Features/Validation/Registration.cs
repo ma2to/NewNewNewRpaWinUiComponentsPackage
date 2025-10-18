@@ -26,6 +26,9 @@ internal static class Registration
         // PERFORMANCE: Debounced validation service - Singleton (shared state for debouncing)
         services.AddSingleton<DebouncedValidationService>();
 
+        // Validation deletion service - Scoped (per-operation, coordinates with SmartOperations)
+        services.AddScoped<ValidationDeletionService>();
+
         return services;
     }
 }

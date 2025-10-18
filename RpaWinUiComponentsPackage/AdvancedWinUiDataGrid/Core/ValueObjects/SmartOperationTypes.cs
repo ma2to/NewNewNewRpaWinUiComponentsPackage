@@ -59,10 +59,10 @@ internal sealed record RowManagementProgress
 
 /// <summary>
 /// Row management configuration
+/// NOTE: MinimumRows concept removed - grid always starts with 1 empty row and maintains last empty row via AlwaysKeepLastEmpty
 /// </summary>
 internal sealed record RowManagementConfiguration
 {
-    internal int MinimumRows { get; init; } = 1;
     internal bool EnableAutoExpand { get; init; } = true;
     internal bool EnableSmartDelete { get; init; } = true;
     internal bool AlwaysKeepLastEmpty { get; init; } = true;
@@ -70,14 +70,14 @@ internal sealed record RowManagementConfiguration
     internal static RowManagementConfiguration Default => new();
 
     internal static RowManagementConfiguration Create(
-        int minimumRows = 1,
         bool enableAutoExpand = true,
-        bool enableSmartDelete = true) =>
+        bool enableSmartDelete = true,
+        bool alwaysKeepLastEmpty = true) =>
         new()
         {
-            MinimumRows = minimumRows,
             EnableAutoExpand = enableAutoExpand,
-            EnableSmartDelete = enableSmartDelete
+            EnableSmartDelete = enableSmartDelete,
+            AlwaysKeepLastEmpty = alwaysKeepLastEmpty
         };
 }
 
@@ -232,7 +232,6 @@ internal sealed record RowManagementStatistics
     internal int RowsPhysicallyDeleted { get; init; }
     internal int RowsContentCleared { get; init; }
     internal int RowsShifted { get; init; }
-    internal bool MinimumRowsEnforced { get; init; }
     internal bool LastEmptyRowMaintained { get; init; }
 }
 

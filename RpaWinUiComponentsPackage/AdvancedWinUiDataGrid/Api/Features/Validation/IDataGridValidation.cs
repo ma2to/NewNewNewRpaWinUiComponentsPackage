@@ -106,4 +106,47 @@ public interface IDataGridValidation
         bool onlyFiltered = false,
         bool onlyChecked = false,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Delete rows based on specific validation rules.
+    /// CRITICAL: Applies ONLY the rules provided in criteria, NOT all system rules.
+    /// Applies 3-step cleanup after deletion (remove empty from middle, ensure minRows, ensure last empty).
+    /// </summary>
+    /// <param name="criteria">Validation deletion criteria (rules, mode, scope)</param>
+    /// <param name="cancellationToken">Cancellation token for operation</param>
+    /// <returns>Result with rows deleted count and final statistics</returns>
+    /// <example>
+    /// // Delete rows where column "Age" is required but missing
+    /// var rules = new Dictionary&lt;string, PublicValidationRule&gt;
+    /// {
+    ///     ["Age"] = new PublicValidationRule
+    ///     {
+    ///         RuleType = PublicValidationRuleType.Required,
+    ///         ErrorMessage = "Age is required"
+    ///     }
+    /// };
+    /// var criteria = PublicValidationDeletionCriteria.DeleteInvalidRows(rules);
+    /// var result = await grid.Validation.DeleteRowsByValidationAsync(criteria);
+    /// </example>
+    Task<PublicValidationDeletionResult> DeleteRowsByValidationAsync(
+        PublicValidationDeletionCriteria criteria,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Delete duplicate rows based on column comparison.
+    /// Applies 3-step cleanup after deletion (remove empty from middle, ensure minRows, ensure last empty).
+    /// </summary>
+    /// <param name="criteria">Duplicate deletion criteria (columns, strategy, scope)</param>
+    /// <param name="cancellationToken">Cancellation token for operation</param>
+    /// <returns>Result with rows deleted count and final statistics</returns>
+    /// <example>
+    /// // Delete duplicate rows based on "Email" column, keep first occurrence
+    /// var criteria = PublicDuplicateDeletionCriteria.KeepFirst(
+    ///     comparisonColumns: new[] { "Email" }
+    /// );
+    /// var result = await grid.Validation.DeleteDuplicateRowsAsync(criteria);
+    /// </example>
+    Task<PublicValidationDeletionResult> DeleteDuplicateRowsAsync(
+        PublicDuplicateDeletionCriteria criteria,
+        CancellationToken cancellationToken = default);
 }

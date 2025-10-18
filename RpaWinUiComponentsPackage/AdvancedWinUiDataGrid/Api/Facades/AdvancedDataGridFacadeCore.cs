@@ -21,6 +21,7 @@ public sealed partial class AdvancedDataGridFacade : IAdvancedDataGridFacade
     private readonly UIAdapters.WinUI.UiNotificationService? _uiNotificationService;
     private readonly UIAdapters.WinUI.GridViewModelAdapter? _gridViewModelAdapter;
     private readonly UIAdapters.WinUI.InternalUIUpdateHandler? _internalUIUpdateHandler;
+    private readonly UIAdapters.WinUI.InternalUIOperationHandler? _internalUIOperationHandler;
     private readonly Features.Color.ThemeService _themeService;
     private bool _disposed;
 
@@ -171,6 +172,21 @@ public sealed partial class AdvancedDataGridFacade : IAdvancedDataGridFacade
         // This MUST be resolved to activate the handler and subscribe to OnDataRefreshed events
         _internalUIUpdateHandler = serviceProvider.GetService<UIAdapters.WinUI.InternalUIUpdateHandler>();
 
+        // CRITICAL: Create InternalUIOperationHandler to enable automatic UI operation handling in Interactive mode
+        // This handler automatically processes delete and auto-expand operations without application code involvement
+        // NOTE: Cannot be registered in DI because it needs reference to facade (this)
+        if (options.OperationMode == PublicDataGridOperationMode.Interactive)
+        {
+            var uiControl = serviceProvider.GetService<UIControls.AdvancedDataGridControl>();
+            var uiOperationLogger = serviceProvider.GetService<ILogger<UIAdapters.WinUI.InternalUIOperationHandler>>();
+            _internalUIOperationHandler = new UIAdapters.WinUI.InternalUIOperationHandler(
+                this, // Pass facade reference
+                options,
+                uiControl,
+                uiOperationLogger
+            );
+        }
+
         // Obtain ThemeService (always available)
         _themeService = serviceProvider.GetRequiredService<Features.Color.ThemeService>();
 
@@ -271,8 +287,9 @@ public sealed partial class AdvancedDataGridFacade : IAdvancedDataGridFacade
 
             try
             {
-                // Dispose InternalUIUpdateHandler first (unsubscribe from events)
+                // Dispose handlers first (unsubscribe from events)
                 _internalUIUpdateHandler?.Dispose();
+                _internalUIOperationHandler?.Dispose();
 
                 // Dispose of service provider if it's disposable
                 if (_serviceProvider is IDisposable disposableProvider)

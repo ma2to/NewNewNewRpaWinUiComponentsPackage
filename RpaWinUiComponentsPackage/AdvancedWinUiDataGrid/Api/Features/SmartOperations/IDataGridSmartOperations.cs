@@ -103,4 +103,27 @@ public interface IDataGridSmartOperations
     /// <param name="config">New configuration</param>
     /// <returns>Result of the update</returns>
     Task<PublicResult> UpdateConfigAsync(PublicSmartOperationsConfig config);
+
+    /// <summary>
+    /// Manually triggers 3-step row cleanup and maintenance.
+    /// STEP 1: Remove ALL empty rows from anywhere in dataset (streaming O(n))
+    /// STEP 2: Ensure minimum rows by adding empty rows at end
+    /// STEP 3: Ensure last row is empty (independent of minRows check)
+    ///
+    /// Use cases:
+    /// - After custom bulk operations
+    /// - After validation-based deletions (when implemented)
+    /// - Manual data cleanup trigger
+    /// - Before export to ensure clean dataset
+    /// </summary>
+    /// <param name="config">Smart operations configuration (null uses current default)</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Result with statistics about cleanup operation</returns>
+    /// <remarks>
+    /// Performance: O(n) streaming + O(k) delete + O(m) add
+    /// Safe for 10M+ rows datasets
+    /// </remarks>
+    Task<PublicSmartOperationResult> EnsureMinRowsAndLastEmptyAsync(
+        PublicSmartOperationsConfig? config = null,
+        CancellationToken cancellationToken = default);
 }

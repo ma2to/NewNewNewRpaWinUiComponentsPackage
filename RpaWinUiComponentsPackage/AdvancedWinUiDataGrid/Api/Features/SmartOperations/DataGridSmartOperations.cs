@@ -211,7 +211,7 @@ internal sealed class DataGridSmartOperations : IDataGridSmartOperations
     {
         try
         {
-            _logger?.LogInformation("Updating smart operations config: MinRows={MinRows}", config.MinimumRows);
+            _logger?.LogInformation("Updating smart operations config");
             _currentConfig = config;
             return Task.FromResult(PublicResult.Success());
         }
@@ -228,7 +228,6 @@ internal sealed class DataGridSmartOperations : IDataGridSmartOperations
     {
         return new RowManagementConfiguration
         {
-            MinimumRows = publicConfig.MinimumRows,
             EnableAutoExpand = publicConfig.EnableAutoExpand,
             EnableSmartDelete = publicConfig.EnableSmartDelete,
             AlwaysKeepLastEmpty = publicConfig.AlwaysKeepLastEmpty
@@ -251,7 +250,6 @@ internal sealed class DataGridSmartOperations : IDataGridSmartOperations
             RowsPhysicallyDeleted = internalResult.Statistics.RowsPhysicallyDeleted,
             RowsContentCleared = internalResult.Statistics.RowsContentCleared,
             RowsShifted = internalResult.Statistics.RowsShifted,
-            MinimumRowsEnforced = internalResult.Statistics.MinimumRowsEnforced,
             LastEmptyRowMaintained = internalResult.Statistics.LastEmptyRowMaintained
         };
 
@@ -300,4 +298,45 @@ internal sealed class DataGridSmartOperations : IDataGridSmartOperations
     }
 
     #endregion
+
+    /// <summary>
+    /// Public API: Manually trigger 3-step row cleanup
+    /// Delegates to internal SmartOperationService
+    /// </summary>
+    public async Task<PublicSmartOperationResult> EnsureMinRowsAndLastEmptyAsync(
+        PublicSmartOperationsConfig? config = null,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger?.LogInformation("Manually triggering 3-step row cleanup via SmartOperations API");
+
+            // Use provided config or current default
+            var cfg = config ?? _currentConfig;
+
+            // Convert public config to internal
+            var internalConfig = MapToInternalConfig(cfg);
+
+            // Call internal service method (will be added to SmartOperationService)
+            var result = await _smartOperationService.EnsureMinRowsAndLastEmptyPublicAsync(
+                internalConfig,
+                cancellationToken);
+
+            _logger?.LogInformation("3-step cleanup completed: {FinalCount} rows, {EmptyCreated} empty rows created",
+                result.FinalRowCount, result.Statistics.EmptyRowsCreated);
+
+            // CRITICAL FIX: Trigger UI refresh for Interactive mode with granular metadata
+            await TriggerUIRefreshWithMetadataAsync("EnsureMinRowsAndLastEmpty", result);
+
+            return MapToPublicResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Failed to execute 3-step cleanup via SmartOperations API");
+            return PublicSmartOperationResult.Failure(
+                $"3-step cleanup failed: {ex.Message}",
+                TimeSpan.Zero,
+                new[] { ex.Message });
+        }
+    }
 }

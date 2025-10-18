@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Logging;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Validation.Interfaces;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Validation.Services;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Mappings;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Validation;
@@ -12,12 +14,15 @@ internal sealed class DataGridValidation : IDataGridValidation
 {
     private readonly ILogger<DataGridValidation>? _logger;
     private readonly IValidationService _validationService;
+    private readonly ValidationDeletionService _validationDeletionService;
 
     public DataGridValidation(
         IValidationService validationService,
+        ValidationDeletionService validationDeletionService,
         ILogger<DataGridValidation>? logger = null)
     {
         _validationService = validationService ?? throw new ArgumentNullException(nameof(validationService));
+        _validationDeletionService = validationDeletionService ?? throw new ArgumentNullException(nameof(validationDeletionService));
         _logger = logger;
     }
 
@@ -215,6 +220,81 @@ internal sealed class DataGridValidation : IDataGridValidation
         catch (Exception ex)
         {
             _logger?.LogError(ex, "GetValidationErrors failed in Validation module");
+            throw;
+        }
+    }
+
+    public async Task<PublicValidationDeletionResult> DeleteRowsByValidationAsync(
+        PublicValidationDeletionCriteria criteria,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger?.LogInformation(
+                "Deleting rows by validation rules via Validation module: mode={Mode}, rules={RuleCount}, onlyFiltered={Filtered}, onlyChecked={Checked}",
+                criteria.DeletionMode, criteria.ValidationRules.Count, criteria.OnlyFiltered, criteria.OnlyChecked);
+
+            // Use default smart operations configuration for validation deletion
+            var config = new RowManagementConfiguration
+            {
+                EnableSmartDelete = true,
+                EnableAutoExpand = true,
+                AlwaysKeepLastEmpty = true
+            };
+
+            var result = await _validationDeletionService.DeleteRowsByValidationAsync(
+                criteria,
+                config,
+                cancellationToken);
+
+            _logger?.LogInformation(
+                "Validation deletion completed: success={Success}, deleted={Deleted}, final={Final}",
+                result.IsSuccess, result.RowsDeleted, result.FinalRowCount);
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "DeleteRowsByValidation failed in Validation module");
+            throw;
+        }
+    }
+
+    public async Task<PublicValidationDeletionResult> DeleteDuplicateRowsAsync(
+        PublicDuplicateDeletionCriteria criteria,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger?.LogInformation(
+                "Deleting duplicate rows via Validation module: strategy={Strategy}, columns={Columns}, onlyFiltered={Filtered}, onlyChecked={Checked}",
+                criteria.Strategy,
+                criteria.ComparisonColumns.Count > 0 ? string.Join(",", criteria.ComparisonColumns) : "ALL",
+                criteria.OnlyFiltered,
+                criteria.OnlyChecked);
+
+            // Use default smart operations configuration for duplicate deletion
+            var config = new RowManagementConfiguration
+            {
+                EnableSmartDelete = true,
+                EnableAutoExpand = true,
+                AlwaysKeepLastEmpty = true
+            };
+
+            var result = await _validationDeletionService.DeleteDuplicateRowsAsync(
+                criteria,
+                config,
+                cancellationToken);
+
+            _logger?.LogInformation(
+                "Duplicate deletion completed: success={Success}, deleted={Deleted}, final={Final}",
+                result.IsSuccess, result.RowsDeleted, result.FinalRowCount);
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "DeleteDuplicateRows failed in Validation module");
             throw;
         }
     }

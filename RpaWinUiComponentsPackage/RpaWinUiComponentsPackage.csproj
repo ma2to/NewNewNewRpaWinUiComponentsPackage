@@ -65,31 +65,34 @@
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.250916003" IncludeAssets="all" PrivateAssets="none" GeneratePathProperty="true" />
     
     <!-- Logging abstractions only -->
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.10" />
 
     <!-- Logging implementation for AddLogging extension -->
     <!--<PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.9" />-->
 
     <!-- Dependency injection -->
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.9" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.10" />
     
     <!-- ObjectPool for performance optimization -->
-    <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="9.0.9" />
+    <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="9.0.10" />
     
     <!-- System dependencies -->
     <PackageReference Include="System.ComponentModel.Annotations" Version="5.0.0" />
-    <PackageReference Include="System.Diagnostics.PerformanceCounter" Version="9.0.9" />
-    <PackageReference Include="System.Numerics.Tensors" Version="9.0.9" />
+    <PackageReference Include="System.Diagnostics.PerformanceCounter" Version="9.0.10" />
+    <PackageReference Include="System.Numerics.Tensors" Version="9.0.10" />
     
     <!-- Reactive programming for hybrid functional-OOP architecture -->
     <PackageReference Include="System.Reactive" Version="6.1.0" />
     <PackageReference Include="System.Reactive.Linq" Version="6.1.0" />
+
+    <!-- ULID - Universally Unique Lexicographically Sortable Identifier for infinite row capacity -->
+    <PackageReference Include="Ulid" Version="1.4.1" />
     
     <!-- Force newer version of vulnerable transitive dependency -->
     <PackageReference Include="System.Threading.Tasks.Extensions" Version="4.6.3" />
     
     <!-- JSON support for data export -->
-    <PackageReference Include="System.Text.Json" Version="9.0.9" />
+    <PackageReference Include="System.Text.Json" Version="9.0.10" />
     
     <!-- Data support - keeping 4.3.0 as it's the only stable version available -->
     <!-- System.Data.Common" Version="4.3.0" - vulnerable but only available version -->

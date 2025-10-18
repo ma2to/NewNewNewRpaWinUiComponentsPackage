@@ -30,6 +30,17 @@ internal interface IRowStore
     /// Get all rows as a collection
     /// Use StreamRowsAsync for large datasets
     /// </summary>
+    /// <param name="onlyFiltered">If true, returns only filtered view; otherwise returns all rows</param>
+    /// <param name="cancellationToken">Cancellation token for async operations</param>
+    /// <returns>All rows in the store (filtered or unfiltered based on parameter)</returns>
+    Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> GetAllRowsAsync(
+        bool onlyFiltered,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Get all rows as a collection (backward compatibility overload)
+    /// Use StreamRowsAsync for large datasets
+    /// </summary>
     /// <param name="cancellationToken">Cancellation token for async operations</param>
     /// <returns>All rows in the store</returns>
     Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> GetAllRowsAsync(
@@ -37,6 +48,16 @@ internal interface IRowStore
 
     /// <summary>
     /// Get total row count
+    /// </summary>
+    /// <param name="onlyFiltered">If true, returns count of filtered view; otherwise returns count of all rows</param>
+    /// <param name="cancellationToken">Cancellation token for async operations</param>
+    /// <returns>Total number of rows (filtered or unfiltered based on parameter)</returns>
+    Task<long> GetRowCountAsync(
+        bool onlyFiltered,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Get total row count (backward compatibility overload)
     /// </summary>
     /// <param name="cancellationToken">Cancellation token for async operations</param>
     /// <returns>Total number of rows</returns>
@@ -75,6 +96,17 @@ internal interface IRowStore
     /// <param name="cancellationToken">Cancellation token for async operations</param>
     Task AppendRowsAsync(
         IEnumerable<IReadOnlyDictionary<string, object?>> rows,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Ensures the grid has at least one empty row on initialization.
+    /// Called during grid creation to establish the initial state.
+    /// Only adds a row if the store is completely empty.
+    /// </summary>
+    /// <param name="columnNames">Column names for the initial empty row</param>
+    /// <param name="cancellationToken">Cancellation token for async operations</param>
+    Task EnsureInitialEmptyRowAsync(
+        IEnumerable<string> columnNames,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -221,17 +253,49 @@ internal interface IRowStore
     Task ClearValidationStateAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Set filter criteria for the store
+    /// Set filter criteria for the store and build filtered view index
+    /// CRITICAL: This builds the filtered row index for efficient filtered data access
     /// Used by filter service to update what constitutes "filtered" data
+    /// Performance: O(n) where n = total rows. Builds index once, subsequent filtered access is O(1) per row.
     /// </summary>
-    /// <param name="filterCriteria">Active filter criteria</param>
-    void SetFilterCriteria(IReadOnlyList<object> filterCriteria);
+    /// <param name="filterCriteria">Active filter criteria (null or empty to clear filters)</param>
+    void SetFilterCriteria(IReadOnlyList<object>? filterCriteria);
+
+    /// <summary>
+    /// Clears filter criteria and filtered view index
+    /// Equivalent to calling SetFilterCriteria(null)
+    /// </summary>
+    void ClearFilterCriteria();
 
     /// <summary>
     /// Get current filter criteria
     /// </summary>
-    /// <returns>Current filter criteria</returns>
+    /// <returns>Current filter criteria (empty list if no filters active)</returns>
     IReadOnlyList<object> GetFilterCriteria();
+
+    /// <summary>
+    /// Maps filtered row index to original row index
+    /// CRITICAL FOR EDITS: When user edits a cell in filtered view, we need to update the correct row in original dataset
+    /// Example: Filtered view shows rows [5, 12, 23]. User edits filteredIndex=1 (original row 12) → returns 12
+    /// </summary>
+    /// <param name="filteredIndex">Index in filtered view (0-based)</param>
+    /// <returns>Index in original dataset, or null if not found or no filter active</returns>
+    int? MapFilteredIndexToOriginalIndex(int filteredIndex);
+
+    /// <summary>
+    /// Get last row in the store (optimized - O(1) if possible, O(n) for concurrent dictionary)
+    /// Returns row with highest __rowId (ULID timestamp-based, lexicographically sortable)
+    /// CRITICAL: Used by 3-step cleanup to check if last row is empty
+    /// Performance: For 10M+ rows, O(n) key enumeration is acceptable for this operation
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token for async operations</param>
+    /// <returns>Last row data or null if store is empty</returns>
+    /// <remarks>
+    /// ULID is lexicographically sortable by timestamp, so Max(Keys) returns most recent row.
+    /// This is critical for ensuring "always keep last empty row" functionality.
+    /// </remarks>
+    Task<IReadOnlyDictionary<string, object?>?> GetLastRowAsync(
+        CancellationToken cancellationToken = default);
 
     // Public API synchronous compatibility methods
     Task<int> AddRowAsync(IReadOnlyDictionary<string, object?> rowData, CancellationToken cancellationToken = default);

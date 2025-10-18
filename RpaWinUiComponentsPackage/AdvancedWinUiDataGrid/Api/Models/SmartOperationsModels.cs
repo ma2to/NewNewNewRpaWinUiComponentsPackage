@@ -1,16 +1,11 @@
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
 
 /// <summary>
-/// Configuration for smart row management operations (add/delete with automatic minimum rows).
+/// Configuration for smart row management operations.
+/// NOTE: MinimumRows concept removed - grid always starts with 1 empty row and maintains last empty row.
 /// </summary>
 public sealed class PublicSmartOperationsConfig
 {
-    /// <summary>
-    /// Minimum number of rows to maintain in the grid (default: 1).
-    /// SmartDelete will clear content instead of removing rows when at minimum.
-    /// </summary>
-    public int MinimumRows { get; init; } = 1;
-
     /// <summary>
     /// Enable automatic expansion of empty rows (default: true).
     /// When enabled, an empty row is automatically added when the last row is filled.
@@ -19,7 +14,6 @@ public sealed class PublicSmartOperationsConfig
 
     /// <summary>
     /// Enable smart delete logic (default: true).
-    /// When enabled, rows are cleared instead of removed when at minimum rows.
     /// </summary>
     public bool EnableSmartDelete { get; init; } = true;
 
@@ -38,13 +32,11 @@ public sealed class PublicSmartOperationsConfig
     /// Creates custom smart operations configuration.
     /// </summary>
     public static PublicSmartOperationsConfig Create(
-        int minimumRows = 1,
         bool enableAutoExpand = true,
         bool enableSmartDelete = true,
         bool alwaysKeepLastEmpty = true) =>
         new()
         {
-            MinimumRows = minimumRows,
             EnableAutoExpand = enableAutoExpand,
             EnableSmartDelete = enableSmartDelete,
             AlwaysKeepLastEmpty = alwaysKeepLastEmpty
@@ -147,11 +139,6 @@ public sealed class PublicSmartOperationStatistics
     /// Number of rows shifted during operation.
     /// </summary>
     public int RowsShifted { get; init; }
-
-    /// <summary>
-    /// Whether minimum rows constraint was enforced.
-    /// </summary>
-    public bool MinimumRowsEnforced { get; init; }
 
     /// <summary>
     /// Whether last empty row was maintained.

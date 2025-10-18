@@ -344,6 +344,14 @@ internal sealed class ExportService : IExportService
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
+                // CRITICAL FIX: Skip empty rows (all data fields null/whitespace, excluding __rowId)
+                // Export should only contain actual data, not placeholder empty rows
+                if (IsEmptyRow(row))
+                {
+                    _logger.LogDebug("Skipping empty row during export for operation {OperationId}", operationId);
+                    continue;
+                }
+
                 // Aplikujeme onlyChecked filter if požadovaný
                 if (command.ExportOnlyChecked && !IsRowChecked(row))
                     continue;
@@ -618,6 +626,18 @@ internal sealed class ExportService : IExportService
                lowerName.Contains("check") ||
                lowerName == "isselected" ||
                lowerName == "ischecked";
+    }
+
+    /// <summary>
+    /// Checks if a row is empty (all data fields null/whitespace, ignoring __rowId)
+    /// CRITICAL: Ignore __rowId field - it's an identifier, not data
+    /// A row is empty if ALL data fields (excluding __rowId) are null or whitespace
+    /// </summary>
+    private bool IsEmptyRow(IReadOnlyDictionary<string, object?> row)
+    {
+        return row
+            .Where(kvp => kvp.Key != "__rowId")
+            .All(kvp => kvp.Value == null || string.IsNullOrWhiteSpace(kvp.Value?.ToString()));
     }
 
     /// <summary>

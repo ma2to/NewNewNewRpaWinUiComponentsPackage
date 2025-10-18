@@ -24,6 +24,7 @@ internal sealed class CopyPasteService : ICopyPasteService
     private readonly Infrastructure.Persistence.Interfaces.IRowStore _rowStore;
     private readonly AdvancedDataGridOptions _options;
     private readonly IOperationLogger<CopyPasteService> _operationLogger;
+    private readonly Features.SmartAddDelete.Interfaces.ISmartOperationService _smartOperationService;
     private readonly object _clipboardLock = new object();
     private volatile object? _clipboardData;
 
@@ -37,12 +38,14 @@ internal sealed class CopyPasteService : ICopyPasteService
         IValidationService validationService,
         Infrastructure.Persistence.Interfaces.IRowStore rowStore,
         AdvancedDataGridOptions options,
+        Features.SmartAddDelete.Interfaces.ISmartOperationService smartOperationService,
         IOperationLogger<CopyPasteService>? operationLogger = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _validationService = validationService ?? throw new ArgumentNullException(nameof(validationService));
         _rowStore = rowStore ?? throw new ArgumentNullException(nameof(rowStore));
         _options = options ?? throw new ArgumentNullException(nameof(options));
+        _smartOperationService = smartOperationService ?? throw new ArgumentNullException(nameof(smartOperationService));
 
         // Použijeme null pattern ak logger nie je poskytnutý
         _operationLogger = operationLogger ?? NullOperationLogger<CopyPasteService>.Instance;
@@ -198,6 +201,17 @@ internal sealed class CopyPasteService : ICopyPasteService
             }
 
             _logger.LogInformation("Data successfully pasted for operation {OperationId}", operationId);
+
+            // CRITICAL FIX: Enforce 2-step cleanup after paste (remove ALL empty rows, ensure last empty)
+            // Uses SmartOperationService for consistent cleanup logic across all features
+            _logger.LogInformation("Starting 2-step cleanup after paste for operation {OperationId}", operationId);
+            var cleanupConfig = new Core.ValueObjects.RowManagementConfiguration
+            {
+                AlwaysKeepLastEmpty = true,
+                EnableAutoExpand = true,
+                EnableSmartDelete = true
+            };
+            await _smartOperationService.EnsureMinRowsAndLastEmptyAsync(cleanupConfig, templateRow: null, cancellationToken);
 
             // CRITICAL: Automatic post-paste validation (only if ShouldRunAutomaticValidation returns true)
             if (command.ValidateAfterPaste && _validationService.ShouldRunAutomaticValidation("PasteAsync"))

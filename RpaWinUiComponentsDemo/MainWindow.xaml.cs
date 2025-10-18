@@ -95,8 +95,9 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
-            // Wire up special column events
-            _gridControl.DeleteRowRequested += OnDeleteRowRequested;
+            // Wire up special column events (optional - for application-level tracking)
+            // NOTE: In Interactive mode, delete and auto-expand are handled automatically by InternalUIOperationHandler
+            // Application code only needs to subscribe to these events for tracking/logging purposes
             _gridControl.RowSelectionChanged += OnRowSelectionChanged;
 
             // Add UI control to container
@@ -476,74 +477,9 @@ public sealed partial class MainWindow : Window
     #region Special Column Event Handlers
 
     /// <summary>
-    /// Handles delete row requests from the delete button special column.
-    /// Uses SmartOperations from facade - no custom logic needed!
-    /// SmartDelete automatically handles: clear vs remove, minimum rows, empty row at end.
-    /// Uses rowId-based delete to avoid index shifting bugs during rapid deletes.
-    /// InternalUIUpdateHandler auto-updates UI - no manual refresh needed!
-    /// </summary>
-    private async void OnDeleteRowRequested(object? sender, DeleteRowRequestedEventArgs args)
-    {
-        if (!_isInitialized || _gridFacade == null || _gridControl == null)
-        {
-            AddLogMessage("⚠ Grid not initialized!");
-            return;
-        }
-
-        try
-        {
-            AddLogMessage("");
-            AddLogMessage($"=== SMART DELETE REQUEST (RowId-Based) ===");
-            AddLogMessage($"Row index: {args.RowIndex}, Row ID: {args.RowId ?? "null"}");
-
-            // Use SmartOperations from facade - it handles everything!
-            // MINIMUM 50 ROWS: Demonstrates smart delete behavior (clear vs physical delete)
-            var config = PublicSmartOperationsConfig.Create(
-                minimumRows: 50,
-                enableSmartDelete: true,
-                enableAutoExpand: true,
-                alwaysKeepLastEmpty: true
-            );
-
-            // CRITICAL: Use rowId-based delete to avoid index shifting bugs
-            // If rowId is null (rare edge case), fallback to index-based delete
-            PublicSmartOperationResult result;
-            if (!string.IsNullOrEmpty(args.RowId))
-            {
-                result = await _gridFacade.SmartOperations.SmartDeleteRowByIdAsync(args.RowId, config);
-            }
-            else
-            {
-                AddLogMessage("⚠ RowId is null, falling back to index-based delete");
-                result = await _gridFacade.SmartOperations.SmartDeleteRowAsync(args.RowIndex, config);
-            }
-
-            if (result.IsSuccess)
-            {
-                AddLogMessage($"✓ Smart delete successful!");
-                AddLogMessage($"  Final rows: {result.FinalRowCount}");
-                AddLogMessage($"  Physically deleted: {result.Statistics.RowsPhysicallyDeleted}");
-                AddLogMessage($"  Content cleared: {result.Statistics.RowsContentCleared}");
-                AddLogMessage($"  Empty rows created: {result.Statistics.EmptyRowsCreated}");
-                AddLogMessage($"  Minimum enforced: {result.Statistics.MinimumRowsEnforced}");
-                AddLogMessage($"  Duration: {result.OperationTime.TotalMilliseconds:F0}ms");
-                AddLogMessage("✓ InternalUIUpdateHandler will auto-update UI");
-            }
-            else
-            {
-                AddLogMessage($"✗ Smart delete failed: {result.ErrorMessage}");
-            }
-        }
-        catch (Exception ex)
-        {
-            AddLogMessage($"✗ Exception during smart delete: {ex.Message}");
-            AddLogMessage($"  Stack: {ex.StackTrace}");
-        }
-    }
-
-    /// <summary>
     /// Handles row selection changes from the checkbox special column.
     /// Logs selection state for tracking purposes.
+    /// NOTE: Delete and auto-expand are handled automatically by InternalUIOperationHandler in Interactive mode.
     /// </summary>
     private void OnRowSelectionChanged(object? sender, (int rowIndex, bool isSelected) e)
     {
