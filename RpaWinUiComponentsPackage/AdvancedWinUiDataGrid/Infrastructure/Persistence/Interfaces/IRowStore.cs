@@ -297,6 +297,36 @@ internal interface IRowStore
     Task<IReadOnlyDictionary<string, object?>?> GetLastRowAsync(
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Set sort criteria for the store.
+    /// In HybridRowStore: Builds SQL ORDER BY clause for efficient database sorting.
+    /// In InMemoryRowStore: No-op (sorting handled by SortService).
+    /// </summary>
+    /// <param name="columnName">Column to sort by</param>
+    /// <param name="direction">Sort direction (Ascending/Descending/None)</param>
+    void SetSortCriteria(string columnName, Common.SortDirection direction);
+
+    /// <summary>
+    /// Clear sort criteria (revert to default ordering).
+    /// </summary>
+    void ClearSortCriteria();
+
+    /// <summary>
+    /// Perform full-text search on row data.
+    /// In HybridRowStore: Uses SQLite FTS5 for efficient search.
+    /// In InMemoryRowStore: Uses LINQ-based in-memory search.
+    /// </summary>
+    /// <param name="searchText">Text to search for</param>
+    /// <param name="targetColumns">Optional: specific columns to search (null = all columns)</param>
+    /// <param name="caseSensitive">Whether search should be case-sensitive</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>List of row IDs that match the search criteria</returns>
+    Task<IReadOnlyList<string>> SearchAsync(
+        string searchText,
+        string[]? targetColumns = null,
+        bool caseSensitive = false,
+        CancellationToken cancellationToken = default);
+
     // Public API synchronous compatibility methods
     Task<int> AddRowAsync(IReadOnlyDictionary<string, object?> rowData, CancellationToken cancellationToken = default);
     Task<int> AddRowsAsync(IEnumerable<IReadOnlyDictionary<string, object?>> rowsData, CancellationToken cancellationToken = default);

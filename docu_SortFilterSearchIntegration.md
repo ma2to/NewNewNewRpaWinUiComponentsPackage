@@ -570,4 +570,92 @@ CREATE INDEX IF NOT EXISTS idx_name ON grid_rows(
 
 ---
 
+## ✅ PHASE 2 IMPLEMENTATION STATUS (19.10.2025)
+
+### Čo bolo implementované
+
+**Phase 2.1-2.2: Filter implementácia**
+- ✅ `HybridRowStore.SetFilterCriteria(IReadOnlyList<object>? filterCriteria)`
+- ✅ `BuildSqlFilterCondition(FilterCriteria filter)` - kompletná implementácia pre 14+ operátorov
+- ✅ `FormatSqlValue(object? value)` - SQL injection protection
+- ✅ Integrácia do `StreamRowsAsync()`, `GetAllRowsAsync()`, `GetRowCountAsync()`, `GetPagedRowsAsync()`
+- ✅ WHERE clause building s AND logic
+
+**Filter operátory implementované:**
+- Equals, NotEquals, Contains, NotContains
+- StartsWith, EndsWith
+- GreaterThan, GreaterThanOrEqual, LessThan, LessThanOrEqual
+- IsNull, IsNotNull, IsEmpty, IsNotEmpty
+
+**Phase 2.3-2.4: Sort implementácia**
+- ✅ `HybridRowStore.SetSortCriteria(string columnName, SortDirection direction)`
+- ✅ `HybridRowStore.ClearSortCriteria()`
+- ✅ Type-aware sorting (numeric vs text detection pomocou `json_type()`)
+- ✅ Integrácia do `GetPagedRowsAsync()` s ORDER BY clause
+- ⚠️ **Poznámka:** Single-column sort iba (multi-column v budúcej fáze)
+
+**Phase 2.5-2.6: Search implementácia (FTS5)**
+- ✅ `HybridRowStore.SearchAsync(string searchText, string[]? targetColumns, bool caseSensitive, CancellationToken)`
+- ✅ FTS5 MATCH queries pre full-text search
+- ✅ Case-sensitive/case-insensitive podpora
+- ✅ Column-specific search (optional)
+- ✅ `EscapeFtsQuery(string query)` - FTS5 syntax escaping
+- ✅ Returns: `IReadOnlyList<string>` (row IDs)
+- ⚠️ **Poznámka:** Vracia row IDs, nie kompletné SearchResult objekty (simplifikovaný prístup)
+
+**Phase 2.7: IRowStore interface rozšírenie**
+- ✅ Pridané do `IRowStore`:
+  - `void SetSortCriteria(string columnName, SortDirection direction)`
+  - `void ClearSortCriteria()`
+  - `Task<IReadOnlyList<string>> SearchAsync(string searchText, string[]? targetColumns, bool caseSensitive, CancellationToken)`
+- ✅ Implementácia v `InMemoryRowStore`:
+  - Sort methods: No-op (sorting handled by SortService)
+  - SearchAsync: LINQ-based in-memory search (fallback pre backward compatibility)
+
+### Actual vs Planned Implementation
+
+**Rozdiely oproti pôvodnej špecifikácii:**
+
+| Feature | Plánované | Implementované | Dôvod |
+|---------|-----------|----------------|-------|
+| Filter | IReadOnlyList<FilterCriteria> | IReadOnlyList<object?> → cast to FilterCriteria | Backward compatibility s existujúcim kódom |
+| Sort | Multi-column (IReadOnlyList<SortDescriptor>) | Single-column (string columnName, SortDirection) | MVP approach - multi-column v budúcej fáze |
+| Search | Returns SearchResult objects | Returns row IDs (IReadOnlyList<string>) | Simplicity - SearchService builds SearchResult |
+| Search Modes | Contains, Exact, StartsWith, EndsWith, Fuzzy, Regex | Basic Contains (case-sensitive/insensitive) | FTS5 basic implementation - advanced modes later |
+
+### Tested Components
+
+**Build Status:**
+- ✅ Solution builds successfully with no errors
+- ✅ Only existing warnings (nullable references, unused fields)
+- ✅ Both HybridRowStore and InMemoryRowStore implement IRowStore correctly
+
+**Integration Points:**
+- ✅ FilterService.cs already uses `SetFilterCriteria()` → works automatically with HybridRowStore
+- ✅ SortService.cs needs update to call `SetSortCriteria()` (currently uses LINQ)
+- ✅ SearchService.cs needs update to use `SearchAsync()` (currently uses LINQ)
+- 🔄 Services integration planned for Phase 3
+
+### Next Steps (Phase 3)
+
+**Service Integration:**
+1. Update FilterService to verify SQL-based filtering works correctly
+2. Update SortService to call `rowStore.SetSortCriteria()` instead of LINQ OrderBy
+3. Update SearchService to use `rowStore.SearchAsync()` for basic search
+4. Keep advanced search modes (regex, fuzzy) in SearchService as LINQ fallback
+
+**Performance Testing:**
+1. Test with 10M rows dataset
+2. Measure filter/sort/search performance
+3. Compare with in-memory baseline
+4. Optimize SQL queries if needed
+
+**Future Enhancements:**
+1. Multi-column sort support
+2. Advanced FTS5 search modes (fuzzy, phrase, proximity)
+3. Column indexing for frequently filtered/sorted columns
+4. Search result ranking and highlighting
+
+---
+
 Koniec tretieho dokumentu. Pokračujem s ďalšími...

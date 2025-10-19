@@ -44,12 +44,14 @@ public sealed class AdvancedDataGridControl : UserControl
     private FilterRowView? _filterRowView;
     private HeadersRowView? _headersRowView;
     private DataGridCellsView? _dataCellsView;
+    private PaginationPanelView? _paginationPanelView;
 
     private readonly Grid _rootGrid;
     private readonly Border _searchPanelContainer;
     private readonly Border _filterRowContainer;
     private readonly Border _headersRowContainer;
     private readonly Border _dataCellsContainer;
+    private readonly Border _paginationPanelContainer;
 
     /// <summary>
     /// Creates a new instance of the AdvancedDataGrid control with a new view model.
@@ -69,6 +71,7 @@ public sealed class AdvancedDataGridControl : UserControl
         _filterRowContainer = new Border();
         _headersRowContainer = new Border();
         _dataCellsContainer = new Border();
+        _paginationPanelContainer = new Border();
 
         InitializeUI();
         InitializeSubViews();
@@ -94,25 +97,27 @@ public sealed class AdvancedDataGridControl : UserControl
         _filterRowContainer = new Border();
         _headersRowContainer = new Border();
         _dataCellsContainer = new Border();
+        _paginationPanelContainer = new Border();
 
         InitializeUI();
         InitializeSubViews();
     }
 
     /// <summary>
-    /// Initializes the UI layout with a 4-row grid structure.
-    /// Rows from top to bottom: Search Panel, Filter Row, Headers, Data Cells.
+    /// Initializes the UI layout with a 5-row grid structure.
+    /// Rows from top to bottom: Search Panel, Filter Row, Headers, Data Cells, Pagination Panel.
     /// The data cells area takes up all remaining vertical space.
     /// </summary>
     private void InitializeUI()
     {
         _logger?.LogInformation("Initializing grid UI layout");
 
-        // Create root Grid with 4 rows: SearchPanel, FilterRow, Headers, DataCells
+        // Create root Grid with 5 rows: SearchPanel, FilterRow, Headers, DataCells, PaginationPanel
         _rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // SearchPanel - auto-sized based on content
         _rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // FilterRow - auto-sized based on content
         _rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // Headers - auto-sized based on content
         _rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // DataCells - takes remaining space
+        _rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // PaginationPanel - auto-sized based on content
 
         // SearchPanel Container (Row 0) - appears at the top
         _searchPanelContainer.BorderThickness = new Thickness(0, 0, 0, 1);
@@ -132,11 +137,17 @@ public sealed class AdvancedDataGridControl : UserControl
         // DataCells Container (Row 3) - scrollable area that takes up remaining vertical space
         Grid.SetRow(_dataCellsContainer, 3);
 
+        // PaginationPanel Container (Row 4) - appears at the bottom
+        _paginationPanelContainer.BorderThickness = new Thickness(0, 1, 0, 0);
+        _paginationPanelContainer.BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.LightGray);
+        Grid.SetRow(_paginationPanelContainer, 4);
+
         // Add all containers to root grid in order
         _rootGrid.Children.Add(_searchPanelContainer);
         _rootGrid.Children.Add(_filterRowContainer);
         _rootGrid.Children.Add(_headersRowContainer);
         _rootGrid.Children.Add(_dataCellsContainer);
+        _rootGrid.Children.Add(_paginationPanelContainer);
 
         // Set root grid as UserControl content
         Content = _rootGrid;
@@ -145,7 +156,7 @@ public sealed class AdvancedDataGridControl : UserControl
     }
 
     /// <summary>
-    /// Initializes and wires up all sub-views (search panel, filters, headers, data cells).
+    /// Initializes and wires up all sub-views (search panel, filters, headers, data cells, pagination panel).
     /// Each sub-view is connected to the appropriate view model and event handlers are registered.
     /// </summary>
     private void InitializeSubViews()
@@ -174,6 +185,11 @@ public sealed class AdvancedDataGridControl : UserControl
         _dataCellsView.RowSelectionChanged += OnRowSelectionChangedInternal;
         _dataCellsView.CellEditCompleted += OnCellEditCompletedInternal;
         _dataCellsContainer.Child = _dataCellsView;
+
+        // Create and wire up PaginationPanelView - provides page navigation controls
+        _paginationPanelView = new PaginationPanelView(ViewModel.PaginationPanel);
+        _paginationPanelView.PageChanged += OnPageChangedInternal;
+        _paginationPanelContainer.Child = _paginationPanelView;
 
         _logger?.LogInformation("Sub-views initialized successfully");
     }
@@ -205,6 +221,17 @@ public sealed class AdvancedDataGridControl : UserControl
     {
         _logger?.LogInformation("Cell edit completed: row {RowIndex}, column {ColumnName}", cell.RowIndex, cell.ColumnName);
         CellEditCompleted?.Invoke(this, cell);
+    }
+
+    /// <summary>
+    /// Internal handler for page change events from PaginationPanelView.
+    /// TODO: This should trigger a data reload from the facade with the new page number.
+    /// </summary>
+    private void OnPageChangedInternal(object? sender, int newPage)
+    {
+        _logger?.LogInformation("Page changed to {PageNumber}", newPage);
+        // TODO: Reload data for the new page via Facade API
+        // Call IAdvancedDataGridFacade.GetPagedDataAsync(newPage, pageSize)
     }
 
     /// <summary>

@@ -16,6 +16,8 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Search.Servic
 /// <summary>
 /// Internal implementation of search service with LINQ optimizations
 /// Thread-safe with parallel processing, regex, fuzzy matching support
+/// For HybridRowStore: Uses SQLite FTS5 for basic search (fast)
+/// For InMemoryRowStore: Uses LINQ-based search (legacy fallback)
 /// </summary>
 internal sealed class SearchService : ISearchService
 {
@@ -23,14 +25,17 @@ internal sealed class SearchService : ISearchService
     private readonly ILogger<SearchService> _logger;
     private readonly IOperationLogger<SearchService> _operationLogger;
     private readonly IFilterService _filterService;
+    private readonly Infrastructure.Persistence.Interfaces.IRowStore? _rowStore;
 
     public SearchService(
         ILogger<SearchService> logger,
         IFilterService filterService,
+        Infrastructure.Persistence.Interfaces.IRowStore? rowStore = null,
         IOperationLogger<SearchService>? operationLogger = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _filterService = filterService ?? throw new ArgumentNullException(nameof(filterService));
+        _rowStore = rowStore;
         _operationLogger = operationLogger ?? NullOperationLogger<SearchService>.Instance;
     }
 
@@ -62,6 +67,80 @@ internal sealed class SearchService : ISearchService
                 _logger.LogWarning("Search validation failed for operation {OperationId}: {Error}", operationId, error);
                 scope.MarkFailure(new ArgumentException(error));
                 return SearchResultCollection.CreateFailure(new[] { error }, stopwatch.Elapsed);
+            }
+
+            // NEW: Fast path - Use FTS5 search for HybridRowStore (basic Contains search)
+            if (_rowStore != null && command.Scope == SearchScope.AllData)
+            {
+                _logger.LogInformation("Using FTS5 fast search for operation {OperationId}", operationId);
+
+                try
+                {
+                    // Search using FTS5
+                    var matchedRowIds = await _rowStore.SearchAsync(
+                        command.SearchText,
+                        command.TargetColumns,
+                        command.CaseSensitive,
+                        cancellationToken);
+
+                    _logger.LogInformation("FTS5 search returned {MatchCount} matching row IDs in {Duration}ms",
+                        matchedRowIds.Count, stopwatch.ElapsedMilliseconds);
+
+                    // Convert row IDs to SearchResult objects
+                    var ftsResults = new List<SearchResult>();
+
+                    foreach (var rowId in matchedRowIds)
+                    {
+                        var rowData = await _rowStore.GetRowByIdAsync(rowId, cancellationToken);
+                        if (rowData == null) continue;
+
+                        // Find matching columns in row data
+                        var targetSearchColumns = command.TargetColumns ?? rowData.Keys.ToArray();
+                        var comparison = command.CaseSensitive
+                            ? StringComparison.Ordinal
+                            : StringComparison.OrdinalIgnoreCase;
+
+                        foreach (var columnName in targetSearchColumns)
+                        {
+                            if (rowData.TryGetValue(columnName, out var value))
+                            {
+                                var text = value?.ToString() ?? string.Empty;
+                                if (text.Contains(command.SearchText, comparison))
+                                {
+                                    // Note: rowIndex set to 0 since FTS5 search doesn't preserve row order
+                                    ftsResults.Add(SearchResult.Create(0, columnName, value, text));
+                                }
+                            }
+                        }
+                    }
+
+                    stopwatch.Stop();
+
+                    _logger.LogInformation("FTS5 search operation {OperationId} completed in {Duration}ms: found {MatchCount} matches",
+                        operationId, stopwatch.ElapsedMilliseconds, ftsResults.Count);
+
+                    scope.MarkSuccess(new
+                    {
+                        MatchCount = ftsResults.Count,
+                        Duration = stopwatch.Elapsed,
+                        UsedFTS5 = true
+                    });
+
+                    return SearchResultCollection.CreateSuccess(
+                        ftsResults,
+                        matchedRowIds.Count,
+                        command.TargetColumns?.Length ?? 0,
+                        stopwatch.Elapsed,
+                        SearchMode.Contains,
+                        usedParallel: false,
+                        usedRanking: false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "FTS5 search failed for operation {OperationId}, falling back to LINQ search: {Message}",
+                        operationId, ex.Message);
+                    // Fall through to LINQ search below
+                }
             }
 
             // Apply search scope - get appropriate data based on scope

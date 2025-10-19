@@ -9,9 +9,11 @@ using System.Threading.Tasks;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Database.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Database.Models;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Filter.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Persistence.Interfaces;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Persistence;
@@ -40,6 +42,10 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
     // Filter support
     private IReadOnlyList<object>? _filterCriteria;
     private readonly ConcurrentDictionary<int, string> _filteredIndexMap; // filteredIndex -> rowId
+    private string? _activeFilterSql; // SQL WHERE clause for active filters
+
+    // Sort support
+    private string? _activeSortSql; // SQL ORDER BY clause for active sort
 
     // Validation state cache
     private readonly ConcurrentDictionary<string, ValidationError[]> _validationCache;
@@ -482,6 +488,233 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
         return rowIds;
     }
 
+    /// <summary>
+    /// Build SQL WHERE condition for a single filter criterion.
+    /// Uses json_extract() to access column values from JSON data field.
+    /// </summary>
+    private string BuildSqlFilterCondition(FilterCriteria filter)
+    {
+        // Extract column value from JSON data field using json_extract
+        var columnPath = $"$.{filter.ColumnName}";
+
+        return filter.Operator switch
+        {
+            FilterOperator.Equals =>
+                $"json_extract(data, '{columnPath}') = {FormatSqlValue(filter.Value)}",
+
+            FilterOperator.NotEquals =>
+                $"json_extract(data, '{columnPath}') != {FormatSqlValue(filter.Value)}",
+
+            FilterOperator.Contains =>
+                $"json_extract(data, '{columnPath}') LIKE '%' || {FormatSqlValue(filter.Value)} || '%'",
+
+            FilterOperator.NotContains =>
+                $"json_extract(data, '{columnPath}') NOT LIKE '%' || {FormatSqlValue(filter.Value)} || '%'",
+
+            FilterOperator.StartsWith =>
+                $"json_extract(data, '{columnPath}') LIKE {FormatSqlValue(filter.Value)} || '%'",
+
+            FilterOperator.EndsWith =>
+                $"json_extract(data, '{columnPath}') LIKE '%' || {FormatSqlValue(filter.Value)}",
+
+            FilterOperator.GreaterThan =>
+                $"CAST(json_extract(data, '{columnPath}') AS REAL) > {FormatSqlValue(filter.Value)}",
+
+            FilterOperator.GreaterThanOrEqual =>
+                $"CAST(json_extract(data, '{columnPath}') AS REAL) >= {FormatSqlValue(filter.Value)}",
+
+            FilterOperator.LessThan =>
+                $"CAST(json_extract(data, '{columnPath}') AS REAL) < {FormatSqlValue(filter.Value)}",
+
+            FilterOperator.LessThanOrEqual =>
+                $"CAST(json_extract(data, '{columnPath}') AS REAL) <= {FormatSqlValue(filter.Value)}",
+
+            FilterOperator.IsNull =>
+                $"json_extract(data, '{columnPath}') IS NULL",
+
+            FilterOperator.IsNotNull =>
+                $"json_extract(data, '{columnPath}') IS NOT NULL",
+
+            FilterOperator.IsEmpty =>
+                $"(json_extract(data, '{columnPath}') IS NULL OR TRIM(json_extract(data, '{columnPath}')) = '')",
+
+            FilterOperator.IsNotEmpty =>
+                $"(json_extract(data, '{columnPath}') IS NOT NULL AND TRIM(json_extract(data, '{columnPath}')) != '')",
+
+            _ => throw new NotSupportedException($"Filter operator {filter.Operator} not supported in SQL builder")
+        };
+    }
+
+    /// <summary>
+    /// Format value for SQL query (with proper escaping).
+    /// </summary>
+    private string FormatSqlValue(object? value)
+    {
+        if (value == null) return "NULL";
+        if (value is string str) return $"'{str.Replace("'", "''")}'";  // Escape single quotes
+        if (value is bool b) return b ? "1" : "0";
+        if (value is DateTime dt) return $"'{dt:yyyy-MM-dd HH:mm:ss}'";
+        return value.ToString() ?? "NULL";
+    }
+
+    /// <summary>
+    /// Set sort criteria (supports single or multiple columns).
+    /// Builds SQL ORDER BY clause from sort descriptors.
+    /// </summary>
+    public void SetSortCriteria(string columnName, SortDirection direction)
+    {
+        _logger.LogInformation("SetSortCriteria: column={ColumnName}, direction={Direction}", columnName, direction);
+
+        if (direction == SortDirection.None)
+        {
+            _activeSortSql = null;
+            _logger.LogInformation("Sort cleared");
+            return;
+        }
+
+        // Build SQL ORDER BY clause for single column
+        var columnPath = $"$.{columnName}";
+        var directionStr = direction == SortDirection.Ascending ? "ASC" : "DESC";
+
+        // Type-aware sorting (try numeric first, fallback to text)
+        _activeSortSql = $@"
+            CASE
+                WHEN json_type(json_extract(data, '{columnPath}')) IN ('integer', 'real')
+                THEN CAST(json_extract(data, '{columnPath}') AS REAL)
+                ELSE NULL
+            END {directionStr},
+            json_extract(data, '{columnPath}') {directionStr}";
+
+        _logger.LogInformation("Sort SQL built: ORDER BY {Sql}", _activeSortSql);
+    }
+
+    /// <summary>
+    /// Clear sort criteria (revert to default __createdAt ordering).
+    /// </summary>
+    public void ClearSortCriteria()
+    {
+        _logger.LogInformation("ClearSortCriteria: Clearing sort criteria");
+        _activeSortSql = null;
+    }
+
+    /// <summary>
+    /// Performs FTS5 full-text search on row data.
+    /// Uses SQLite FTS5 MATCH query for efficient text search across large datasets.
+    /// </summary>
+    /// <param name="searchText">Text to search for</param>
+    /// <param name="targetColumns">Optional: specific columns to search (null = search all columns)</param>
+    /// <param name="caseSensitive">Whether search should be case-sensitive</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>List of row IDs that match the search criteria</returns>
+    public async Task<IReadOnlyList<string>> SearchAsync(
+        string searchText,
+        string[]? targetColumns = null,
+        bool caseSensitive = false,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(searchText))
+        {
+            _logger.LogWarning("SearchAsync called with empty search text");
+            return Array.Empty<string>();
+        }
+
+        if (!_databaseLifecycleManager.IsInitialized)
+        {
+            _logger.LogWarning("SearchAsync called but database not initialized");
+            return Array.Empty<string>();
+        }
+
+        var connection = _databaseLifecycleManager.GetConnection();
+        if (connection == null)
+        {
+            _logger.LogWarning("SearchAsync called but database connection is null");
+            return Array.Empty<string>();
+        }
+
+        _logger.LogInformation("SearchAsync: searchText='{SearchText}', targetColumns={ColumnCount}, caseSensitive={CaseSensitive}",
+            searchText, targetColumns?.Length ?? 0, caseSensitive);
+
+        try
+        {
+            using var cmd = connection.CreateCommand();
+
+            // Build FTS5 MATCH query
+            // Note: FTS5 is case-insensitive by default
+            // For case-sensitive search, we need to filter results in a WHERE clause
+            string ftsQuery;
+
+            if (targetColumns != null && targetColumns.Length > 0)
+            {
+                // Column-specific search: {column}:searchtext
+                var columnQueries = targetColumns
+                    .Select(col => $"{{data}}:\"{EscapeFtsQuery(searchText)}\"")
+                    .ToArray();
+                ftsQuery = string.Join(" OR ", columnQueries);
+            }
+            else
+            {
+                // Search all columns
+                ftsQuery = EscapeFtsQuery(searchText);
+            }
+
+            if (caseSensitive)
+            {
+                // Case-sensitive search: Use FTS to narrow results, then filter by case
+                cmd.CommandText = $@"
+                    SELECT gr.__rowId
+                    FROM grid_rows gr
+                    INNER JOIN grid_rows_fts fts ON gr.rowid = fts.rowid
+                    WHERE fts.data MATCH '{ftsQuery}'
+                      AND gr.__isDeleted = 0
+                      AND instr(gr.data, '{searchText.Replace("'", "''")}') > 0";
+            }
+            else
+            {
+                // Case-insensitive search: FTS5 handles this natively
+                cmd.CommandText = $@"
+                    SELECT gr.__rowId
+                    FROM grid_rows gr
+                    INNER JOIN grid_rows_fts fts ON gr.rowid = fts.rowid
+                    WHERE fts.data MATCH '{ftsQuery}'
+                      AND gr.__isDeleted = 0";
+            }
+
+            var matchedRowIds = new List<string>();
+
+            using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                matchedRowIds.Add(reader.GetString(0));
+            }
+
+            _logger.LogInformation("SearchAsync completed: found {MatchCount} matches for '{SearchText}'",
+                matchedRowIds.Count, searchText);
+
+            return matchedRowIds;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "SearchAsync failed for search text '{SearchText}': {Message}", searchText, ex.Message);
+            return Array.Empty<string>();
+        }
+    }
+
+    /// <summary>
+    /// Escapes FTS5 query syntax special characters to prevent query errors.
+    /// FTS5 special chars: " (quotes), * (prefix), AND, OR, NOT, NEAR
+    /// </summary>
+    private string EscapeFtsQuery(string query)
+    {
+        if (string.IsNullOrEmpty(query))
+            return string.Empty;
+
+        // Escape double quotes by doubling them
+        var escaped = query.Replace("\"", "\"\"");
+
+        // Wrap in quotes to treat as a phrase and prevent FTS5 syntax issues
+        return $"\"{escaped}\"";
+    }
+
     #endregion
 
     #region IRowStore Implementation - Basic CRUD
@@ -501,8 +734,15 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
 
         using var cmd = connection.CreateCommand();
 
-        // TODO: Implement filtering and checkbox support in Phase 2
-        cmd.CommandText = "SELECT __rowId, data FROM grid_rows WHERE __isDeleted = 0 ORDER BY __createdAt";
+        // Build WHERE clause
+        var whereClause = "__isDeleted = 0";
+        if (onlyFiltered && !string.IsNullOrEmpty(_activeFilterSql))
+        {
+            whereClause += $" AND ({_activeFilterSql})";
+        }
+        // TODO: Implement checkbox filtering in future phase
+
+        cmd.CommandText = $"SELECT __rowId, data FROM grid_rows WHERE {whereClause} ORDER BY __createdAt";
 
         using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
 
@@ -543,8 +783,14 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
 
         using var cmd = connection.CreateCommand();
 
-        // TODO: Implement filtering in Phase 2
-        cmd.CommandText = "SELECT __rowId, data FROM grid_rows WHERE __isDeleted = 0 ORDER BY __createdAt";
+        // Build WHERE clause with filter support
+        var whereClause = "__isDeleted = 0";
+        if (onlyFiltered && !string.IsNullOrEmpty(_activeFilterSql))
+        {
+            whereClause += $" AND ({_activeFilterSql})";
+        }
+
+        cmd.CommandText = $"SELECT __rowId, data FROM grid_rows WHERE {whereClause} ORDER BY __createdAt";
 
         var rows = new List<IReadOnlyDictionary<string, object?>>();
         using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
@@ -557,7 +803,7 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
             rows.Add(rowData);
         }
 
-        _logger.LogDebug("GetAllRowsAsync returned {Count} rows", rows.Count);
+        _logger.LogDebug("GetAllRowsAsync returned {Count} rows (onlyFiltered={OnlyFiltered})", rows.Count, onlyFiltered);
         return rows;
     }
 
@@ -578,11 +824,20 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
 
         using var cmd = connection.CreateCommand();
 
-        // TODO: Implement filtering in Phase 2
-        cmd.CommandText = "SELECT COUNT(*) FROM grid_rows WHERE __isDeleted = 0";
+        // Build WHERE clause with filter support
+        var whereClause = "__isDeleted = 0";
+        if (onlyFiltered && !string.IsNullOrEmpty(_activeFilterSql))
+        {
+            whereClause += $" AND ({_activeFilterSql})";
+        }
+
+        cmd.CommandText = $"SELECT COUNT(*) FROM grid_rows WHERE {whereClause}";
 
         var result = await cmd.ExecuteScalarAsync(cancellationToken);
-        return result != null ? Convert.ToInt64(result) : 0;
+        var count = result != null ? Convert.ToInt64(result) : 0;
+
+        _logger.LogDebug("GetRowCountAsync: {Count} rows (onlyFiltered={OnlyFiltered})", count, onlyFiltered);
+        return count;
     }
 
     public Task<long> GetRowCountAsync(CancellationToken cancellationToken = default)
@@ -995,8 +1250,41 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
         _filterCriteria = filterCriteria;
         _filteredIndexMap.Clear();
 
-        // TODO: Build filtered index in Phase 2 (Filter/Sort/Search Integration)
-        // For now, just store the criteria
+        // Convert to FilterCriteria objects and build SQL WHERE clause
+        if (filterCriteria == null || filterCriteria.Count == 0)
+        {
+            _activeFilterSql = null;
+            _logger.LogInformation("Filter criteria cleared");
+            return;
+        }
+
+        var filters = filterCriteria.OfType<FilterCriteria>().ToList();
+        if (filters.Count == 0)
+        {
+            _logger.LogWarning("FilterCriteria list contains no FilterCriteria objects");
+            _activeFilterSql = null;
+            return;
+        }
+
+        // Build SQL WHERE clause from filter criteria
+        var whereConditions = new List<string>();
+
+        foreach (var filter in filters)
+        {
+            var sqlCondition = BuildSqlFilterCondition(filter);
+            if (!string.IsNullOrEmpty(sqlCondition))
+            {
+                whereConditions.Add(sqlCondition);
+            }
+        }
+
+        // Combine with AND logic
+        _activeFilterSql = whereConditions.Count > 0
+            ? string.Join(" AND ", whereConditions)
+            : null;
+
+        _logger.LogInformation("Filter SQL built: {FilterCount} filters → WHERE {Sql}",
+            filters.Count, _activeFilterSql);
     }
 
     public void ClearFilterCriteria()
@@ -1167,12 +1455,23 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
 
         using var cmd = connection.CreateCommand();
 
-        // TODO: Add filter/sort support in Phase 2
+        // Build WHERE clause with filter support
+        var whereClause = "__isDeleted = 0";
+        if (onlyFiltered && !string.IsNullOrEmpty(_activeFilterSql))
+        {
+            whereClause += $" AND ({_activeFilterSql})";
+        }
+
+        // Build ORDER BY clause (default: creation time)
+        var orderByClause = !string.IsNullOrEmpty(_activeSortSql)
+            ? _activeSortSql
+            : "__createdAt ASC";
+
         cmd.CommandText = $@"
             SELECT __rowId, data
             FROM grid_rows
-            WHERE __isDeleted = 0
-            ORDER BY __createdAt ASC
+            WHERE {whereClause}
+            ORDER BY {orderByClause}
             LIMIT {pageSize} OFFSET {offset}";
 
         var results = new List<IReadOnlyDictionary<string, object?>>();
@@ -1186,8 +1485,8 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
             results.Add(rowData);
         }
 
-        _logger.LogDebug("GetPagedRowsAsync: Retrieved page {Page} with {Count} rows (pageSize={PageSize})",
-            pageNumber, results.Count, pageSize);
+        _logger.LogDebug("GetPagedRowsAsync: Retrieved page {Page} with {Count} rows (pageSize={PageSize}, onlyFiltered={OnlyFiltered})",
+            pageNumber, results.Count, pageSize, onlyFiltered);
 
         return results;
     }

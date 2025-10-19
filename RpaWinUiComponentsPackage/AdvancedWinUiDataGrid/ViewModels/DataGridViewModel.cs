@@ -37,6 +37,11 @@ public sealed class DataGridViewModel : ViewModelBase
     public FilterRowViewModel FilterRow { get; } = new();
 
     /// <summary>
+    /// ViewModel for the pagination panel (page navigation, page size, total counts)
+    /// </summary>
+    public PaginationPanelViewModel PaginationPanel { get; } = new();
+
+    /// <summary>
     /// Theme manager that controls all colors in the grid (cells, headers, validation, etc.)
     /// </summary>
     public ThemeManager Theme { get; } = new();

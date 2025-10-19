@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.UI.Xaml.Controls;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Persistence.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIAdapters.WinUI;
 
@@ -14,16 +15,19 @@ internal sealed class DataGridRows : IDataGridRows
     private readonly IRowStore _rowStore;
     private readonly UiNotificationService? _uiNotificationService;
     private readonly AdvancedDataGridOptions _options;
+    private readonly Features.Validation.Interfaces.IValidationService? _validationService;
 
     public DataGridRows(
         IRowStore rowStore,
         AdvancedDataGridOptions options,
         UiNotificationService? uiNotificationService = null,
+        Features.Validation.Interfaces.IValidationService? validationService = null,
         ILogger<DataGridRows>? logger = null)
     {
         _rowStore = rowStore ?? throw new ArgumentNullException(nameof(rowStore));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _uiNotificationService = uiNotificationService;
+        _validationService = validationService;
         _logger = logger;
     }
 
@@ -394,6 +398,152 @@ internal sealed class DataGridRows : IDataGridRows
         {
             _logger?.LogError(ex, "GetSelectedRowIds failed");
             return Array.Empty<string>();
+        }
+    }
+
+    /// <summary>
+    /// Opens modal dialog for adding new row.
+    /// </summary>
+    public async Task<PublicResult<string?>> AddRowWithDialogAsync(CancellationToken cancellationToken = default)
+    {
+        return await AddRowWithDialogAsync(defaultValues: null, cancellationToken);
+    }
+
+    /// <summary>
+    /// Opens modal dialog for adding new row with pre-filled default values.
+    /// </summary>
+    public async Task<PublicResult<string?>> AddRowWithDialogAsync(
+        IReadOnlyDictionary<string, object?>? defaultValues,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // Check operation mode - Pure Headless mode does not support UI dialogs
+            if (_options.OperationMode == PublicDataGridOperationMode.Headless)
+            {
+                var errorMsg = "AddRowWithDialogAsync is not supported in Pure Headless mode. Use AddRowAsync() instead.";
+                _logger?.LogError(errorMsg);
+                return PublicResult<string?>.Failure(errorMsg);
+            }
+
+            _logger?.LogInformation("Opening Add Row modal dialog");
+
+            // Get column names from row store
+            var sampleRow = _rowStore.GetAllRows().FirstOrDefault();
+            var columnNames = sampleRow?.Keys.Where(k => !k.StartsWith("__")).ToArray() ?? Array.Empty<string>();
+
+            if (columnNames.Length == 0)
+            {
+                var errorMsg = "No columns available - cannot open Add Row dialog";
+                _logger?.LogWarning(errorMsg);
+                return PublicResult<string?>.Failure(errorMsg);
+            }
+
+            // Create and show dialog
+            var dialog = new UIControls.Dialogs.AddRowModalDialog(
+                facade: null!, // TODO: Need to inject IAdvancedDataGridFacade
+                columnNames: columnNames,
+                defaultValues: defaultValues,
+                logger: null);
+
+            var result = await dialog.ShowAsync();
+
+            // User cancelled
+            if (result != ContentDialogResult.Primary)
+            {
+                _logger?.LogInformation("Add Row dialog cancelled by user");
+                return PublicResult<string?>.Success(null); // null = cancelled
+            }
+
+            // Get row data from dialog
+            var rowData = await dialog.GetRowDataAsync();
+
+            // Add row to store
+            var rowIndex = await _rowStore.AddRowAsync(rowData, cancellationToken);
+
+            // Get row ID from the added row
+            var addedRow = _rowStore.GetRow(rowIndex);
+            var rowId = addedRow?.TryGetValue("__rowId", out var id) == true ? id?.ToString() : null;
+
+            // Trigger automatic UI refresh in Interactive mode
+            await TriggerUIRefreshIfNeededAsync("AddRowWithDialog", 1);
+
+            _logger?.LogInformation("Row added via dialog with ID: {RowId}", rowId);
+
+            return PublicResult<string?>.Success(rowId);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "AddRowWithDialogAsync failed");
+            return PublicResult<string?>.Failure($"Failed to add row with dialog: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Validate row data without adding to grid.
+    /// Uses ValidationService to run all configured validation rules.
+    /// </summary>
+    public async Task<PublicValidationResult> ValidateRowDataAsync(
+        IReadOnlyDictionary<string, object?> rowData,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger?.LogDebug("Validating row data with {ColumnCount} columns", rowData.Count);
+
+            // If no validation service configured, treat as valid
+            if (_validationService == null)
+            {
+                _logger?.LogDebug("No validation service configured - treating row as valid");
+                return PublicValidationResult.Success();
+            }
+
+            // Create validation context (use public ValidationContext)
+            var context = new ValidationContext
+            {
+                RowIndex = -1, // Not in grid yet
+                OperationId = Guid.NewGuid().ToString()
+            };
+
+            // Validate row using ValidationService
+            var validationResult = await _validationService.ValidateRowAsync(rowData, context, cancellationToken);
+
+            if (validationResult.IsValid)
+            {
+                _logger?.LogDebug("Row validation successful");
+                return PublicValidationResult.Success();
+            }
+
+            // Convert validation result to public format
+            var publicErrors = new List<PublicCellValidationError>();
+
+            // ValidationResult has a single error message
+            if (!string.IsNullOrEmpty(validationResult.ErrorMessage))
+            {
+                publicErrors.Add(new PublicCellValidationError
+                {
+                    ColumnName = validationResult.AffectedColumn ?? "Unknown",
+                    ErrorMessage = validationResult.ErrorMessage,
+                    Severity = validationResult.Severity // Already PublicValidationSeverity
+                });
+            }
+
+            _logger?.LogDebug("Row validation failed with {ErrorCount} errors", publicErrors.Count);
+
+            return PublicValidationResult.Failure(publicErrors);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Validation failed with exception");
+            return PublicValidationResult.Failure(new[]
+            {
+                new PublicCellValidationError
+                {
+                    ColumnName = "Unknown",
+                    ErrorMessage = $"Validation error: {ex.Message}",
+                    Severity = PublicValidationSeverity.Error
+                }
+            });
         }
     }
 

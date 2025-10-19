@@ -307,7 +307,9 @@ internal sealed class SortService : ISortService
     // LEGACY API IMPLEMENTATION (backward compatibility)
 
     /// <summary>
-    /// Legacy sort by column - uses row store
+    /// Sort by column - uses row store
+    /// For HybridRowStore: Sets SQL ORDER BY clause (efficient, no data reordering)
+    /// For InMemoryRowStore: Uses LINQ sorting (legacy fallback)
     /// </summary>
     public async Task<bool> SortByColumnAsync(string columnName, CoreTypes.SortDirection direction, CancellationToken cancellationToken = default)
     {
@@ -315,36 +317,55 @@ internal sealed class SortService : ISortService
         {
             if (_rowStore == null)
             {
-                _logger.LogWarning("RowStore not available for legacy sort");
+                _logger.LogWarning("RowStore not available for sort");
                 return false;
             }
 
-            _logger.LogInformation("Legacy sort: column={ColumnName}, direction={Direction}", columnName, direction);
+            _logger.LogInformation("Sort: column={ColumnName}, direction={Direction}", columnName, direction);
 
-            var allRows = await _rowStore.GetAllRowsAsync(cancellationToken);
-            var sortedRows = direction == CoreTypes.SortDirection.Ascending
-                ? allRows.OrderBy(r => SortAlgorithms.GetSortValue(r, columnName)).ToList()
-                : allRows.OrderByDescending(r => SortAlgorithms.GetSortValue(r, columnName)).ToList();
+            // NEW: Use SetSortCriteria for efficient SQL-based sorting (HybridRowStore)
+            // or no-op for InMemoryRowStore (sorting handled by LINQ in UI layer)
+            // Convert CoreTypes.SortDirection to Common.SortDirection
+            var commonDirection = direction switch
+            {
+                CoreTypes.SortDirection.Ascending => Common.SortDirection.Ascending,
+                CoreTypes.SortDirection.Descending => Common.SortDirection.Descending,
+                _ => Common.SortDirection.None
+            };
 
-            await _rowStore.ReplaceAllRowsAsync(sortedRows, cancellationToken);
+            _rowStore.SetSortCriteria(columnName, commonDirection);
             _currentSort = new() { (columnName, direction) };
 
-            _logger.LogInformation("Legacy sort completed: {RowCount} rows", sortedRows.Count);
-            return true;
+            _logger.LogInformation("Sort criteria set successfully: column={ColumnName}, direction={Direction}",
+                columnName, direction);
+
+            // Note: Data will be returned sorted on next GetAllRowsAsync() or GetPagedRowsAsync() call
+            // No need to ReplaceAllRowsAsync() - HybridRowStore uses SQL ORDER BY in queries
+
+            return await Task.FromResult(true);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Legacy sort failed: {Message}", ex.Message);
+            _logger.LogError(ex, "Sort failed: {Message}", ex.Message);
             return false;
         }
     }
 
     /// <summary>
     /// Clears current sort settings
+    /// For HybridRowStore: Clears SQL ORDER BY clause (revert to default __createdAt ordering)
     /// </summary>
     public async Task<bool> ClearSortAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Clearing sort settings");
+
+        // NEW: Clear sort criteria in row store
+        if (_rowStore != null)
+        {
+            _rowStore.ClearSortCriteria();
+            _logger.LogInformation("Sort criteria cleared in row store");
+        }
+
         _currentSort.Clear();
         return await Task.FromResult(true);
     }

@@ -56,8 +56,14 @@ internal sealed class DatabaseLifecycleManager : IDatabaseLifecycleManager
                 return Result.Success();
             }
 
-            // Determine database path
-            _databasePath = databasePath ?? GenerateDefaultDatabasePath();
+            // Determine database path with smart logic
+            var pathResult = ResolveDatabasePath(databasePath);
+            if (!pathResult.IsSuccess)
+            {
+                _logger.LogError("Invalid database path: {Error}", pathResult.ErrorMessage);
+                return Result.Failure(pathResult.ErrorMessage);
+            }
+            _databasePath = pathResult.Value;
 
             _logger.LogInformation("Initializing database at {Path}", _databasePath);
 
@@ -88,6 +94,16 @@ internal sealed class DatabaseLifecycleManager : IDatabaseLifecycleManager
 
             // Create schema (tables, indexes, FTS)
             await CreateSchemaAsync(cancellationToken);
+
+            // Verify database file was actually created
+            if (!File.Exists(_databasePath))
+            {
+                _logger.LogError("Database file was not created: {Path}", _databasePath);
+                await _connection.DisposeAsync();
+                _connection = null;
+                return Result.Failure($"Database file was not created at: {_databasePath}");
+            }
+            _logger.LogDebug("Database file verified to exist at: {Path}", _databasePath);
 
             _createdAt = DateTime.UtcNow;
             _isInitialized = true;
@@ -264,6 +280,43 @@ internal sealed class DatabaseLifecycleManager : IDatabaseLifecycleManager
     }
 
     // PRIVATE HELPER METHODS
+
+    /// <summary>
+    /// Resolves database path with smart logic:
+    /// - null -> default temp path with GUID
+    /// - ends with .db -> use exactly as provided
+    /// - directory path -> directory + GUID filename
+    /// - file with non-.db extension -> ERROR
+    /// </summary>
+    private Result<string> ResolveDatabasePath(string? databasePath)
+    {
+        // Case 1: null -> default path
+        if (databasePath == null)
+        {
+            return Result<string>.Success(GenerateDefaultDatabasePath());
+        }
+
+        // Case 2: ends with .db -> use as-is (explicit file path)
+        if (databasePath.EndsWith(".db", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogDebug("Using explicit .db file path: {Path}", databasePath);
+            return Result<string>.Success(databasePath);
+        }
+
+        // Case 3: directory path (no extension or directory exists)
+        if (!Path.HasExtension(databasePath) || Directory.Exists(databasePath))
+        {
+            var fileName = $"grid_{Guid.NewGuid():N}.db";
+            var fullPath = Path.Combine(databasePath, fileName);
+            _logger.LogDebug("Generated path from directory: {Path}", fullPath);
+            return Result<string>.Success(fullPath);
+        }
+
+        // Case 4: file with non-.db extension -> ERROR
+        var ext = Path.GetExtension(databasePath);
+        _logger.LogError("Invalid database path extension: {Ext} (must be .db)", ext);
+        return Result<string>.Failure($"Invalid database path: '{databasePath}'. Must end with '.db' or be a directory path.");
+    }
 
     private string GenerateDefaultDatabasePath()
     {

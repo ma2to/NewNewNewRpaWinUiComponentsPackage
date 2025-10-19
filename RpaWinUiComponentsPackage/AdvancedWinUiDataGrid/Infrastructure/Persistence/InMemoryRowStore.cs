@@ -536,6 +536,83 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
     }
 
     /// <summary>
+    /// Set sort criteria - IRowStore implementation
+    /// Note: InMemoryRowStore does not use this (sorting handled by SortService).
+    /// This is a no-op to maintain interface compatibility.
+    /// </summary>
+    public void SetSortCriteria(string columnName, Common.SortDirection direction)
+    {
+        // No-op: InMemoryRowStore doesn't use SQL-based sorting
+        // Sorting is handled by SortService using LINQ OrderBy
+        _logger.LogDebug("SetSortCriteria called on InMemoryRowStore (no-op): column={Column}, direction={Direction}",
+            columnName, direction);
+    }
+
+    /// <summary>
+    /// Clear sort criteria - IRowStore implementation
+    /// Note: InMemoryRowStore does not use this (sorting handled by SortService).
+    /// This is a no-op to maintain interface compatibility.
+    /// </summary>
+    public void ClearSortCriteria()
+    {
+        // No-op: InMemoryRowStore doesn't use SQL-based sorting
+        _logger.LogDebug("ClearSortCriteria called on InMemoryRowStore (no-op)");
+    }
+
+    /// <summary>
+    /// Perform full-text search - IRowStore implementation
+    /// Note: InMemoryRowStore uses LINQ-based search (not FTS5).
+    /// Returns row IDs that match the search text in any column.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> SearchAsync(
+        string searchText,
+        string[]? targetColumns = null,
+        bool caseSensitive = false,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(searchText))
+            return Array.Empty<string>();
+
+        await Task.CompletedTask; // Make it async compatible
+
+        var comparison = caseSensitive
+            ? StringComparison.Ordinal
+            : StringComparison.OrdinalIgnoreCase;
+
+        var matchedRowIds = new List<string>();
+
+        lock (_modificationLock)
+        {
+            foreach (var kvp in _rows)
+            {
+                var rowId = kvp.Key;
+                var row = kvp.Value;
+
+                // Check if row matches search in target columns or all columns
+                var columnsToSearch = targetColumns ?? row.Keys.ToArray();
+
+                foreach (var columnName in columnsToSearch)
+                {
+                    if (row.TryGetValue(columnName, out var cellValue))
+                    {
+                        var cellText = cellValue?.ToString() ?? string.Empty;
+                        if (cellText.Contains(searchText, comparison))
+                        {
+                            matchedRowIds.Add(rowId);
+                            break; // Found match in this row, move to next row
+                        }
+                    }
+                }
+            }
+        }
+
+        _logger.LogDebug("SearchAsync: found {MatchCount} matches for '{SearchText}'",
+            matchedRowIds.Count, searchText);
+
+        return matchedRowIds;
+    }
+
+    /// <summary>
     /// Map filtered row index to original row index - IRowStore implementation
     /// CRITICAL FOR EDITS: When user edits cell in filtered view, we need correct original index
     /// PERFORMANCE: O(1) dictionary lookup

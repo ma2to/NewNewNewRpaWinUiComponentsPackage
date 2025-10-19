@@ -1,4 +1,3 @@
-
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Rows;
 
 /// <summary>
@@ -127,4 +126,42 @@ public interface IDataGridRows
     /// </summary>
     /// <returns>Array of row IDs (empty array if no selection)</returns>
     string[] GetSelectedRowIds();
+
+    /// <summary>
+    /// Opens modal dialog for adding new row (Interactive and Headless+ManualUI modes only).
+    /// User fills in column values, real-time validation runs, then confirms or cancels.
+    /// New row added to end of dataset on confirmation.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Result with row ID of added row (null if cancelled)</returns>
+    /// <exception cref="InvalidOperationException">If called in Pure Headless mode</exception>
+    /// <remarks>
+    /// - Interactive Mode: Automatic UI update after add
+    /// - Headless+ManualUI Mode: Requires manual RefreshUIAsync() after add
+    /// - Pure Headless Mode: Throws exception - use AddRowAsync() instead
+    /// </remarks>
+    Task<PublicResult<string?>> AddRowWithDialogAsync(
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Opens modal dialog for adding new row with pre-filled default values.
+    /// Same as AddRowWithDialogAsync but textboxes are pre-populated.
+    /// </summary>
+    /// <param name="defaultValues">Dictionary of column names to default values</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Result with row ID of added row (null if cancelled)</returns>
+    Task<PublicResult<string?>> AddRowWithDialogAsync(
+        IReadOnlyDictionary<string, object?> defaultValues,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Validate row data without adding to grid.
+    /// Useful for pre-validating data before calling AddRowAsync.
+    /// </summary>
+    /// <param name="rowData">Row data to validate</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Validation result with errors (if any)</returns>
+    Task<PublicValidationResult> ValidateRowDataAsync(
+        IReadOnlyDictionary<string, object?> rowData,
+        CancellationToken cancellationToken = default);
 }
