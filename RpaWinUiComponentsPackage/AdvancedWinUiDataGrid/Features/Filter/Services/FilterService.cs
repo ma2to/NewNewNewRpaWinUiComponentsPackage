@@ -136,8 +136,7 @@ internal sealed class FilterService : IFilterService
                     AffectedRows = filteredCount,
                     ColumnCount = 0,
                     OperationType = "ApplyFilter",
-                    RefreshTime = DateTime.UtcNow,
-                    RequiresFullReload = true // Filter changes entire view
+                    RefreshTime = DateTime.UtcNow
                 };
 
                 _logger.LogInformation("Triggering UI refresh for filter operation {OperationId}", operationId);
