@@ -392,211 +392,804 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
 
     #endregion
 
-    #region IRowStore Implementation (Placeholders - to be implemented in next phases)
+    #region Helper Methods
 
-    // Note: All IRowStore methods will be implemented in subsequent phases
-    // For now, throwing NotImplementedException to allow compilation
+    /// <summary>
+    /// Convert row data dictionary to JSON string
+    /// </summary>
+    private string SerializeRowData(IReadOnlyDictionary<string, object?> rowData)
+    {
+        // Remove metadata columns before serialization
+        var dataWithoutMeta = rowData
+            .Where(kvp => !kvp.Key.StartsWith("__"))
+            .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
 
-    public IAsyncEnumerable<IReadOnlyList<IReadOnlyDictionary<string, object?>>> StreamRowsAsync(
+        return JsonSerializer.Serialize(dataWithoutMeta);
+    }
+
+    /// <summary>
+    /// Convert JSON string to row data dictionary (with __rowId metadata)
+    /// </summary>
+    private IReadOnlyDictionary<string, object?> DeserializeRowData(string rowId, string dataJson)
+    {
+        var data = JsonSerializer.Deserialize<Dictionary<string, object?>>(dataJson) ?? new Dictionary<string, object?>();
+
+        // Add __rowId metadata
+        data["__rowId"] = rowId;
+
+        return data;
+    }
+
+    /// <summary>
+    /// Generate new ULID-based row ID
+    /// </summary>
+    private string GenerateRowId()
+    {
+        return Ulid.NewUlid().ToString();
+    }
+
+    /// <summary>
+    /// Get current Unix timestamp in milliseconds
+    /// </summary>
+    private long GetUnixTimestampMs()
+    {
+        return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+    }
+
+    /// <summary>
+    /// Check if row is empty (all values are null or empty string)
+    /// </summary>
+    private bool IsRowEmpty(IReadOnlyDictionary<string, object?> rowData)
+    {
+        return rowData
+            .Where(kvp => !kvp.Key.StartsWith("__")) // Ignore metadata
+            .All(kvp => kvp.Value == null || (kvp.Value is string str && string.IsNullOrWhiteSpace(str)));
+    }
+
+    /// <summary>
+    /// Queue write operation (async - waits if queue is full)
+    /// </summary>
+    private async Task QueueWriteOperationAsync(WriteOperation operation, CancellationToken cancellationToken = default)
+    {
+        if (_isDisposed)
+            throw new ObjectDisposedException(nameof(HybridRowStore));
+
+        await _writerQueue.Writer.WriteAsync(operation, cancellationToken);
+    }
+
+    /// <summary>
+    /// Get all row IDs ordered by creation time (ULID order)
+    /// </summary>
+    private async Task<List<string>> GetAllRowIdsOrderedAsync(CancellationToken cancellationToken = default)
+    {
+        if (!_databaseLifecycleManager.IsInitialized)
+            return new List<string>();
+
+        var connection = _databaseLifecycleManager.GetConnection();
+        if (connection == null)
+            return new List<string>();
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT __rowId FROM grid_rows WHERE __isDeleted = 0 ORDER BY __createdAt";
+
+        var rowIds = new List<string>();
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            rowIds.Add(reader.GetString(0));
+        }
+
+        return rowIds;
+    }
+
+    #endregion
+
+    #region IRowStore Implementation - Basic CRUD
+
+    public async IAsyncEnumerable<IReadOnlyList<IReadOnlyDictionary<string, object?>>> StreamRowsAsync(
         bool onlyFiltered = false,
         bool onlyChecked = false,
         int batchSize = 1000,
-        CancellationToken cancellationToken = default)
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        if (!_databaseLifecycleManager.IsInitialized)
+            yield break;
+
+        var connection = _databaseLifecycleManager.GetConnection();
+        if (connection == null)
+            yield break;
+
+        using var cmd = connection.CreateCommand();
+
+        // TODO: Implement filtering and checkbox support in Phase 2
+        cmd.CommandText = "SELECT __rowId, data FROM grid_rows WHERE __isDeleted = 0 ORDER BY __createdAt";
+
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+
+        var batch = new List<IReadOnlyDictionary<string, object?>>();
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var rowId = reader.GetString(0);
+            var dataJson = reader.GetString(1);
+            var rowData = DeserializeRowData(rowId, dataJson);
+
+            batch.Add(rowData);
+
+            if (batch.Count >= batchSize)
+            {
+                yield return batch;
+                batch = new List<IReadOnlyDictionary<string, object?>>();
+            }
+        }
+
+        // Return remaining rows
+        if (batch.Count > 0)
+        {
+            yield return batch;
+        }
     }
 
-    public Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> GetAllRowsAsync(
+    public async Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> GetAllRowsAsync(
         bool onlyFiltered,
         CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        if (!_databaseLifecycleManager.IsInitialized)
+            return Array.Empty<IReadOnlyDictionary<string, object?>>();
+
+        var connection = _databaseLifecycleManager.GetConnection();
+        if (connection == null)
+            return Array.Empty<IReadOnlyDictionary<string, object?>>();
+
+        using var cmd = connection.CreateCommand();
+
+        // TODO: Implement filtering in Phase 2
+        cmd.CommandText = "SELECT __rowId, data FROM grid_rows WHERE __isDeleted = 0 ORDER BY __createdAt";
+
+        var rows = new List<IReadOnlyDictionary<string, object?>>();
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var rowId = reader.GetString(0);
+            var dataJson = reader.GetString(1);
+            var rowData = DeserializeRowData(rowId, dataJson);
+            rows.Add(rowData);
+        }
+
+        _logger.LogDebug("GetAllRowsAsync returned {Count} rows", rows.Count);
+        return rows;
     }
 
     public Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> GetAllRowsAsync(
         CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        return GetAllRowsAsync(onlyFiltered: false, cancellationToken);
     }
 
-    public Task<long> GetRowCountAsync(bool onlyFiltered, CancellationToken cancellationToken = default)
+    public async Task<long> GetRowCountAsync(bool onlyFiltered, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        if (!_databaseLifecycleManager.IsInitialized)
+            return 0;
+
+        var connection = _databaseLifecycleManager.GetConnection();
+        if (connection == null)
+            return 0;
+
+        using var cmd = connection.CreateCommand();
+
+        // TODO: Implement filtering in Phase 2
+        cmd.CommandText = "SELECT COUNT(*) FROM grid_rows WHERE __isDeleted = 0";
+
+        var result = await cmd.ExecuteScalarAsync(cancellationToken);
+        return result != null ? Convert.ToInt64(result) : 0;
     }
 
     public Task<long> GetRowCountAsync(CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        return GetRowCountAsync(onlyFiltered: false, cancellationToken);
     }
 
     public Task<long> GetFilteredRowCountAsync(CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        // TODO: Implement filtering in Phase 2
+        return GetRowCountAsync(onlyFiltered: true, cancellationToken);
     }
 
     public Task PersistRowsAsync(IEnumerable<IReadOnlyDictionary<string, object?>> rows, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        // PersistRowsAsync = ReplaceAllRowsAsync (legacy compatibility)
+        return ReplaceAllRowsAsync(rows, cancellationToken);
     }
 
-    public Task ReplaceAllRowsAsync(IEnumerable<IReadOnlyDictionary<string, object?>> rows, CancellationToken cancellationToken = default)
+    public async Task ReplaceAllRowsAsync(IEnumerable<IReadOnlyDictionary<string, object?>> rows, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        _logger.LogInformation("ReplaceAllRowsAsync: Clearing all data and inserting new rows");
+
+        // Clear all existing data
+        await ClearAsync(cancellationToken);
+
+        // Append new rows
+        await AppendRowsAsync(rows, cancellationToken);
+
+        _logger.LogInformation("ReplaceAllRowsAsync completed");
     }
 
-    public Task AppendRowsAsync(IEnumerable<IReadOnlyDictionary<string, object?>> rows, CancellationToken cancellationToken = default)
+    public async Task AppendRowsAsync(IEnumerable<IReadOnlyDictionary<string, object?>> rows, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        var rowsList = rows.ToList();
+        if (rowsList.Count == 0)
+        {
+            _logger.LogDebug("AppendRowsAsync: No rows to append");
+            return;
+        }
+
+        _logger.LogInformation("AppendRowsAsync: Appending {Count} rows", rowsList.Count);
+
+        var timestamp = GetUnixTimestampMs();
+
+        // Create bulk insert operation
+        var insertData = rowsList.Select(row =>
+        {
+            var rowId = row.ContainsKey("__rowId") && row["__rowId"] is string existingId
+                ? existingId
+                : GenerateRowId();
+
+            var dataJson = SerializeRowData(row);
+
+            return new RowInsertData
+            {
+                RowId = rowId,
+                DataJson = dataJson,
+                CreatedAt = timestamp,
+                ModifiedAt = timestamp,
+                ValidationStateJson = null
+            };
+        }).ToList();
+
+        var bulkInsertOp = new BulkInsertWriteOp
+        {
+            Rows = insertData,
+            OperationId = GenerateRowId()
+        };
+
+        await QueueWriteOperationAsync(bulkInsertOp, cancellationToken);
+
+        _logger.LogInformation("AppendRowsAsync: Queued {Count} rows for insertion", rowsList.Count);
     }
 
-    public Task EnsureInitialEmptyRowAsync(IEnumerable<string> columnNames, CancellationToken cancellationToken = default)
+    public async Task EnsureInitialEmptyRowAsync(IEnumerable<string> columnNames, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        var count = await GetRowCountAsync(cancellationToken);
+        if (count > 0)
+        {
+            _logger.LogDebug("EnsureInitialEmptyRowAsync: Store not empty, skipping");
+            return;
+        }
+
+        _logger.LogInformation("EnsureInitialEmptyRowAsync: Creating initial empty row");
+
+        // Create empty row with all columns set to null
+        var emptyRow = columnNames.ToDictionary(col => col, col => (object?)null);
+
+        await AppendRowsAsync(new[] { emptyRow }, cancellationToken);
     }
 
-    public Task InsertRowsAsync(IEnumerable<IReadOnlyDictionary<string, object?>> rows, int startIndex, CancellationToken cancellationToken = default)
+    public async Task InsertRowsAsync(IEnumerable<IReadOnlyDictionary<string, object?>> rows, int startIndex, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        // For SQLite-based storage, index-based insertion is not meaningful
+        // We use ULID-based ordering (creation time)
+        // Simply append the rows - they will be ordered by creation time
+        _logger.LogWarning("InsertRowsAsync(startIndex): Index-based insertion not supported in HybridRowStore, using AppendRowsAsync");
+        await AppendRowsAsync(rows, cancellationToken);
     }
 
-    public Task WriteValidationResultsAsync(IEnumerable<ValidationError> results, CancellationToken cancellationToken = default)
+    public async Task WriteValidationResultsAsync(IEnumerable<ValidationError> results, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        var resultsList = results.ToList();
+        if (resultsList.Count == 0)
+            return;
+
+        _logger.LogDebug("WriteValidationResultsAsync: Writing {Count} validation results", resultsList.Count);
+
+        // Group by rowId
+        var groupedByRow = resultsList.GroupBy(r => r.RowId);
+
+        foreach (var group in groupedByRow)
+        {
+            var rowId = group.Key;
+            if (string.IsNullOrEmpty(rowId))
+                continue;
+
+            var errorsForRow = group.ToArray();
+
+            // Update validation cache
+            _validationCache[rowId] = errorsForRow;
+
+            // Queue validation state update
+            var validationJson = JsonSerializer.Serialize(errorsForRow);
+
+            var updateOp = new UpdateValidationStateWriteOp
+            {
+                RowId = rowId,
+                ValidationStateJson = validationJson,
+                ModifiedAt = GetUnixTimestampMs(),
+                OperationId = GenerateRowId()
+            };
+
+            await QueueWriteOperationAsync(updateOp, cancellationToken);
+        }
+
+        _logger.LogInformation("WriteValidationResultsAsync: Queued validation updates for {Count} rows", groupedByRow.Count());
     }
 
-    public Task<bool> HasValidationStateForScopeAsync(bool onlyFiltered, bool onlyChecked = false, CancellationToken cancellationToken = default)
+    public async Task<bool> HasValidationStateForScopeAsync(bool onlyFiltered, bool onlyChecked = false, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        // Check if any row has validation state in SQLite
+        if (!_databaseLifecycleManager.IsInitialized)
+            return false;
+
+        var connection = _databaseLifecycleManager.GetConnection();
+        if (connection == null)
+            return false;
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM grid_rows WHERE __isDeleted = 0 AND __validationState IS NOT NULL";
+
+        var result = await cmd.ExecuteScalarAsync(cancellationToken);
+        var count = result != null ? Convert.ToInt64(result) : 0;
+
+        return count > 0;
     }
 
-    public Task<bool> AreAllNonEmptyRowsMarkedValidAsync(bool onlyFiltered, bool onlyChecked = false, CancellationToken cancellationToken = default)
+    public async Task<bool> AreAllNonEmptyRowsMarkedValidAsync(bool onlyFiltered, bool onlyChecked = false, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        // Check if all non-empty rows have valid validation state
+        var errors = await GetValidationErrorsAsync(onlyFiltered, onlyChecked, cancellationToken);
+        return errors.Count == 0;
     }
 
-    public Task<IReadOnlyList<ValidationError>> GetValidationErrorsAsync(bool onlyFiltered = false, bool onlyChecked = false, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<ValidationError>> GetValidationErrorsAsync(bool onlyFiltered = false, bool onlyChecked = false, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        if (!_databaseLifecycleManager.IsInitialized)
+            return Array.Empty<ValidationError>();
+
+        var connection = _databaseLifecycleManager.GetConnection();
+        if (connection == null)
+            return Array.Empty<ValidationError>();
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT __validationState FROM grid_rows WHERE __isDeleted = 0 AND __validationState IS NOT NULL";
+
+        var allErrors = new List<ValidationError>();
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var validationJson = reader.GetString(0);
+            var errors = JsonSerializer.Deserialize<ValidationError[]>(validationJson);
+            if (errors != null)
+            {
+                allErrors.AddRange(errors);
+            }
+        }
+
+        return allErrors;
     }
 
-    public Task<IReadOnlyList<ValidationError>> GetValidationErrorsForRowAsync(string rowId, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<ValidationError>> GetValidationErrorsForRowAsync(string rowId, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        // Check cache first
+        if (_validationCache.TryGetValue(rowId, out var cachedErrors))
+            return cachedErrors;
+
+        // Read from SQLite
+        if (!_databaseLifecycleManager.IsInitialized)
+            return Array.Empty<ValidationError>();
+
+        var connection = _databaseLifecycleManager.GetConnection();
+        if (connection == null)
+            return Array.Empty<ValidationError>();
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT __validationState FROM grid_rows WHERE __rowId = @rowId AND __isDeleted = 0";
+        cmd.Parameters.AddWithValue("@rowId", rowId);
+
+        var result = await cmd.ExecuteScalarAsync(cancellationToken);
+        if (result == null || result == DBNull.Value)
+            return Array.Empty<ValidationError>();
+
+        var validationJson = result.ToString();
+        var errors = JsonSerializer.Deserialize<ValidationError[]>(validationJson!);
+
+        return errors ?? Array.Empty<ValidationError>();
     }
 
-    public Task RemoveRowsAsync(IEnumerable<string> rowIds, CancellationToken cancellationToken = default)
+    public async Task RemoveRowsAsync(IEnumerable<string> rowIds, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        var rowIdsList = rowIds.ToList();
+        if (rowIdsList.Count == 0)
+            return;
+
+        _logger.LogInformation("RemoveRowsAsync: Removing {Count} rows", rowIdsList.Count);
+
+        var bulkDeleteOp = new BulkDeleteWriteOp
+        {
+            RowIds = rowIdsList,
+            ModifiedAt = GetUnixTimestampMs(),
+            OperationId = GenerateRowId()
+        };
+
+        await QueueWriteOperationAsync(bulkDeleteOp, cancellationToken);
+
+        // Remove from caches
+        foreach (var rowId in rowIdsList)
+        {
+            _viewportCache.TryRemove(rowId, out _);
+            _validationCache.TryRemove(rowId, out _);
+            _rowCreatedAtMap.TryRemove(rowId, out _);
+        }
+
+        _logger.LogInformation("RemoveRowsAsync: Queued deletion of {Count} rows", rowIdsList.Count);
     }
 
-    public Task<IReadOnlyDictionary<string, object?>?> GetRowByIdAsync(string rowId, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyDictionary<string, object?>?> GetRowByIdAsync(string rowId, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        if (string.IsNullOrEmpty(rowId))
+            return null;
+
+        // Check viewport cache first
+        if (_viewportCache.TryGetValue(rowId, out var cachedRow))
+        {
+            _logger.LogTrace("GetRowByIdAsync: Cache hit for {RowId}", rowId);
+            return cachedRow;
+        }
+
+        // Read from SQLite
+        if (!_databaseLifecycleManager.IsInitialized)
+            return null;
+
+        var connection = _databaseLifecycleManager.GetConnection();
+        if (connection == null)
+            return null;
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT data FROM grid_rows WHERE __rowId = @rowId AND __isDeleted = 0";
+        cmd.Parameters.AddWithValue("@rowId", rowId);
+
+        var result = await cmd.ExecuteScalarAsync(cancellationToken);
+        if (result == null || result == DBNull.Value)
+            return null;
+
+        var dataJson = result.ToString();
+        var rowData = DeserializeRowData(rowId, dataJson!);
+
+        // Update viewport cache (if not full)
+        if (_viewportCache.Count < _maxViewportSize)
+        {
+            _viewportCache[rowId] = rowData;
+        }
+
+        _logger.LogTrace("GetRowByIdAsync: Retrieved {RowId} from SQLite", rowId);
+        return rowData;
     }
 
-    public Task<bool> UpdateRowByIdAsync(string rowId, IReadOnlyDictionary<string, object?> rowData, CancellationToken cancellationToken = default)
+    public async Task<bool> UpdateRowByIdAsync(string rowId, IReadOnlyDictionary<string, object?> rowData, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        if (string.IsNullOrEmpty(rowId))
+            return false;
+
+        _logger.LogDebug("UpdateRowByIdAsync: Updating {RowId}", rowId);
+
+        var dataJson = SerializeRowData(rowData);
+
+        var updateOp = new UpdateRowWriteOp
+        {
+            RowId = rowId,
+            DataJson = dataJson,
+            ModifiedAt = GetUnixTimestampMs(),
+            ValidationStateJson = null,
+            OperationId = GenerateRowId()
+        };
+
+        await QueueWriteOperationAsync(updateOp, cancellationToken);
+
+        // Update viewport cache
+        var rowWithMetadata = new Dictionary<string, object?>(rowData)
+        {
+            ["__rowId"] = rowId
+        };
+        _viewportCache[rowId] = rowWithMetadata;
+
+        return true;
     }
 
-    public Task<bool> RemoveRowByIdAsync(string rowId, CancellationToken cancellationToken = default)
+    public async Task<bool> RemoveRowByIdAsync(string rowId, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        if (string.IsNullOrEmpty(rowId))
+            return false;
+
+        await RemoveRowsAsync(new[] { rowId }, cancellationToken);
+        return true;
     }
 
-    public Task<IReadOnlyDictionary<string, object?>?> GetRowAsync(int rowIndex, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyDictionary<string, object?>?> GetRowAsync(int rowIndex, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        // Map index to rowId
+        var rowIds = await GetAllRowIdsOrderedAsync(cancellationToken);
+
+        if (rowIndex < 0 || rowIndex >= rowIds.Count)
+            return null;
+
+        var rowId = rowIds[rowIndex];
+        return await GetRowByIdAsync(rowId, cancellationToken);
     }
 
-    public Task<bool> UpdateRowAsync(int rowIndex, IReadOnlyDictionary<string, object?> rowData, CancellationToken cancellationToken = default)
+    public async Task<bool> UpdateRowAsync(int rowIndex, IReadOnlyDictionary<string, object?> rowData, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        // Map index to rowId
+        var rowIds = await GetAllRowIdsOrderedAsync(cancellationToken);
+
+        if (rowIndex < 0 || rowIndex >= rowIds.Count)
+            return false;
+
+        var rowId = rowIds[rowIndex];
+        return await UpdateRowByIdAsync(rowId, rowData, cancellationToken);
     }
 
-    public Task ClearAsync(CancellationToken cancellationToken = default)
+    public async Task ClearAsync(CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        _logger.LogInformation("ClearAsync: Clearing all data");
+
+        if (!_databaseLifecycleManager.IsInitialized)
+        {
+            _logger.LogWarning("ClearAsync: Database not initialized");
+            return;
+        }
+
+        var connection = _databaseLifecycleManager.GetConnection();
+        if (connection == null)
+            return;
+
+        // Delete all rows from SQLite
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "DELETE FROM grid_rows";
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+        // Clear all caches
+        _viewportCache.Clear();
+        _validationCache.Clear();
+        _rowCreatedAtMap.Clear();
+        _filteredIndexMap.Clear();
+        _filterCriteria = null;
+
+        _logger.LogInformation("ClearAsync: All data cleared");
     }
 
-    public Task ClearValidationStateAsync(CancellationToken cancellationToken = default)
+    public async Task ClearValidationStateAsync(CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        _logger.LogInformation("ClearValidationStateAsync: Clearing all validation state");
+
+        if (!_databaseLifecycleManager.IsInitialized)
+            return;
+
+        var connection = _databaseLifecycleManager.GetConnection();
+        if (connection == null)
+            return;
+
+        // Clear validation state in SQLite
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "UPDATE grid_rows SET __validationState = NULL";
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+        // Clear validation cache
+        _validationCache.Clear();
+
+        _logger.LogInformation("ClearValidationStateAsync: Validation state cleared");
     }
 
     public void SetFilterCriteria(IReadOnlyList<object>? filterCriteria)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        _logger.LogInformation("SetFilterCriteria: Setting filter criteria (count: {Count})", filterCriteria?.Count ?? 0);
+
+        _filterCriteria = filterCriteria;
+        _filteredIndexMap.Clear();
+
+        // TODO: Build filtered index in Phase 2 (Filter/Sort/Search Integration)
+        // For now, just store the criteria
     }
 
     public void ClearFilterCriteria()
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        _logger.LogInformation("ClearFilterCriteria: Clearing filter criteria");
+
+        _filterCriteria = null;
+        _filteredIndexMap.Clear();
     }
 
     public IReadOnlyList<object> GetFilterCriteria()
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        return _filterCriteria ?? Array.Empty<object>();
     }
 
     public int? MapFilteredIndexToOriginalIndex(int filteredIndex)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        // TODO: Implement in Phase 2 (Filter/Sort/Search Integration)
+        if (_filterCriteria == null || _filterCriteria.Count == 0)
+            return filteredIndex;
+
+        if (_filteredIndexMap.TryGetValue(filteredIndex, out var rowId))
+        {
+            // TODO: Map rowId to original index
+            return null;
+        }
+
+        return null;
     }
 
-    public Task<IReadOnlyDictionary<string, object?>?> GetLastRowAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyDictionary<string, object?>?> GetLastRowAsync(CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        if (!_databaseLifecycleManager.IsInitialized)
+            return null;
+
+        var connection = _databaseLifecycleManager.GetConnection();
+        if (connection == null)
+            return null;
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT __rowId, data FROM grid_rows WHERE __isDeleted = 0 ORDER BY __createdAt DESC LIMIT 1";
+
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+
+        if (await reader.ReadAsync(cancellationToken))
+        {
+            var rowId = reader.GetString(0);
+            var dataJson = reader.GetString(1);
+            return DeserializeRowData(rowId, dataJson);
+        }
+
+        return null;
     }
 
-    public Task<int> AddRowAsync(IReadOnlyDictionary<string, object?> rowData, CancellationToken cancellationToken = default)
+    // Public API compatibility methods
+
+    public async Task<int> AddRowAsync(IReadOnlyDictionary<string, object?> rowData, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        await AppendRowsAsync(new[] { rowData }, cancellationToken);
+
+        var count = await GetRowCountAsync(cancellationToken);
+        return (int)count - 1; // Return index of newly added row
     }
 
-    public Task<int> AddRowsAsync(IEnumerable<IReadOnlyDictionary<string, object?>> rowsData, CancellationToken cancellationToken = default)
+    public async Task<int> AddRowsAsync(IEnumerable<IReadOnlyDictionary<string, object?>> rowsData, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        var rowsList = rowsData.ToList();
+        await AppendRowsAsync(rowsList, cancellationToken);
+
+        return rowsList.Count;
     }
 
     public Task InsertRowAsync(int rowIndex, IReadOnlyDictionary<string, object?> rowData, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        // Index-based insertion not supported - use AppendRowsAsync
+        _logger.LogWarning("InsertRowAsync(index): Index-based insertion not supported, using AppendRowsAsync");
+        return AppendRowsAsync(new[] { rowData }, cancellationToken);
     }
 
-    public Task RemoveRowAsync(int rowIndex, CancellationToken cancellationToken = default)
+    public async Task RemoveRowAsync(int rowIndex, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        var rowIds = await GetAllRowIdsOrderedAsync(cancellationToken);
+
+        if (rowIndex >= 0 && rowIndex < rowIds.Count)
+        {
+            var rowId = rowIds[rowIndex];
+            await RemoveRowByIdAsync(rowId, cancellationToken);
+        }
     }
 
-    public Task<int> RemoveRowsAsync(IEnumerable<int> rowIndices, CancellationToken cancellationToken = default)
+    public async Task<int> RemoveRowsAsync(IEnumerable<int> rowIndices, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        var indices = rowIndices.OrderByDescending(i => i).ToList(); // Remove from end to start
+        var rowIds = await GetAllRowIdsOrderedAsync(cancellationToken);
+
+        var rowIdsToRemove = new List<string>();
+
+        foreach (var index in indices)
+        {
+            if (index >= 0 && index < rowIds.Count)
+            {
+                rowIdsToRemove.Add(rowIds[index]);
+            }
+        }
+
+        if (rowIdsToRemove.Count > 0)
+        {
+            await RemoveRowsAsync(rowIdsToRemove, cancellationToken);
+        }
+
+        return rowIdsToRemove.Count;
     }
 
     public Task ClearAllRowsAsync(CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        return ClearAsync(cancellationToken);
     }
 
     public IReadOnlyDictionary<string, object?>? GetRow(int rowIndex)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        // Synchronous API - not ideal for SQLite
+        // Use async version GetRowAsync instead
+        return GetRowAsync(rowIndex).GetAwaiter().GetResult();
     }
 
     public IReadOnlyList<IReadOnlyDictionary<string, object?>> GetAllRows()
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        // Synchronous API - not ideal for SQLite
+        // Use async version GetAllRowsAsync instead
+        return GetAllRowsAsync().GetAwaiter().GetResult();
     }
 
     public int GetRowCount()
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        // Synchronous API - not ideal for SQLite
+        // Use async version GetRowCountAsync instead
+        return (int)GetRowCountAsync().GetAwaiter().GetResult();
     }
 
     public bool RowExists(int rowIndex)
     {
-        throw new NotImplementedException("Will be implemented in Fáza 1.4");
+        var count = GetRowCount();
+        return rowIndex >= 0 && rowIndex < count;
+    }
+
+    #endregion
+
+    #region Additional Helper Methods (not in IRowStore interface)
+
+    /// <summary>
+    /// Get paged rows from SQLite database with optional filtering/sorting.
+    /// Useful for pagination scenarios.
+    /// </summary>
+    public async Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> GetPagedRowsAsync(
+        int pageNumber,
+        int pageSize,
+        bool onlyFiltered = false,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_databaseLifecycleManager.IsInitialized)
+            return Array.Empty<IReadOnlyDictionary<string, object?>>();
+
+        var connection = _databaseLifecycleManager.GetConnection();
+        if (connection == null)
+            return Array.Empty<IReadOnlyDictionary<string, object?>>();
+
+        var offset = (pageNumber - 1) * pageSize;
+
+        using var cmd = connection.CreateCommand();
+
+        // TODO: Add filter/sort support in Phase 2
+        cmd.CommandText = $@"
+            SELECT __rowId, data
+            FROM grid_rows
+            WHERE __isDeleted = 0
+            ORDER BY __createdAt ASC
+            LIMIT {pageSize} OFFSET {offset}";
+
+        var results = new List<IReadOnlyDictionary<string, object?>>();
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var rowId = reader.GetString(0);
+            var dataJson = reader.GetString(1);
+            var rowData = DeserializeRowData(rowId, dataJson);
+            results.Add(rowData);
+        }
+
+        _logger.LogDebug("GetPagedRowsAsync: Retrieved page {Page} with {Count} rows (pageSize={PageSize})",
+            pageNumber, results.Count, pageSize);
+
+        return results;
     }
 
     #endregion
