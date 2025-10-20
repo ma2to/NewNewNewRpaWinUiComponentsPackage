@@ -14,6 +14,8 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIControls;
 /// </summary>
 internal sealed class ResizeGripControl : Control
 {
+    private InputCursor? _resizeCursor;
+
     /// <summary>
     /// Creates a new resize grip control with resize cursor.
     /// Sets the cursor to SizeWestEast (horizontal resize arrows).
@@ -25,7 +27,8 @@ internal sealed class ResizeGripControl : Control
         // because ProtectedCursor is a protected property in UIElement
         try
         {
-            this.ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.SizeWestEast);
+            _resizeCursor = InputSystemCursor.Create(InputSystemCursorShape.SizeWestEast);
+            this.ProtectedCursor = _resizeCursor;
         }
         catch
         {
@@ -40,14 +43,35 @@ internal sealed class ResizeGripControl : Control
         this.IsHoldingEnabled = false;
 
         // Set default appearance
-        // CRITICAL: Width must be >= 8 for easy grabbing, Background must be non-null for hit testing
-        this.Width = 8;
-        this.MinWidth = 8;
-        this.Background = new SolidColorBrush(Colors.DarkGray);
+        // CRITICAL: Width must be wide enough for easy grabbing, Background must be non-null for hit testing
+        // VISIBILITY FIX: Increased width to 16px and changed to semi-transparent gray for better visibility
+        this.Width = 16;
+        this.MinWidth = 16;
+        this.Background = new SolidColorBrush(Microsoft.UI.Colors.LightGray) { Opacity = 0.3 };
         this.ManipulationMode = ManipulationModes.TranslateX;
 
         // Make it stretch vertically
         this.VerticalAlignment = VerticalAlignment.Stretch;
         this.HorizontalAlignment = HorizontalAlignment.Left;
+
+        // CRITICAL FIX: Set cursor on pointer entered/exited to ensure it works
+        // Also change background on hover for better visibility
+        this.PointerEntered += (s, e) =>
+        {
+            if (_resizeCursor != null)
+            {
+                this.ProtectedCursor = _resizeCursor;
+            }
+            // VISIBILITY FIX: Make resize grip more visible on hover
+            this.Background = new SolidColorBrush(Microsoft.UI.Colors.Blue) { Opacity = 0.5 };
+        };
+
+        this.PointerExited += (s, e) =>
+        {
+            // Reset to default cursor
+            this.ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.Arrow);
+            // Reset to semi-transparent appearance
+            this.Background = new SolidColorBrush(Microsoft.UI.Colors.LightGray) { Opacity = 0.3 };
+        };
     }
 }

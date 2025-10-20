@@ -174,7 +174,7 @@ internal sealed class InternalUIUpdateHandler : IDisposable
                 }
             }
 
-            // SCENARIO C: Shifted/updated rows → Update cell values
+            // SCENARIO C: Shifted/updated rows → Update cell values AND rowId
             if (eventArgs.UpdatedRowData.Any())
             {
                 _logger.LogDebug("Applying {Count} row updates (shifted rows)", eventArgs.UpdatedRowData.Count);
@@ -187,6 +187,21 @@ internal sealed class InternalUIUpdateHandler : IDisposable
                     if (rowIndex >= 0 && rowIndex < _viewModel.Rows.Count)
                     {
                         var rowViewModel = _viewModel.Rows[rowIndex];
+
+                        // CRITICAL FIX: Update RowId first (row may have shifted from delete operation)
+                        // This prevents "frozen delete" issue where UI has stale rowId that doesn't exist in backend
+                        if (newRowData.TryGetValue("__rowId", out var newRowId))
+                        {
+                            var oldRowId = rowViewModel.RowId;
+                            rowViewModel.RowId = newRowId?.ToString();
+                            if (oldRowId != rowViewModel.RowId)
+                            {
+                                _logger.LogTrace("Updated RowId at index {Index}: {OldId} → {NewId}",
+                                    rowIndex, oldRowId, rowViewModel.RowId);
+                            }
+                        }
+
+                        // Update cell values for non-special columns
                         foreach (var cell in rowViewModel.Cells.Where(c => !c.IsSpecialColumn))
                         {
                             if (newRowData.TryGetValue(cell.ColumnName, out var newValue))
@@ -208,6 +223,14 @@ internal sealed class InternalUIUpdateHandler : IDisposable
             // This happens after Import, AddRow, or other operations that don't provide granular updates
             if (!hasGranularMetadata)
             {
+                // CRITICAL FIX: If AffectedRows = 0, this is a no-op (e.g., delete with non-existent rowId)
+                // → Skip full reload to prevent performance degradation
+                if (eventArgs.AffectedRows == 0)
+                {
+                    _logger.LogInformation("No-op operation (AffectedRows=0) - skipping full reload");
+                    return;
+                }
+
                 _logger.LogInformation("No granular metadata available for operation {Op} - performing full reload from IRowStore",
                     eventArgs.OperationType);
 

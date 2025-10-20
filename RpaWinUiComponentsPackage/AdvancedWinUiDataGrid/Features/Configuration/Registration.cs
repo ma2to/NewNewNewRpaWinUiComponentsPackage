@@ -15,6 +15,9 @@ internal static class Registration
         // Register DataGridConfigurationService as singleton
         services.TryAddSingleton<IDataGridConfiguration, DataGridConfigurationService>();
 
+        // Register EnvironmentConfigurationService as singleton
+        services.TryAddSingleton<IEnvironmentConfiguration, EnvironmentConfigurationService>();
+
         return services;
     }
 }

@@ -171,6 +171,12 @@ public class ExportDataCommand
     public bool IncludeHeaders { get; init; } = true;
 
     /// <summary>
+    /// Include internal row ID (__rowId) in export
+    /// Default: false (row ID is internal implementation detail and not visible in UI)
+    /// </summary>
+    public bool IncludeRowId { get; init; } = false;
+
+    /// <summary>
     /// Optional column selection (null = all non-special columns)
     /// </summary>
     public IReadOnlyList<string>? ColumnNames { get; init; }

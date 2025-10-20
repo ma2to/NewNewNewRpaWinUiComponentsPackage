@@ -45,6 +45,9 @@ public sealed partial class AdvancedDataGridFacade : IAdvancedDataGridFacade
     private readonly Shortcuts.IDataGridShortcuts _shortcuts;
     private readonly MVVM.IDataGridMVVM _mvvm;
     private readonly SmartOperations.IDataGridSmartOperations _smartOperations;
+    private readonly Environments.IEnvironmentConfiguration _environment;
+    private readonly IDataGridColors _colors;
+    private readonly IDataGridTheme _theme;
 
     #region Feature Module Properties
 
@@ -143,6 +146,21 @@ public sealed partial class AdvancedDataGridFacade : IAdvancedDataGridFacade
     /// </summary>
     public SmartOperations.IDataGridSmartOperations SmartOperations => _smartOperations;
 
+    /// <summary>
+    /// Environment configuration management (application-level settings)
+    /// </summary>
+    public Environments.IEnvironmentConfiguration Environment => _environment;
+
+    /// <summary>
+    /// Direct color management (BOD 4+6: Granular color control without themes)
+    /// </summary>
+    public IDataGridColors Colors => _colors;
+
+    /// <summary>
+    /// Comprehensive theme management (BOD 5+7: Theme creation, import/export, application)
+    /// </summary>
+    public IDataGridTheme Theme => _theme;
+
     #endregion
 
     /// <summary>
@@ -210,6 +228,9 @@ public sealed partial class AdvancedDataGridFacade : IAdvancedDataGridFacade
         _shortcuts = serviceProvider.GetRequiredService<Shortcuts.IDataGridShortcuts>();
         _mvvm = serviceProvider.GetRequiredService<MVVM.IDataGridMVVM>();
         _smartOperations = serviceProvider.GetRequiredService<SmartOperations.IDataGridSmartOperations>();
+        _environment = serviceProvider.GetRequiredService<Environments.IEnvironmentConfiguration>();
+        _colors = serviceProvider.GetRequiredService<IDataGridColors>();
+        _theme = serviceProvider.GetRequiredService<IDataGridTheme>();
 
         _logger.LogInformation("AdvancedDataGrid facade initialized with operation mode {OperationMode}", _options.OperationMode);
     }

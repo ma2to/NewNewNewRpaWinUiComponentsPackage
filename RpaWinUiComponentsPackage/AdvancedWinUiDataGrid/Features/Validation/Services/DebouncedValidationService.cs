@@ -110,10 +110,29 @@ internal sealed class DebouncedValidationService : IDisposable
             }
 
             // Notify UI that validation completed (if UI notification service available)
-            if (_uiNotificationService != null && validationResult.IsSuccess)
+            // CRITICAL FIX: Always notify UI (not just on success) and get actual error count
+            if (_uiNotificationService != null)
             {
-                var errorCount = validationResult.ErrorMessage?.Contains("error") == true ? 1 : 0;
-                _uiNotificationService.NotifyValidationResultsRefresh(errorCount, !validationResult.IsSuccess);
+                try
+                {
+                    // Get actual validation errors to report correct count to UI
+                    var validationErrors = await _validationService.GetValidationErrorsAsync(
+                        onlyFiltered: false,
+                        onlyChecked: false,
+                        cancellationToken: CancellationToken.None);
+
+                    var errorCount = validationErrors.Count;
+                    var hasErrors = errorCount > 0;
+
+                    _logger.LogInformation("Notifying UI of validation results: {ErrorCount} errors, hasErrors={HasErrors}",
+                        errorCount, hasErrors);
+
+                    _uiNotificationService.NotifyValidationResultsRefresh(errorCount, hasErrors);
+                }
+                catch (Exception notifyEx)
+                {
+                    _logger.LogError(notifyEx, "Failed to notify UI of validation results");
+                }
             }
         }
         catch (Exception ex)

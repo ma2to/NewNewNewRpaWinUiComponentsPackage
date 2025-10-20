@@ -35,6 +35,9 @@ internal sealed class DataGridRows : IDataGridRows
     {
         try
         {
+            // CRITICAL: Validate that __rowId is not used as a column name (reserved for internal use)
+            ValidateNoReservedColumnNames(rowData);
+
             _logger?.LogInformation("Adding row via Rows module");
             var rowIndex = await _rowStore.AddRowAsync(rowData, cancellationToken);
 
@@ -59,8 +62,16 @@ internal sealed class DataGridRows : IDataGridRows
     {
         try
         {
+            // CRITICAL: Validate that __rowId is not used as a column name (reserved for internal use)
+            var rowsList = rowsData.ToList();
+            var firstRow = rowsList.FirstOrDefault();
+            if (firstRow != null)
+            {
+                ValidateNoReservedColumnNames(firstRow);
+            }
+
             _logger?.LogInformation("Adding multiple rows via Rows module");
-            var count = await _rowStore.AddRowsAsync(rowsData, cancellationToken);
+            var count = await _rowStore.AddRowsAsync(rowsList, cancellationToken);
 
             // Trigger automatic UI refresh in Interactive mode
             await TriggerUIRefreshIfNeededAsync("AddRows", count);
@@ -83,6 +94,9 @@ internal sealed class DataGridRows : IDataGridRows
     {
         try
         {
+            // CRITICAL: Validate that __rowId is not used as a column name (reserved for internal use)
+            ValidateNoReservedColumnNames(rowData);
+
             _logger?.LogInformation("Inserting row at index {RowIndex} via Rows module", rowIndex);
             await _rowStore.InsertRowAsync(rowIndex, rowData, cancellationToken);
 
@@ -106,6 +120,9 @@ internal sealed class DataGridRows : IDataGridRows
     {
         try
         {
+            // CRITICAL: Validate that __rowId is not used as a column name (reserved for internal use)
+            ValidateNoReservedColumnNames(rowData);
+
             _logger?.LogInformation("Updating row {RowId} via Rows module", rowId);
 
             var success = await _rowStore.UpdateRowByIdAsync(rowId, rowData, cancellationToken);
@@ -558,5 +575,20 @@ internal sealed class DataGridRows : IDataGridRows
             await _uiNotificationService.NotifyDataRefreshAsync(affectedRows, operationType);
         }
         // V Readonly/Headless mode → skip (automatický refresh je zakázaný)
+    }
+
+    /// <summary>
+    /// Validates that row data does not contain reserved column names.
+    /// CRITICAL: __rowId is reserved for internal use and cannot be used as a user column.
+    /// </summary>
+    private void ValidateNoReservedColumnNames(IReadOnlyDictionary<string, object?> rowData)
+    {
+        if (rowData.ContainsKey("__rowId"))
+        {
+            throw new ArgumentException(
+                "Column name '__rowId' is reserved for internal use and cannot be used as a data column. " +
+                "Please use a different column name (e.g., 'rowId', 'RowId', 'row_id').",
+                nameof(rowData));
+        }
     }
 }

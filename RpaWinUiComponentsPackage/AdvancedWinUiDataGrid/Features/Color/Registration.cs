@@ -20,6 +20,13 @@ internal static class Registration
         // Register ColorService as scoped
         services.TryAddScoped<IColorService, ColorService>();
 
+        // Register NEW comprehensive color/theme services (BOD 4-7)
+        // ColorManagementService: Direct color manipulation without themes
+        services.TryAddSingleton<ColorManagementService>();
+
+        // ThemeManagementService: Theme creation, import/export, storage
+        services.TryAddSingleton<ThemeManagementService>();
+
         return services;
     }
 }

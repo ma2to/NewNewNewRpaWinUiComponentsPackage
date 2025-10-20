@@ -34,6 +34,12 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
     private Dictionary<int, int>? _filteredToOriginalIndexMap; // Maps filtered index → original index
     private readonly object _filterLock = new(); // Thread-safe filter operations
 
+    // ORDERED ROW ACCESS - Cached sorted row keys for stable ordering (10M+ row performance)
+    // CRITICAL: Avoids re-sorting on every GetAllRows() call - rebuild only on insert/delete
+    private List<string>? _sortedRowKeys; // Cached list of row keys in ULID chronological order
+    private bool _sortedRowKeysInvalid = true; // Flag to trigger cache rebuild
+    private readonly object _orderLock = new(); // Thread-safe order cache operations
+
     public InMemoryRowStore(ILogger<InMemoryRowStore> logger)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -60,6 +66,12 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
                     var rowId = GetOrAssignRowId(row);
                     _rows.AddOrUpdate(rowId, row, (_, _) => row);
                     affectedRows++;
+                }
+
+                // CRITICAL: Invalidate sorted keys cache after modifications
+                if (affectedRows > 0)
+                {
+                    InvalidateSortedRowKeysCache();
                 }
             }
 
@@ -101,6 +113,12 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
                     {
                         removedCount++;
                     }
+                }
+
+                // CRITICAL: Invalidate sorted keys cache after deletions
+                if (removedCount > 0)
+                {
+                    InvalidateSortedRowKeysCache();
                 }
             }
 
@@ -177,10 +195,20 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
 
         await Task.Yield(); // Make it truly async
 
-        var allRows = _rows.Values
-            .Where(row => !onlyFiltered || IsRowVisible(row))
-            .Where(row => !onlyChecked || IsRowChecked(row))
-            .ToList();
+        // PERFORMANCE FIX: Use cached sorted keys
+        var sortedKeys = GetSortedRowKeys();
+        var allRows = new List<IReadOnlyDictionary<string, object?>>();
+
+        foreach (var key in sortedKeys)
+        {
+            if (_rows.TryGetValue(key, out var row))
+            {
+                if ((!onlyFiltered || IsRowVisible(row)) && (!onlyChecked || IsRowChecked(row)))
+                {
+                    allRows.Add(row);
+                }
+            }
+        }
 
         _logger.LogInformation("Filtered {TotalRows} rows: onlyFiltered={OnlyFiltered}, onlyChecked={OnlyChecked}, result={ResultCount}",
             _rows.Count, onlyFiltered, onlyChecked, allRows.Count);
@@ -229,6 +257,7 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
     /// </summary>
     public Task<long> GetFilteredRowCountAsync(CancellationToken cancellationToken = default)
     {
+        // NOTE: Count() doesn't depend on order, but using consistent pattern for maintainability
         var count = _rows.Values.Count(IsRowVisible);
         return Task.FromResult((long)count);
     }
@@ -244,7 +273,18 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
         if (!onlyFiltered || _filteredRowIds == null)
         {
             // Return all rows (no filter active or not requested)
-            var rows = _rows.Values.ToList();
+            // PERFORMANCE FIX: Use cached sorted keys
+            var sortedKeys = GetSortedRowKeys();
+            var rows = new List<IReadOnlyDictionary<string, object?>>(sortedKeys.Count);
+
+            foreach (var key in sortedKeys)
+            {
+                if (_rows.TryGetValue(key, out var row))
+                {
+                    rows.Add(row);
+                }
+            }
+
             return Task.FromResult<IReadOnlyList<IReadOnlyDictionary<string, object?>>>(rows);
         }
 
@@ -753,6 +793,10 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
                 {
                     // Also remove validation errors for this row
                     _validationErrors.TryRemove(rowId, out _);
+
+                    // CRITICAL: Invalidate sorted keys cache after deletion
+                    InvalidateSortedRowKeysCache();
+
                     _logger.LogDebug("Removed row by RowID: {RowId}", rowId);
                     return true;
                 }
@@ -792,6 +836,12 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
                     }
                 }
 
+                // CRITICAL: Invalidate sorted keys cache after deletions
+                if (removedCount > 0)
+                {
+                    InvalidateSortedRowKeysCache();
+                }
+
                 _logger.LogInformation("Removed {RemovedCount} of {RequestedCount} rows",
                     removedCount, rowIds.Count());
             }
@@ -806,10 +856,17 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
         int rowIndex,
         CancellationToken cancellationToken = default)
     {
-        // ULID MIGRATION: Sort by ULID string (lexicographically sortable by timestamp)
-        var allRows = _rows.Values
-            .OrderBy(r => r.TryGetValue("__rowId", out var id) ? id?.ToString() : "")
-            .ToList();
+        // PERFORMANCE FIX: Use cached sorted keys
+        var sortedKeys = GetSortedRowKeys();
+        var allRows = new List<IReadOnlyDictionary<string, object?>>(sortedKeys.Count);
+
+        foreach (var key in sortedKeys)
+        {
+            if (_rows.TryGetValue(key, out var row))
+            {
+                allRows.Add(row);
+            }
+        }
 
         if (rowIndex < 0 || rowIndex >= allRows.Count)
         {
@@ -833,9 +890,17 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
             lock (_modificationLock)
             {
                 // ULID MIGRATION: Sort by ULID string (lexicographically sortable)
-                var allRows = _rows.Values
-                    .OrderBy(r => r.TryGetValue("__rowId", out var id) ? id?.ToString() : "")
-                    .ToList();
+                // PERFORMANCE FIX: Use cached sorted keys
+                var sortedKeys = GetSortedRowKeys();
+                var allRows = new List<IReadOnlyDictionary<string, object?>>(sortedKeys.Count);
+
+                foreach (var key in sortedKeys)
+                {
+                    if (_rows.TryGetValue(key, out var row))
+                    {
+                        allRows.Add(row);
+                    }
+                }
 
                 if (rowIndex < 0 || rowIndex >= allRows.Count)
                 {
@@ -971,9 +1036,17 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
         {
             lock (_modificationLock)
             {
-                var allRows = _rows.Values
-                    .OrderBy(r => r.TryGetValue("__rowId", out var id) ? id?.ToString() : "")
-                    .ToList();
+                // PERFORMANCE FIX: Use cached sorted keys
+                var sortedKeys = GetSortedRowKeys();
+                var allRows = new List<IReadOnlyDictionary<string, object?>>(sortedKeys.Count);
+
+                foreach (var key in sortedKeys)
+                {
+                    if (_rows.TryGetValue(key, out var row))
+                    {
+                        allRows.Add(row);
+                    }
+                }
 
                 if (rowIndex >= 0 && rowIndex < allRows.Count)
                 {
@@ -998,9 +1071,17 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
         {
             lock (_modificationLock)
             {
-                var allRows = _rows.Values
-                    .OrderBy(r => r.TryGetValue("__rowId", out var id) ? id?.ToString() : "")
-                    .ToList();
+                // PERFORMANCE FIX: Use cached sorted keys
+                var sortedKeys = GetSortedRowKeys();
+                var allRows = new List<IReadOnlyDictionary<string, object?>>(sortedKeys.Count);
+
+                foreach (var key in sortedKeys)
+                {
+                    if (_rows.TryGetValue(key, out var row))
+                    {
+                        allRows.Add(row);
+                    }
+                }
 
                 var indices = rowIndices.ToList();
                 var removed = 0;
@@ -1033,20 +1114,70 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
     /// </summary>
     public IReadOnlyDictionary<string, object?>? GetRow(int rowIndex)
     {
-        var allRows = _rows.Values
-            .OrderBy(r => r.TryGetValue("__rowId", out var id) ? id?.ToString() : "")
-            .ToList();
+        // PERFORMANCE FIX: Use cached sorted keys
+        var sortedKeys = GetSortedRowKeys();
 
-        if (rowIndex >= 0 && rowIndex < allRows.Count)
+        if (rowIndex < 0 || rowIndex >= sortedKeys.Count)
         {
-            return allRows[rowIndex];
+            return null;
         }
-        return null;
+
+        var rowId = sortedKeys[rowIndex];
+        return _rows.TryGetValue(rowId, out var row) ? row : null;
+    }
+
+    /// <summary>
+    /// Gets cached sorted row keys (ULID chronological order).
+    /// PERFORMANCE: Lazy rebuild - sorts only when cache invalidated by insert/delete.
+    /// Thread-safe via double-check locking pattern.
+    /// </summary>
+    private List<string> GetSortedRowKeys()
+    {
+        // Fast path: cache valid
+        if (!_sortedRowKeysInvalid && _sortedRowKeys != null)
+        {
+            return _sortedRowKeys;
+        }
+
+        // Slow path: rebuild cache
+        lock (_orderLock)
+        {
+            // Double-check pattern: another thread may have rebuilt while we waited
+            if (!_sortedRowKeysInvalid && _sortedRowKeys != null)
+            {
+                return _sortedRowKeys;
+            }
+
+            _logger.LogDebug("Rebuilding sorted row keys cache for {RowCount} rows", _rows.Count);
+            _sortedRowKeys = _rows.Keys.OrderBy(k => k).ToList();
+            _sortedRowKeysInvalid = false;
+            return _sortedRowKeys;
+        }
+    }
+
+    /// <summary>
+    /// Invalidates sorted row keys cache (call after insert/delete).
+    /// </summary>
+    private void InvalidateSortedRowKeysCache()
+    {
+        _sortedRowKeysInvalid = true;
     }
 
     public IReadOnlyList<IReadOnlyDictionary<string, object?>> GetAllRows()
     {
-        return _rows.Values.ToList();
+        // PERFORMANCE FIX: Use cached sorted keys instead of re-sorting on every call
+        var sortedKeys = GetSortedRowKeys();
+        var result = new List<IReadOnlyDictionary<string, object?>>(sortedKeys.Count);
+
+        foreach (var key in sortedKeys)
+        {
+            if (_rows.TryGetValue(key, out var row))
+            {
+                result.Add(row);
+            }
+        }
+
+        return result;
     }
 
     public int GetRowCount()

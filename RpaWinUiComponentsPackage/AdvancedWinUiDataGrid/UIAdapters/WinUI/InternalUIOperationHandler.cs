@@ -129,14 +129,38 @@ internal sealed class InternalUIOperationHandler : IDisposable
             // This is CRITICAL - without this, ViewModel changes are lost during full reload
             if (!cell.IsSpecialColumn)
             {
-                _logger.LogInformation("Cell edit completed: row {RowIndex}, column {ColumnName}, value '{Value}' - syncing to backend",
-                    cell.RowIndex, cell.ColumnName, cell.Value);
+                _logger.LogInformation("Cell edit completed: row {RowIndex}, rowId {RowId}, column {ColumnName}, value '{Value}' - syncing to backend",
+                    cell.RowIndex, cell.RowId, cell.ColumnName, cell.Value);
 
                 try
                 {
-                    // Use Editing API to update cell value in backend storage
+                    // CRITICAL FIX: Use rowId to find current row index (protects against row shifting during concurrent delete operations)
+                    // Between cell edit start and completion, rows may have been deleted/shifted → rowIndex may be stale
+                    int currentRowIndex = cell.RowIndex;
+
+                    if (!string.IsNullOrEmpty(cell.RowId))
+                    {
+                        // Find current row index by rowId in ViewModel
+                        var rowViewModel = _uiControl.ViewModel.Rows.FirstOrDefault(r => r.RowId == cell.RowId);
+                        if (rowViewModel != null)
+                        {
+                            currentRowIndex = _uiControl.ViewModel.Rows.IndexOf(rowViewModel);
+                            if (currentRowIndex != cell.RowIndex)
+                            {
+                                _logger.LogInformation("Row index shifted during edit: original={Original}, current={Current}, rowId={RowId}",
+                                    cell.RowIndex, currentRowIndex, cell.RowId);
+                            }
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Row with rowId {RowId} not found in ViewModel - row may have been deleted during edit", cell.RowId);
+                            return; // Row was deleted, skip update
+                        }
+                    }
+
+                    // Use Editing API to update cell value in backend storage with CURRENT row index
                     var updateResult = await _facade.Editing.UpdateCellAsync(
-                        cell.RowIndex,
+                        currentRowIndex,
                         cell.ColumnName,
                         cell.Value,
                         CancellationToken.None
@@ -145,12 +169,12 @@ internal sealed class InternalUIOperationHandler : IDisposable
                     if (updateResult.IsSuccess)
                     {
                         _logger.LogDebug("Cell value synced to backend successfully: row {RowIndex}, column {ColumnName}",
-                            cell.RowIndex, cell.ColumnName);
+                            currentRowIndex, cell.ColumnName);
                     }
                     else
                     {
                         _logger.LogError("Failed to sync cell value to backend: row {RowIndex}, column {ColumnName}, error: {Error}",
-                            cell.RowIndex, cell.ColumnName, updateResult.ErrorMessage);
+                            currentRowIndex, cell.ColumnName, updateResult.ErrorMessage);
                         // Continue anyway - auto-expand still needs to run
                     }
                 }

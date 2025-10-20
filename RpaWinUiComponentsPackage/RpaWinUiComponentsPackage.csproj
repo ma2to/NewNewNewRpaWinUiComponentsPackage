@@ -62,7 +62,7 @@
   <!-- Dependencies - Minimal as per newProject.md -->
   <ItemGroup>
     <!-- WinUI3 support with private assets -->
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.10" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.250916003" IncludeAssets="all" PrivateAssets="none" GeneratePathProperty="true" />
     
     <!-- Logging abstractions only -->

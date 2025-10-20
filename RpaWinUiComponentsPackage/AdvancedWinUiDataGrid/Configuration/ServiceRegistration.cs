@@ -94,6 +94,11 @@ internal static class ServiceRegistration
         services.AddScoped<Shortcuts.IDataGridShortcuts, Shortcuts.DataGridShortcuts>();
         services.AddScoped<MVVM.IDataGridMVVM, MVVM.DataGridMVVM>();
         services.AddScoped<SmartOperations.IDataGridSmartOperations, SmartOperations.DataGridSmartOperations>();
+        services.AddScoped<Environments.IEnvironmentConfiguration, Environments.EnvironmentConfiguration>();
+
+        // Register NEW comprehensive color/theme facades (BOD 4-7)
+        services.AddScoped<IDataGridColors, DataGridColors>();
+        services.AddScoped<IDataGridTheme, DataGridTheme>();
 
         return services;
     }
@@ -130,12 +135,30 @@ internal static class ServiceRegistration
             // This enables InternalUIUpdateHandler to access the ViewModel and auto-update UI
             if (options.OperationMode == PublicDataGridOperationMode.Interactive)
             {
+                // Register ThemeManager with ColorManagementService integration
+                services.TryAddSingleton(sp =>
+                {
+                    var logger = sp.GetService<ILogger<ViewModels.ThemeManager>>();
+                    var themeManager = new ViewModels.ThemeManager(logger);
+
+                    // Wire up ColorManagementService events if available
+                    var colorService = sp.GetService<Features.Color.ColorManagementService>();
+                    if (colorService != null)
+                    {
+                        colorService.ThemeChanged += themeManager.OnColorServiceThemeChanged;
+                        logger?.LogInformation("ThemeManager subscribed to ColorManagementService events");
+                    }
+
+                    return themeManager;
+                });
+
                 // Register shared ViewModel (singleton - one ViewModel per facade instance)
                 services.TryAddSingleton(sp =>
                 {
                     var dispatcher = sp.GetRequiredService<Microsoft.UI.Dispatching.DispatcherQueue>();
                     var logger = sp.GetService<ILogger<ViewModels.DataGridViewModel>>();
-                    return new ViewModels.DataGridViewModel(logger, dispatcher);
+                    var themeManager = sp.GetService<ViewModels.ThemeManager>();
+                    return new ViewModels.DataGridViewModel(logger, dispatcher, themeManager);
                 });
 
                 // Register UI control (singleton - one UI control per facade instance)

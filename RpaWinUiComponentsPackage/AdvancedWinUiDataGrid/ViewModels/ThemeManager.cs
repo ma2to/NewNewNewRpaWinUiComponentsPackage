@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.UI;
 using Microsoft.UI.Xaml.Media;
 using Windows.UI;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.ViewModels;
 
@@ -35,6 +36,24 @@ public sealed class ThemeManager : ViewModelBase
     {
         _logger = logger;
         _logger?.LogInformation("ThemeManager created with default theme");
+    }
+
+    /// <summary>
+    /// Event handler for ColorManagementService theme changes.
+    /// Converts comprehensive theme to public theme and applies it.
+    /// This should be wired up externally via event subscription.
+    /// </summary>
+    internal void OnColorServiceThemeChanged(object? sender, ComprehensiveColorTheme comprehensiveTheme)
+    {
+        try
+        {
+            _logger?.LogDebug("ColorManagementService theme changed, updating UI theme");
+            ApplyComprehensiveTheme(comprehensiveTheme);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error applying comprehensive theme from ColorManagementService");
+        }
     }
 
     /// <summary>
@@ -288,5 +307,108 @@ public sealed class ThemeManager : ViewModelBase
         OnPropertyChanged(nameof(FocusedCellBorder));
 
         ThemeChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Applies a comprehensive color theme from the new color API.
+    /// Converts ComprehensiveColorTheme to PublicGridTheme and applies it.
+    /// </summary>
+    /// <param name="comprehensiveTheme">The comprehensive theme to apply</param>
+    /// <exception cref="ArgumentNullException">Thrown when comprehensiveTheme is null</exception>
+    public void ApplyComprehensiveTheme(ComprehensiveColorTheme comprehensiveTheme)
+    {
+        if (comprehensiveTheme == null) throw new ArgumentNullException(nameof(comprehensiveTheme));
+
+        _logger?.LogInformation("Converting and applying comprehensive theme: {ThemeName}", comprehensiveTheme.Name);
+
+        var publicTheme = ConvertToPublicGridTheme(comprehensiveTheme);
+        ApplyTheme(publicTheme);
+
+        _logger?.LogInformation("Comprehensive theme applied successfully: {ThemeName}", comprehensiveTheme.Name);
+    }
+
+    /// <summary>
+    /// Converts ComprehensiveColorTheme to PublicGridTheme.
+    /// Maps the comprehensive state-based colors to the existing theme model.
+    /// </summary>
+    /// <param name="source">Source comprehensive theme</param>
+    /// <returns>Converted PublicGridTheme</returns>
+    private PublicGridTheme ConvertToPublicGridTheme(ComprehensiveColorTheme source)
+    {
+        return new PublicGridTheme
+        {
+            ThemeName = source.Name,
+
+            // Map cell colors
+            CellColors = new PublicCellColors
+            {
+                DefaultBackground = source.CellColors.Normal.Background ?? "#FFFFFF",
+                DefaultForeground = source.CellColors.Normal.Foreground ?? "#000000",
+                HoverBackground = source.CellColors.Hover.Background ?? "#F5F5F5",
+                HoverForeground = source.CellColors.Hover.Foreground ?? "#000000",
+                FocusedBackground = source.CellColors.Focused.Background ?? "#E3F2FD",
+                FocusedForeground = source.CellColors.Focused.Foreground ?? "#000000",
+                DisabledBackground = source.CellColors.Disabled.Background ?? "#F0F0F0",
+                DisabledForeground = source.CellColors.Disabled.Foreground ?? "#A0A0A0",
+                ReadOnlyBackground = source.CellColors.ReadOnly.Background ?? "#FAFAFA",
+                ReadOnlyForeground = source.CellColors.ReadOnly.Foreground ?? "#000000"
+            },
+
+            // Map row colors
+            RowColors = new PublicRowColors
+            {
+                EvenRowBackground = source.RowColors.Normal.Background ?? "#FFFFFF",
+                OddRowBackground = source.RowColors.Alternate?.Background ?? "#F9F9F9",
+                HoverBackground = source.RowColors.Hover.Background ?? "#F0F0F0",
+                SelectedBackground = source.RowColors.Selected.Background ?? "#0078D4",
+                SelectedForeground = source.RowColors.Selected.Foreground ?? "#FFFFFF",
+                SelectedInactiveBackground = source.RowColors.SelectedInactive?.Background ?? "#CCCCCC",
+                SelectedInactiveForeground = source.RowColors.SelectedInactive?.Foreground ?? "#000000"
+            },
+
+            // Map header colors
+            HeaderColors = new PublicHeaderColors
+            {
+                Background = source.HeaderColors.Normal.Background ?? "#F5F5F5",
+                Foreground = source.HeaderColors.Normal.Foreground ?? "#000000",
+                HoverBackground = source.HeaderColors.Hover.Background ?? "#E0E0E0",
+                PressedBackground = source.HeaderColors.Pressed.Background ?? "#D0D0D0",
+                SortIndicatorColor = source.HeaderColors.Selected.Background ?? "#0078D4"
+            },
+
+            // Map validation colors from cell states
+            ValidationColors = new PublicValidationColors
+            {
+                ErrorBackground = source.CellColors.Error.Background ?? "#FFEBEE",
+                ErrorForeground = source.CellColors.Error.Foreground ?? "#D32F2F",
+                ErrorBorder = source.CellColors.Error.Border ?? "#F44336",
+                WarningBackground = source.CellColors.Warning.Background ?? "#FFF3E0",
+                WarningForeground = source.CellColors.Warning.Foreground ?? "#F57C00",
+                WarningBorder = source.CellColors.Warning.Border ?? "#FF9800",
+                // Use Success colors for Info (no dedicated Info state in CellElementColors)
+                InfoBackground = source.CellColors.Success.Background ?? "#E3F2FD",
+                InfoForeground = source.CellColors.Success.Foreground ?? "#1976D2",
+                InfoBorder = source.CellColors.Success.Border ?? "#2196F3"
+            },
+
+            // Map selection colors from cell/row selected states
+            SelectionColors = new PublicSelectionColors
+            {
+                SelectionBorder = source.CellColors.Selected.Border ?? "#0078D4",
+                SelectionFill = source.CellColors.Selected.Background ?? "#0078D433",
+                MultiSelectionBackground = source.RowColors.Selected.Background ?? "#CCE5FF",
+                MultiSelectionForeground = source.RowColors.Selected.Foreground ?? "#000000"
+            },
+
+            // Map border colors from grid/cell borders
+            BorderColors = new PublicBorderColors
+            {
+                CellBorder = source.CellColors.Normal.Border ?? "#E0E0E0",
+                RowBorder = source.RowColors.Normal.Border ?? "#E0E0E0",
+                ColumnBorder = source.HeaderColors.Normal.Border ?? "#E0E0E0",
+                GridBorder = source.GridColors.Normal.Border ?? "#CCCCCC",
+                FocusedCellBorder = source.CellColors.Focused.Border ?? "#0078D4"
+            }
+        };
     }
 }

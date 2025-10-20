@@ -256,6 +256,29 @@ internal sealed class ImportService : IImportService
         if (!Enum.IsDefined(typeof(ImportMode), command.Mode))
             errors.Add($"Invalid import mode: {command.Mode}");
 
+        // CRITICAL: Validate that __rowId is not used as a column name (reserved for internal use)
+        if (command.DataTableData != null)
+        {
+            foreach (DataColumn column in command.DataTableData.Columns)
+            {
+                if (column.ColumnName == "__rowId")
+                {
+                    errors.Add("Column name '__rowId' is reserved for internal use and cannot be used as a data column. " +
+                        "Please use a different column name (e.g., 'rowId', 'RowId', 'row_id').");
+                    break;
+                }
+            }
+        }
+        else if (command.DictionaryData != null)
+        {
+            var firstRow = command.DictionaryData.FirstOrDefault();
+            if (firstRow != null && firstRow.ContainsKey("__rowId"))
+            {
+                errors.Add("Column name '__rowId' is reserved for internal use and cannot be used as a data column. " +
+                    "Please use a different column name (e.g., 'rowId', 'RowId', 'row_id').");
+            }
+        }
+
         // Additional validation can be added here if needed
 
         // Additional async validations can be added here

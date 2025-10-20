@@ -267,5 +267,11 @@ public enum SpecialColumnType
     DeleteRow,
 
     /// <summary>Validation alerts column</summary>
-    ValidationAlerts
+    ValidationAlerts,
+
+    /// <summary>
+    /// Internal row ID column (__rowId) - never displayed in UI, used only for internal tracking.
+    /// If user data contains __rowId column, it will be classified as this type and hidden.
+    /// </summary>
+    InternalRowId
 }

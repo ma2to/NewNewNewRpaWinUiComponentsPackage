@@ -40,8 +40,12 @@ public sealed class HeadersRowView : UserControl
         // Create Grid for headers with columns matching DataGridViewModel
         _headersGrid = new Grid
         {
-            Padding = new Thickness(8, 4, 8, 4)
+            Padding = new Thickness(8, 4, 8, 4),
+            ManipulationMode = ManipulationModes.TranslateX // CRITICAL: Enable manipulation for resize grips
         };
+
+        // CRITICAL: Enable manipulation on UserControl to allow events from ResizeGripControl to bubble up
+        this.ManipulationMode = ManipulationModes.TranslateX;
 
         // Initialize column definitions
         RebuildColumnDefinitions();

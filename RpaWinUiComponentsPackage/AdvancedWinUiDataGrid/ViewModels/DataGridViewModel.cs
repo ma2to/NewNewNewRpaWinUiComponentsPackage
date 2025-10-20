@@ -44,7 +44,7 @@ public sealed class DataGridViewModel : ViewModelBase
     /// <summary>
     /// Theme manager that controls all colors in the grid (cells, headers, validation, etc.)
     /// </summary>
-    public ThemeManager Theme { get; } = new();
+    public ThemeManager Theme { get; }
 
     /// <summary>
     /// Collection of column headers (one per column in the grid)
@@ -63,10 +63,15 @@ public sealed class DataGridViewModel : ViewModelBase
     /// </summary>
     /// <param name="logger">Optional logger for diagnostics and troubleshooting</param>
     /// <param name="dispatcherQueue">Optional DispatcherQueue for UI thread marshalling (required for resize operations)</param>
-    public DataGridViewModel(ILogger<DataGridViewModel>? logger = null, Microsoft.UI.Dispatching.DispatcherQueue? dispatcherQueue = null)
+    /// <param name="themeManager">Optional theme manager for color management (if not provided, creates default instance)</param>
+    public DataGridViewModel(
+        ILogger<DataGridViewModel>? logger = null,
+        Microsoft.UI.Dispatching.DispatcherQueue? dispatcherQueue = null,
+        ThemeManager? themeManager = null)
     {
         _logger = logger;
         _dispatcherQueue = dispatcherQueue;
+        Theme = themeManager ?? new ThemeManager(logger: null); // Fallback to default if not provided
         _logger?.LogInformation("DataGridViewModel created");
     }
 
@@ -137,7 +142,18 @@ public sealed class DataGridViewModel : ViewModelBase
     /// <param name="options">Grid options containing special column configuration (optional)</param>
     public void InitializeColumns(IEnumerable<string> columnNames, AdvancedDataGridOptions? options = null)
     {
-        var columnList = columnNames.ToList();
+        // CRITICAL: Filter out __rowId (double underscore prefix) - internal implementation detail
+        // User columns named "rowId" or "RowId" (without __ prefix) are treated as normal data columns
+        // Note: __rowId is added automatically by the internal system and must be hidden from UI
+        var allColumns = columnNames.ToList();
+        var hasInternalRowId = allColumns.Contains("__rowId");
+        var columnList = allColumns.Where(c => c != "__rowId").ToList();
+
+        if (hasInternalRowId)
+        {
+            _logger?.LogDebug("Internal __rowId column detected and filtered from UI display (expected system behavior)");
+        }
+
         _logger?.LogInformation("Initializing {Count} data columns with special columns support", columnList.Count);
 
         // MEMORY LEAK FIX: Unsubscribe old event handlers BEFORE clearing collections
@@ -433,7 +449,8 @@ public sealed class DataGridViewModel : ViewModelBase
             // Create a new row view model
             var rowVm = new DataGridRowViewModel
             {
-                RowIndex = rowIndex
+                RowIndex = rowIndex,
+                RowId = rowId // CRITICAL: Store stable row ID for row-based operations
             };
 
             // Create a cell for each column (special + data)
@@ -712,22 +729,24 @@ public sealed class DataGridViewModel : ViewModelBase
 
             var rowVm = Rows[rowIndex];
 
+            // CRITICAL FIX: Update rowId FIRST (before cell values)
+            // This ensures RowViewModel.RowId is synchronized with backend after delete/shift operations
+            if (newRowData.TryGetValue("__rowId", out var newRowId))
+            {
+                var rowIdStr = newRowId?.ToString();
+                rowVm.RowId = rowIdStr; // Update RowViewModel RowId
+                foreach (var cell in rowVm.Cells)
+                {
+                    cell.RowId = rowIdStr; // Update Cell RowId
+                }
+            }
+
             // Update cell values for data columns (skip special columns)
             foreach (var cell in rowVm.Cells.Where(c => c.SpecialType == SpecialColumnType.None))
             {
                 if (newRowData.TryGetValue(cell.ColumnName, out var newValue))
                 {
                     cell.Value = newValue;
-                }
-            }
-
-            // Update rowId if changed
-            if (newRowData.TryGetValue("__rowId", out var newRowId))
-            {
-                var rowIdStr = newRowId?.ToString();
-                foreach (var cell in rowVm.Cells)
-                {
-                    cell.RowId = rowIdStr;
                 }
             }
         }

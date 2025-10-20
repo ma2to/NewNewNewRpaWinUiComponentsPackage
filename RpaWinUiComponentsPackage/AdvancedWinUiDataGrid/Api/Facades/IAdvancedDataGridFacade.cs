@@ -107,6 +107,21 @@ public interface IAdvancedDataGridFacade : IAsyncDisposable
     /// </summary>
     SmartOperations.IDataGridSmartOperations SmartOperations { get; }
 
+    /// <summary>
+    /// Environment configuration management (application-level settings)
+    /// </summary>
+    Environments.IEnvironmentConfiguration Environment { get; }
+
+    /// <summary>
+    /// Direct color management (BOD 4+6: Granular color control without themes)
+    /// </summary>
+    IDataGridColors Colors { get; }
+
+    /// <summary>
+    /// Comprehensive theme management (BOD 5+7: Theme creation, import/export, application)
+    /// </summary>
+    IDataGridTheme Theme { get; }
+
     #endregion
 
     #region UI Control Access

@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git commit -m \"Add Hybrid SQLite Migration documentation\n\n- docu_MasterIndex.md: Master index and project overview\n- docu_HybridSQLiteArchitecture.md: Core hybrid architecture design\n- docu_DatabaseManagement.md: Database lifecycle management\n- docu_SortFilterSearchIntegration.md: SQL integration for Filter/Sort/Search\n- docu_AddRowModalSpecification.md: Add Row modal dialog specification\n- docu_ImplementationRoadmap.md: Complete implementation roadmap (25-33 days)\n\nThis commit adds comprehensive documentation for migrating from pure in-memory\nto hybrid SQLite model, supporting 10M+ rows with 15-40x performance improvement.\")"
+      "Bash(git commit -m \"Add Hybrid SQLite Migration documentation\n\n- docu_MasterIndex.md: Master index and project overview\n- docu_HybridSQLiteArchitecture.md: Core hybrid architecture design\n- docu_DatabaseManagement.md: Database lifecycle management\n- docu_SortFilterSearchIntegration.md: SQL integration for Filter/Sort/Search\n- docu_AddRowModalSpecification.md: Add Row modal dialog specification\n- docu_ImplementationRoadmap.md: Complete implementation roadmap (25-33 days)\n\nThis commit adds comprehensive documentation for migrating from pure in-memory\nto hybrid SQLite model, supporting 10M+ rows with 15-40x performance improvement.\")",
+      "Bash(Select-String -Pattern \"Build succeeded|Build FAILED|error CS|warning CS\")"
     ],
     "deny": [],
     "ask": []
