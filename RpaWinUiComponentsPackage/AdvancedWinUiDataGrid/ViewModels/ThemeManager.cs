@@ -17,10 +17,43 @@ public sealed class ThemeManager : ViewModelBase
     private PublicGridTheme _currentTheme = new();
 
     /// <summary>
-    /// Event fired when the theme changes.
-    /// UI elements should subscribe to this to refresh their appearance.
+    /// Adds theme changed event handler using WeakEventManager.
+    /// Prevents memory leaks - handler can be GC'd even without explicit removal.
     /// </summary>
-    public event EventHandler? ThemeChanged;
+    /// <param name="handler">Event handler to add</param>
+    public void AddThemeChangedHandler(EventHandler<EventArgs> handler)
+    {
+        Features.Optimization.WeakEventManager<ThemeManager, EventArgs>.AddHandler(
+            this,
+            nameof(ThemeChanged),
+            handler);
+    }
+
+    /// <summary>
+    /// Removes theme changed event handler.
+    /// </summary>
+    /// <param name="handler">Event handler to remove</param>
+    public void RemoveThemeChangedHandler(EventHandler<EventArgs> handler)
+    {
+        Features.Optimization.WeakEventManager<ThemeManager, EventArgs>.RemoveHandler(
+            this,
+            nameof(ThemeChanged),
+            handler);
+    }
+
+    /// <summary>
+    /// Raises theme changed event to all subscribers.
+    /// Uses WeakEventManager to prevent memory leaks.
+    /// </summary>
+    private void RaiseThemeChanged()
+    {
+        Features.Optimization.WeakEventManager<ThemeManager, EventArgs>.RaiseEvent(
+            this,
+            EventArgs.Empty);
+    }
+
+    // Backward compatibility property (for code that checks event != null)
+    private const string ThemeChanged = "ThemeChanged";
 
     /// <summary>
     /// Gets or sets the grid options for accessing checkbox styling and other configuration.
@@ -68,7 +101,7 @@ public sealed class ThemeManager : ViewModelBase
             if (SetProperty(ref _currentTheme, value))
             {
                 _logger?.LogInformation("Theme changed to: {ThemeName}", value.ThemeName ?? "unnamed");
-                ThemeChanged?.Invoke(this, EventArgs.Empty);
+                RaiseThemeChanged();
             }
         }
     }
@@ -115,14 +148,15 @@ public sealed class ThemeManager : ViewModelBase
     public SolidColorBrush SelectedRowForeground => ParseColor(_currentTheme.RowColors.SelectedForeground);
 
     /// <summary>
-    /// Parses hex color string to SolidColorBrush
+    /// Parses hex color string to SolidColorBrush using BrushPool for deduplication.
     /// Supports formats: #RGB, #RRGGBB, #AARRGGBB
+    /// Memory optimization: Colors with same value share single brush instance.
     /// </summary>
     private SolidColorBrush ParseColor(string hexColor)
     {
         if (string.IsNullOrWhiteSpace(hexColor) || !hexColor.StartsWith("#"))
         {
-            return new SolidColorBrush(Colors.Transparent);
+            return Features.Optimization.BrushPool.GetBrush(Colors.Transparent);
         }
 
         try
@@ -152,12 +186,13 @@ public sealed class ThemeManager : ViewModelBase
                 b = Convert.ToByte(hex.Substring(6, 2), 16);
             }
 
-            return new SolidColorBrush(Color.FromArgb(a, r, g, b));
+            // Use BrushPool for deduplication (memory optimization)
+            return Features.Optimization.BrushPool.GetBrush(Color.FromArgb(a, r, g, b));
         }
         catch
         {
             // Fallback to transparent if parsing fails
-            return new SolidColorBrush(Colors.Transparent);
+            return Features.Optimization.BrushPool.GetBrush(Colors.Transparent);
         }
     }
 
@@ -306,7 +341,7 @@ public sealed class ThemeManager : ViewModelBase
         OnPropertyChanged(nameof(GridBorder));
         OnPropertyChanged(nameof(FocusedCellBorder));
 
-        ThemeChanged?.Invoke(this, EventArgs.Empty);
+        RaiseThemeChanged();
     }
 
     /// <summary>

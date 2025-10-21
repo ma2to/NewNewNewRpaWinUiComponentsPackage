@@ -22,6 +22,7 @@ public sealed class HeadersRowView : UserControl
     private readonly DataGridViewModel _viewModel;
     private ColumnHeaderViewModel? _resizingColumn; // Column currently being resized
     private double _resizeStartWidth; // Original width when resize started
+    private double _resizeStartX; // SENIOR FIX: Starting X position for pointer-based resize
     private Border? _resizePreviewLine; // Visual preview line during resize
 
     private readonly Grid _headersGrid;
@@ -40,12 +41,11 @@ public sealed class HeadersRowView : UserControl
         // Create Grid for headers with columns matching DataGridViewModel
         _headersGrid = new Grid
         {
-            Padding = new Thickness(8, 4, 8, 4),
-            ManipulationMode = ManipulationModes.TranslateX // CRITICAL: Enable manipulation for resize grips
+            Padding = new Thickness(8, 4, 8, 4)
+            // SENIOR FIX: Removed ManipulationMode - using PointerEvents instead for WinUI 3 compatibility
         };
 
-        // CRITICAL: Enable manipulation on UserControl to allow events from ResizeGripControl to bubble up
-        this.ManipulationMode = ManipulationModes.TranslateX;
+        // SENIOR FIX: No manipulation mode needed on UserControl - using pointer events
 
         // Initialize column definitions
         RebuildColumnDefinitions();
@@ -78,6 +78,7 @@ public sealed class HeadersRowView : UserControl
         _viewModel.ColumnHeaders.CollectionChanged -= OnColumnHeadersCollectionChanged;
 
         // Clean up resize grips event handlers
+        // SENIOR FIX: Updated to unsubscribe PointerEvents instead of ManipulationEvents
         foreach (var child in _headersGrid.Children)
         {
             if (child is Grid cellGrid)
@@ -86,9 +87,10 @@ public sealed class HeadersRowView : UserControl
                 {
                     if (innerChild is ResizeGripControl resizeGrip)
                     {
-                        resizeGrip.ManipulationStarted -= OnResizeGripManipulationStarted;
-                        resizeGrip.ManipulationDelta -= OnResizeGripManipulationDelta;
-                        resizeGrip.ManipulationCompleted -= OnResizeGripManipulationCompleted;
+                        resizeGrip.PointerPressed -= OnResizeGripPointerPressed;
+                        resizeGrip.PointerMoved -= OnResizeGripPointerMoved;
+                        resizeGrip.PointerReleased -= OnResizeGripPointerReleased;
+                        resizeGrip.PointerCaptureLost -= OnResizeGripPointerReleased;
                     }
                 }
             }
@@ -233,14 +235,16 @@ public sealed class HeadersRowView : UserControl
         var resizeGrip = new ResizeGripControl
         {
             DataContext = header
-            // Width, Background, ManipulationMode, and ProtectedCursor are set in constructor
+            // Width, Background, and ProtectedCursor are set in constructor
             // Cursor will change to resize arrows (<->) when hovering over grip
         };
         Grid.SetColumn(resizeGrip, 1);
 
-        resizeGrip.ManipulationStarted += OnResizeGripManipulationStarted;
-        resizeGrip.ManipulationDelta += OnResizeGripManipulationDelta;
-        resizeGrip.ManipulationCompleted += OnResizeGripManipulationCompleted;
+        // SENIOR FIX: Use PointerEvents instead of ManipulationEvents for WinUI 3 compatibility
+        resizeGrip.PointerPressed += OnResizeGripPointerPressed;
+        resizeGrip.PointerMoved += OnResizeGripPointerMoved;
+        resizeGrip.PointerReleased += OnResizeGripPointerReleased;
+        resizeGrip.PointerCaptureLost += OnResizeGripPointerReleased; // Handle lost capture same as release
 
         // Add both to cell grid
         cellGrid.Children.Add(border);
@@ -249,20 +253,25 @@ public sealed class HeadersRowView : UserControl
         return cellGrid;
     }
 
-    private void OnResizeGripManipulationStarted(object sender, ManipulationStartedRoutedEventArgs e)
+    // SENIOR FIX: Replaced ManipulationEvents with PointerEvents for reliable WinUI 3 behavior
+    private void OnResizeGripPointerPressed(object sender, PointerRoutedEventArgs e)
     {
         if (sender is ResizeGripControl grip && grip.DataContext is ColumnHeaderViewModel column)
         {
             _resizingColumn = column;
             _resizeStartWidth = column.Width;
+            _resizeStartX = e.GetCurrentPoint(grip).Position.X;
             column.IsResizing = true;
+
+            // Capture pointer to continue receiving events even if pointer moves outside grip
+            grip.CapturePointer(e.Pointer);
 
             // Create visual preview line
             _resizePreviewLine = new Border
             {
                 Width = 2,
                 Background = new SolidColorBrush(Colors.Blue),
-                Opacity = 0.5,
+                Opacity = 0.6,
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Stretch
             };
@@ -272,14 +281,19 @@ public sealed class HeadersRowView : UserControl
             {
                 parentPanel.Children.Add(_resizePreviewLine);
             }
+
+            e.Handled = true;
         }
     }
 
-    private void OnResizeGripManipulationDelta(object sender, ManipulationDeltaRoutedEventArgs e)
+    private void OnResizeGripPointerMoved(object sender, PointerRoutedEventArgs e)
     {
-        if (_resizingColumn != null)
+        if (_resizingColumn != null && sender is ResizeGripControl grip)
         {
-            var newWidth = _resizeStartWidth + e.Cumulative.Translation.X;
+            var currentX = e.GetCurrentPoint(grip).Position.X;
+            var delta = currentX - _resizeStartX;
+            var newWidth = _resizeStartWidth + delta;
+
             if (newWidth >= 50) // Minimum column width
             {
                 // Update preview line position (visual feedback)
@@ -287,7 +301,7 @@ public sealed class HeadersRowView : UserControl
                 {
                     var translateTransform = new TranslateTransform
                     {
-                        X = e.Cumulative.Translation.X
+                        X = delta
                     };
                     _resizePreviewLine.RenderTransform = translateTransform;
                 }
@@ -295,15 +309,23 @@ public sealed class HeadersRowView : UserControl
                 // Update actual width (this fires ColumnDefinitionsChanged event)
                 _resizingColumn.Width = newWidth;
             }
+
+            e.Handled = true;
         }
     }
 
-    private void OnResizeGripManipulationCompleted(object sender, ManipulationCompletedRoutedEventArgs e)
+    private void OnResizeGripPointerReleased(object sender, PointerRoutedEventArgs e)
     {
         if (_resizingColumn != null)
         {
             _resizingColumn.IsResizing = false;
             _resizingColumn = null;
+
+            // Release pointer capture
+            if (sender is ResizeGripControl grip)
+            {
+                grip.ReleasePointerCapture(e.Pointer);
+            }
 
             // Remove preview line
             if (_resizePreviewLine != null && this.Parent is Panel parentPanel)
@@ -311,6 +333,8 @@ public sealed class HeadersRowView : UserControl
                 parentPanel.Children.Remove(_resizePreviewLine);
                 _resizePreviewLine = null;
             }
+
+            e.Handled = true;
         }
     }
 

@@ -44,11 +44,11 @@ internal sealed class ResizeGripControl : Control
 
         // Set default appearance
         // CRITICAL: Width must be wide enough for easy grabbing, Background must be non-null for hit testing
-        // VISIBILITY FIX: Increased width to 16px and changed to semi-transparent gray for better visibility
-        this.Width = 16;
-        this.MinWidth = 16;
-        this.Background = new SolidColorBrush(Microsoft.UI.Colors.LightGray) { Opacity = 0.3 };
-        this.ManipulationMode = ManipulationModes.TranslateX;
+        // SENIOR FIX: Changed to 4px (standard resize grip width) - 16px was too wide and intrusive
+        this.Width = 4;
+        this.MinWidth = 4;
+        this.Background = new SolidColorBrush(Microsoft.UI.Colors.LightGray) { Opacity = 0.4 };
+        // SENIOR FIX: Removed ManipulationMode - using PointerEvents in HeadersRowView instead
 
         // Make it stretch vertically
         this.VerticalAlignment = VerticalAlignment.Stretch;
@@ -62,16 +62,16 @@ internal sealed class ResizeGripControl : Control
             {
                 this.ProtectedCursor = _resizeCursor;
             }
-            // VISIBILITY FIX: Make resize grip more visible on hover
-            this.Background = new SolidColorBrush(Microsoft.UI.Colors.Blue) { Opacity = 0.5 };
+            // SENIOR FIX: Increased hover opacity for better visibility (grip is now 4px)
+            this.Background = new SolidColorBrush(Microsoft.UI.Colors.Blue) { Opacity = 0.7 };
         };
 
         this.PointerExited += (s, e) =>
         {
             // Reset to default cursor
             this.ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.Arrow);
-            // Reset to semi-transparent appearance
-            this.Background = new SolidColorBrush(Microsoft.UI.Colors.LightGray) { Opacity = 0.3 };
+            // SENIOR FIX: Slightly higher opacity for better default visibility
+            this.Background = new SolidColorBrush(Microsoft.UI.Colors.LightGray) { Opacity = 0.4 };
         };
     }
 }

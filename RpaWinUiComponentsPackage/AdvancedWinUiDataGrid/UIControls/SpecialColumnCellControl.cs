@@ -21,6 +21,10 @@ internal sealed class SpecialColumnCellControl : UserControl
     private DateTime _lastDeleteClick = DateTime.MinValue;
     private const int DELETE_DEBOUNCE_MS = 300; // 300ms debounce
 
+    // DEBOUNCE FIX: Prevent rapid-fire insert clicks
+    private DateTime _lastInsertClick = DateTime.MinValue;
+    private const int INSERT_DEBOUNCE_MS = 300; // 300ms debounce
+
     /// <summary>
     /// Event fired when row selection changes via checkbox (rowIndex, isSelected)
     /// </summary>
@@ -30,6 +34,11 @@ internal sealed class SpecialColumnCellControl : UserControl
     /// Event fired when delete row button is clicked (contains both rowIndex and rowId)
     /// </summary>
     public event EventHandler<DeleteRowRequestedEventArgs>? OnDeleteRowRequested;
+
+    /// <summary>
+    /// Event fired when insert row button is clicked (contains both rowIndex and rowId)
+    /// </summary>
+    public event EventHandler<InsertRowRequestedEventArgs>? OnInsertRowRequested;
 
     public SpecialColumnCellControl(CellViewModel viewModel)
     {
@@ -45,6 +54,7 @@ internal sealed class SpecialColumnCellControl : UserControl
             SpecialColumnType.Checkbox => CreateCheckboxControl(),
             SpecialColumnType.ValidationAlerts => CreateValidationAlertsControl(),
             SpecialColumnType.DeleteRow => CreateDeleteRowControl(),
+            SpecialColumnType.InsertRow => CreateInsertRowControl(),
             _ => new TextBlock { Text = "?", HorizontalAlignment = HorizontalAlignment.Center }
         };
     }
@@ -253,6 +263,56 @@ internal sealed class SpecialColumnCellControl : UserControl
             _lastDeleteClick = now;
 
             OnDeleteRowRequested?.Invoke(this, new DeleteRowRequestedEventArgs(_viewModel.RowIndex, _viewModel.RowId));
+        };
+
+        var border = new Border
+        {
+            Child = button,
+            Background = _viewModel.Theme?.CellDefaultBackground ?? new SolidColorBrush(Colors.White),
+            BorderBrush = _viewModel.Theme?.CellBorder ?? new SolidColorBrush(Colors.LightGray),
+            BorderThickness = new Thickness(0, 0, 1, 1),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Padding = new Thickness(1)
+        };
+
+        return border;
+    }
+
+    #endregion
+
+    #region InsertRow Column
+
+    /// <summary>
+    /// Creates insert row button (fires OnInsertRowRequested event)
+    /// Similar to delete button but with + icon
+    /// </summary>
+    private UIElement CreateInsertRowControl()
+    {
+        var button = new Button
+        {
+            Content = "+", // Plus icon for insert
+            FontSize = 16,
+            FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+            Padding = new Thickness(4),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            MinWidth = 0,
+            MinHeight = 0
+        };
+
+        // Event: insert button clicked
+        // DEBOUNCE FIX: Prevent rapid-fire insert clicks
+        button.Click += (s, e) =>
+        {
+            var now = DateTime.Now;
+            if ((now - _lastInsertClick).TotalMilliseconds < INSERT_DEBOUNCE_MS)
+            {
+                return; // Ignore rapid clicks within 300ms window
+            }
+            _lastInsertClick = now;
+
+            OnInsertRowRequested?.Invoke(this, new InsertRowRequestedEventArgs(_viewModel.RowIndex, _viewModel.RowId));
         };
 
         var border = new Border

@@ -45,11 +45,10 @@ internal sealed class DataGridIO : IDataGridIO
             var internalResult = await _importService.ImportAsync(command.ToInternal(), cancellationToken);
             var result = internalResult.ToPublic();
 
-            // Trigger automatic UI refresh in Interactive mode
-            if (result.IsSuccess)
-            {
-                await TriggerUIRefreshIfNeededAsync("Import", result.ImportedRows);
-            }
+            // CRITICAL FIX: DO NOT trigger UI refresh here - ImportService already triggers it internally
+            // Triggering it twice causes race condition and "Loading..." state bug (double full reload)
+            // ImportService.cs:136 already calls _uiNotificationService.NotifyDataRefreshedWithMetadata()
+            // See log lines: "Firing UI refresh event" (first) -> "UI notification: Data refreshed" (duplicate)
 
             return result;
         }

@@ -10,8 +10,9 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.ViewModels;
 /// Manages cell state including value, selection, validation, and visual appearance.
 /// Automatically updates visual styling based on current state (validation error, selected, search match, etc.).
 /// Supports special column types (RowNumber, Checkbox, ValidationAlerts, DeleteRow).
+/// Implements IDisposable for proper cleanup (memory leak prevention).
 /// </summary>
-public sealed class CellViewModel : ViewModelBase
+public sealed class CellViewModel : ViewModelBase, IDisposable
 {
     private readonly ThemeManager? _themeManager;
     private object? _value;
@@ -21,14 +22,15 @@ public sealed class CellViewModel : ViewModelBase
     private bool _isValidationSuccess;
     private bool _isEditing;
     private string _validationMessage = string.Empty;
-    private SolidColorBrush _borderBrush = new(Colors.Gray);
-    private SolidColorBrush _backgroundBrush = new(Colors.White);
-    private SolidColorBrush _foregroundBrush = new(Colors.Black);
+    private SolidColorBrush _borderBrush = Features.Optimization.BrushPool.GetBrush(Colors.Gray);
+    private SolidColorBrush _backgroundBrush = Features.Optimization.BrushPool.GetBrush(Colors.White);
+    private SolidColorBrush _foregroundBrush = Features.Optimization.BrushPool.GetBrush(Colors.Black);
     private double _borderThickness = 1.0;
     private SpecialColumnType _specialType = SpecialColumnType.None;
     private bool _isReadOnly = false;
     private bool _isRowSelected = false;
     private string? _validationAlertMessage = null;
+    private bool _disposed;
 
     /// <summary>
     /// Creates a new cell view model with optional theme support.
@@ -167,31 +169,49 @@ public sealed class CellViewModel : ViewModelBase
     /// <summary>
     /// Gets or sets the border brush for this cell.
     /// This is automatically updated based on cell state (validation, selection, etc.).
+    /// DEFENSIVE: Automatically uses BrushPool for deduplication even on direct assignment.
     /// </summary>
     public SolidColorBrush BorderBrush
     {
         get => _borderBrush;
-        set => SetProperty(ref _borderBrush, value);
+        set
+        {
+            // Defensive: ensure BrushPool usage even if set directly (API safety)
+            var pooledBrush = Features.Optimization.BrushPool.GetBrush(value.Color);
+            SetProperty(ref _borderBrush, pooledBrush);
+        }
     }
 
     /// <summary>
     /// Gets or sets the background brush for this cell.
     /// This is automatically updated based on cell state (validation, selection, etc.).
+    /// DEFENSIVE: Automatically uses BrushPool for deduplication even on direct assignment.
     /// </summary>
     public SolidColorBrush BackgroundBrush
     {
         get => _backgroundBrush;
-        set => SetProperty(ref _backgroundBrush, value);
+        set
+        {
+            // Defensive: ensure BrushPool usage even if set directly (API safety)
+            var pooledBrush = Features.Optimization.BrushPool.GetBrush(value.Color);
+            SetProperty(ref _backgroundBrush, pooledBrush);
+        }
     }
 
     /// <summary>
     /// Gets or sets the foreground (text) brush for this cell.
     /// This is automatically updated based on cell state (validation, selection, etc.).
+    /// DEFENSIVE: Automatically uses BrushPool for deduplication even on direct assignment.
     /// </summary>
     public SolidColorBrush ForegroundBrush
     {
         get => _foregroundBrush;
-        set => SetProperty(ref _foregroundBrush, value);
+        set
+        {
+            // Defensive: ensure BrushPool usage even if set directly (API safety)
+            var pooledBrush = Features.Optimization.BrushPool.GetBrush(value.Color);
+            SetProperty(ref _foregroundBrush, pooledBrush);
+        }
     }
 
     /// <summary>
@@ -274,50 +294,75 @@ public sealed class CellViewModel : ViewModelBase
         // This allows distinguishing both states simultaneously
         if (IsValidationError && IsSelected)
         {
-            BorderBrush = _themeManager?.ValidationErrorBorder ?? new SolidColorBrush(Colors.Red);
-            BackgroundBrush = _themeManager?.MultiSelectionBackground ?? new SolidColorBrush(Color.FromArgb(30, 0, 120, 215)); // Selection blue
-            ForegroundBrush = _themeManager?.ValidationErrorForeground ?? new SolidColorBrush(Colors.Red);
+            BorderBrush = _themeManager?.ValidationErrorBorder ?? Features.Optimization.BrushPool.GetBrush(Colors.Red);
+            BackgroundBrush = _themeManager?.MultiSelectionBackground ?? Features.Optimization.BrushPool.GetBrush(Color.FromArgb(30, 0, 120, 215)); // Selection blue
+            ForegroundBrush = _themeManager?.ValidationErrorForeground ?? Features.Optimization.BrushPool.GetBrush(Colors.Red);
             BorderThickness = 2.0;
             return;
         }
 
         if (IsValidationError)
         {
-            BorderBrush = _themeManager?.ValidationErrorBorder ?? new SolidColorBrush(Colors.Red);
-            BackgroundBrush = _themeManager?.ValidationErrorBackground ?? new SolidColorBrush(Color.FromArgb(20, 255, 0, 0));
-            ForegroundBrush = _themeManager?.ValidationErrorForeground ?? new SolidColorBrush(Colors.Black);
+            BorderBrush = _themeManager?.ValidationErrorBorder ?? Features.Optimization.BrushPool.GetBrush(Colors.Red);
+            BackgroundBrush = _themeManager?.ValidationErrorBackground ?? Features.Optimization.BrushPool.GetBrush(Color.FromArgb(20, 255, 0, 0));
+            ForegroundBrush = _themeManager?.ValidationErrorForeground ?? Features.Optimization.BrushPool.GetBrush(Colors.Black);
             BorderThickness = 2.0;
         }
         else if (IsValidationSuccess)
         {
-            // Success uses Info colors from theme
-            BorderBrush = _themeManager?.ValidationErrorBorder ?? new SolidColorBrush(Colors.Green);
-            BackgroundBrush = _themeManager?.CellDefaultBackground ?? new SolidColorBrush(Color.FromArgb(20, 0, 255, 0));
-            ForegroundBrush = _themeManager?.CellDefaultForeground ?? new SolidColorBrush(Colors.Black);
-            BorderThickness = 2.0;
+            // CRITICAL: Validation success = DEFAULT border color (NOT green!)
+            // Success only shows as default cell appearance (validation passed = no visual change)
+            BorderBrush = _themeManager?.CellBorder ?? Features.Optimization.BrushPool.GetBrush(Colors.Gray);
+            BackgroundBrush = _themeManager?.CellDefaultBackground ?? Features.Optimization.BrushPool.GetBrush(Colors.White);
+            ForegroundBrush = _themeManager?.CellDefaultForeground ?? Features.Optimization.BrushPool.GetBrush(Colors.Black);
+            BorderThickness = 1.0;
         }
         else if (IsSearchFound)
         {
             // Search uses Warning colors from theme
-            BorderBrush = _themeManager?.ValidationWarningBorder ?? new SolidColorBrush(Colors.Orange);
-            BackgroundBrush = _themeManager?.ValidationWarningBackground ?? new SolidColorBrush(Color.FromArgb(40, 255, 165, 0));
-            ForegroundBrush = _themeManager?.ValidationWarningForeground ?? new SolidColorBrush(Colors.Black);
+            BorderBrush = _themeManager?.ValidationWarningBorder ?? Features.Optimization.BrushPool.GetBrush(Colors.Orange);
+            BackgroundBrush = _themeManager?.ValidationWarningBackground ?? Features.Optimization.BrushPool.GetBrush(Color.FromArgb(40, 255, 165, 0));
+            ForegroundBrush = _themeManager?.ValidationWarningForeground ?? Features.Optimization.BrushPool.GetBrush(Colors.Black);
             BorderThickness = 2.0;
         }
         else if (IsSelected)
         {
-            BorderBrush = _themeManager?.SelectionBorder ?? new SolidColorBrush(Colors.Blue);
-            BackgroundBrush = _themeManager?.MultiSelectionBackground ?? new SolidColorBrush(Color.FromArgb(30, 0, 120, 215));
-            ForegroundBrush = _themeManager?.MultiSelectionForeground ?? new SolidColorBrush(Colors.Black);
+            BorderBrush = _themeManager?.SelectionBorder ?? Features.Optimization.BrushPool.GetBrush(Colors.Blue);
+            BackgroundBrush = _themeManager?.MultiSelectionBackground ?? Features.Optimization.BrushPool.GetBrush(Color.FromArgb(30, 0, 120, 215));
+            ForegroundBrush = _themeManager?.MultiSelectionForeground ?? Features.Optimization.BrushPool.GetBrush(Colors.Black);
             BorderThickness = 2.0;
         }
         else
         {
             // Default state
-            BorderBrush = _themeManager?.CellBorder ?? new SolidColorBrush(Colors.Gray);
-            BackgroundBrush = _themeManager?.CellDefaultBackground ?? new SolidColorBrush(Colors.White);
-            ForegroundBrush = _themeManager?.CellDefaultForeground ?? new SolidColorBrush(Colors.Black);
+            BorderBrush = _themeManager?.CellBorder ?? Features.Optimization.BrushPool.GetBrush(Colors.Gray);
+            BackgroundBrush = _themeManager?.CellDefaultBackground ?? Features.Optimization.BrushPool.GetBrush(Colors.White);
+            ForegroundBrush = _themeManager?.CellDefaultForeground ?? Features.Optimization.BrushPool.GetBrush(Colors.Black);
             BorderThickness = 1.0;
         }
+    }
+
+    /// <summary>
+    /// Disposes the cell ViewModel and releases resources.
+    /// NOTE: BrushPool brushes are NOT disposed here (they are shared instances).
+    /// CRITICAL for memory management in UI virtualization.
+    /// </summary>
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+
+        // NOTE: BrushPool brushes NIE SÚ disposed (shared!)
+        // We only null out references to help GC
+
+        // Null out references for GC
+        _borderBrush = null!;
+        _backgroundBrush = null!;
+        _foregroundBrush = null!;
+        _value = null;
+        _validationMessage = string.Empty;
+        _validationAlertMessage = null;
     }
 }

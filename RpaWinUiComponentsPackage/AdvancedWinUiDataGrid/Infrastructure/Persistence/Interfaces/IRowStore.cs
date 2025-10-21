@@ -121,6 +121,37 @@ internal interface IRowStore
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Insert single row AFTER the specified row index (convenience method)
+    /// </summary>
+    /// <param name="targetRowIndex">Index of row after which to insert</param>
+    /// <param name="newRow">Row data to insert</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    Task InsertRowAfterAsync(
+        int targetRowIndex,
+        IReadOnlyDictionary<string, object?> newRow,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Insert single row BEFORE the specified row index (convenience method)
+    /// </summary>
+    /// <param name="targetRowIndex">Index of row before which to insert</param>
+    /// <param name="newRow">Row data to insert</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    Task InsertRowBeforeAsync(
+        int targetRowIndex,
+        IReadOnlyDictionary<string, object?> newRow,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Insert single row at the top (index 0) (convenience method)
+    /// </summary>
+    /// <param name="newRow">Row data to insert</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    Task InsertRowAtTopAsync(
+        IReadOnlyDictionary<string, object?> newRow,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Write validation results for rows
     /// Used by validation service to store validation state
     /// </summary>

@@ -29,6 +29,13 @@ public sealed class AdvancedDataGridControl : UserControl
     public event EventHandler<DeleteRowRequestedEventArgs>? DeleteRowRequested;
 
     /// <summary>
+    /// Event fired when the user requests to insert a row via the insert button in special column.
+    /// The application should handle this event and call the facade's SmartOperations.InsertRowAfterAsync functionality.
+    /// Contains both rowIndex (for display) and rowId (for stable row identification).
+    /// </summary>
+    public event EventHandler<InsertRowRequestedEventArgs>? InsertRowRequested;
+
+    /// <summary>
     /// Event fired when the user changes row selection via the checkbox special column.
     /// The application can handle this event to track which rows are selected.
     /// </summary>
@@ -182,6 +189,7 @@ public sealed class AdvancedDataGridControl : UserControl
         // Create and wire up DataGridCellsView - the main scrollable data area
         _dataCellsView = new DataGridCellsView(ViewModel);
         _dataCellsView.DeleteRowRequested += OnDeleteRowRequestedInternal;
+        _dataCellsView.InsertRowRequested += OnInsertRowRequestedInternal;
         _dataCellsView.RowSelectionChanged += OnRowSelectionChangedInternal;
         _dataCellsView.CellEditCompleted += OnCellEditCompletedInternal;
         _dataCellsContainer.Child = _dataCellsView;
@@ -201,6 +209,15 @@ public sealed class AdvancedDataGridControl : UserControl
     {
         _logger?.LogInformation("Delete row requested for row index {RowIndex}, rowId {RowId}", args.RowIndex, args.RowId);
         DeleteRowRequested?.Invoke(this, args);
+    }
+
+    /// <summary>
+    /// Internal handler that forwards insert row requests from DataGridCellsView to public event.
+    /// </summary>
+    private void OnInsertRowRequestedInternal(object? sender, InsertRowRequestedEventArgs args)
+    {
+        _logger?.LogInformation("Insert row requested for row index {RowIndex}, rowId {RowId}", args.RowIndex, args.RowId);
+        InsertRowRequested?.Invoke(this, args);
     }
 
     /// <summary>

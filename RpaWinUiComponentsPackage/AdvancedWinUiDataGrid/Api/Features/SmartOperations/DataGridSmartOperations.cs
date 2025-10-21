@@ -339,4 +339,171 @@ internal sealed class DataGridSmartOperations : IDataGridSmartOperations
                 new[] { ex.Message });
         }
     }
+
+    #region Insert Row Operations
+
+    /// <summary>
+    /// Public API: Insert single empty row AFTER the specified row index
+    /// </summary>
+    public async Task<PublicSmartOperationResult> InsertRowAfterAsync(
+        int targetRowIndex,
+        CancellationToken cancellationToken = default)
+    {
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+        try
+        {
+            _logger?.LogInformation("InsertRowAfterAsync called for rowIndex={RowIndex}", targetRowIndex);
+
+            // Get template row (first row or empty row)
+            var allRows = await _rowStore.GetAllRowsAsync(cancellationToken);
+            var templateRow = allRows.Count > 0 ? allRows[0] : new Dictionary<string, object?>();
+
+            // Create empty row from template
+            var emptyRow = templateRow.Keys.ToDictionary(k => k, k => (object?)null);
+
+            // Insert via IRowStore (with UserInserted metadata)
+            await _rowStore.InsertRowAfterAsync(targetRowIndex, emptyRow, cancellationToken);
+
+            stopwatch.Stop();
+            _logger?.LogInformation("InsertRowAfterAsync completed in {Duration}ms", stopwatch.ElapsedMilliseconds);
+
+            // Trigger UI refresh
+            var finalCount = (int)await _rowStore.GetRowCountAsync(cancellationToken);
+            var result = RowManagementResult.CreateSuccess(
+                finalRowCount: finalCount,
+                processedRows: 1,
+                operationType: RowOperationType.Add,
+                operationTime: stopwatch.Elapsed,
+                statistics: new RowManagementStatistics
+                {
+                    EmptyRowsCreated = 1,
+                    LastEmptyRowMaintained = true
+                });
+
+            await TriggerUIRefreshWithMetadataAsync("InsertRowAfter", result);
+
+            return MapToPublicResult(result);
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            _logger?.LogError(ex, "InsertRowAfterAsync failed for rowIndex={RowIndex}: {Message}",
+                targetRowIndex, ex.Message);
+            return PublicSmartOperationResult.Failure(
+                $"Insert row after failed: {ex.Message}",
+                stopwatch.Elapsed,
+                new[] { ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Public API: Insert single empty row BEFORE the specified row index
+    /// </summary>
+    public async Task<PublicSmartOperationResult> InsertRowBeforeAsync(
+        int targetRowIndex,
+        CancellationToken cancellationToken = default)
+    {
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+        try
+        {
+            _logger?.LogInformation("InsertRowBeforeAsync called for rowIndex={RowIndex}", targetRowIndex);
+
+            // Get template row (first row or empty row)
+            var allRows = await _rowStore.GetAllRowsAsync(cancellationToken);
+            var templateRow = allRows.Count > 0 ? allRows[0] : new Dictionary<string, object?>();
+
+            // Create empty row from template
+            var emptyRow = templateRow.Keys.ToDictionary(k => k, k => (object?)null);
+
+            // Insert via IRowStore (with UserInserted metadata)
+            await _rowStore.InsertRowBeforeAsync(targetRowIndex, emptyRow, cancellationToken);
+
+            stopwatch.Stop();
+            _logger?.LogInformation("InsertRowBeforeAsync completed in {Duration}ms", stopwatch.ElapsedMilliseconds);
+
+            // Trigger UI refresh
+            var finalCount = (int)await _rowStore.GetRowCountAsync(cancellationToken);
+            var result = RowManagementResult.CreateSuccess(
+                finalRowCount: finalCount,
+                processedRows: 1,
+                operationType: RowOperationType.Add,
+                operationTime: stopwatch.Elapsed,
+                statistics: new RowManagementStatistics
+                {
+                    EmptyRowsCreated = 1,
+                    LastEmptyRowMaintained = true
+                });
+
+            await TriggerUIRefreshWithMetadataAsync("InsertRowBefore", result);
+
+            return MapToPublicResult(result);
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            _logger?.LogError(ex, "InsertRowBeforeAsync failed for rowIndex={RowIndex}: {Message}",
+                targetRowIndex, ex.Message);
+            return PublicSmartOperationResult.Failure(
+                $"Insert row before failed: {ex.Message}",
+                stopwatch.Elapsed,
+                new[] { ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Public API: Insert single empty row at the top (index 0)
+    /// </summary>
+    public async Task<PublicSmartOperationResult> InsertRowAtTopAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+        try
+        {
+            _logger?.LogInformation("InsertRowAtTopAsync called");
+
+            // Get template row (first row or empty row)
+            var allRows = await _rowStore.GetAllRowsAsync(cancellationToken);
+            var templateRow = allRows.Count > 0 ? allRows[0] : new Dictionary<string, object?>();
+
+            // Create empty row from template
+            var emptyRow = templateRow.Keys.ToDictionary(k => k, k => (object?)null);
+
+            // Insert via IRowStore (with UserInserted metadata)
+            await _rowStore.InsertRowAtTopAsync(emptyRow, cancellationToken);
+
+            stopwatch.Stop();
+            _logger?.LogInformation("InsertRowAtTopAsync completed in {Duration}ms", stopwatch.ElapsedMilliseconds);
+
+            // Trigger UI refresh
+            var finalCount = (int)await _rowStore.GetRowCountAsync(cancellationToken);
+            var result = RowManagementResult.CreateSuccess(
+                finalRowCount: finalCount,
+                processedRows: 1,
+                operationType: RowOperationType.Add,
+                operationTime: stopwatch.Elapsed,
+                statistics: new RowManagementStatistics
+                {
+                    EmptyRowsCreated = 1,
+                    LastEmptyRowMaintained = true
+                });
+
+            await TriggerUIRefreshWithMetadataAsync("InsertRowAtTop", result);
+
+            return MapToPublicResult(result);
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            _logger?.LogError(ex, "InsertRowAtTopAsync failed: {Message}", ex.Message);
+            return PublicSmartOperationResult.Failure(
+                $"Insert row at top failed: {ex.Message}",
+                stopwatch.Elapsed,
+                new[] { ex.Message });
+        }
+    }
+
+    #endregion
 }

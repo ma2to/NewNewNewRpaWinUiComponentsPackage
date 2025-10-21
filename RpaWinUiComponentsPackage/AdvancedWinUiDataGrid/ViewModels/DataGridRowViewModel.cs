@@ -5,11 +5,13 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.ViewModels;
 /// <summary>
 /// ViewModel for a single row in the data grid
 /// Contains collection of cell ViewModels
+/// Implements IDisposable for proper cleanup of cell ViewModels (memory leak prevention)
 /// </summary>
-public sealed class DataGridRowViewModel : ViewModelBase
+public sealed class DataGridRowViewModel : ViewModelBase, IDisposable
 {
     private bool _isSelected;
     private bool _hasValidationErrors;
+    private bool _disposed;
 
     public int RowIndex { get; set; }
 
@@ -43,5 +45,26 @@ public sealed class DataGridRowViewModel : ViewModelBase
         {
             cell.IsSelected = isSelected;
         }
+    }
+
+    /// <summary>
+    /// Disposes the row ViewModel and all child cell ViewModels.
+    /// CRITICAL for memory management in UI virtualization - prevents memory leaks when rows leave viewport.
+    /// </summary>
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+
+        // Dispose all cells if they implement IDisposable
+        foreach (var cell in Cells.OfType<IDisposable>())
+        {
+            cell.Dispose();
+        }
+
+        // Clear collection to release references
+        Cells.Clear();
     }
 }

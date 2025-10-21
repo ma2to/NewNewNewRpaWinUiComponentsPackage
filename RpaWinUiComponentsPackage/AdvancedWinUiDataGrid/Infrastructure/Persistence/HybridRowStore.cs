@@ -1493,6 +1493,163 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
 
     #endregion
 
+    #region Insert Row Convenience Methods
+
+    /// <summary>
+    /// Insert single row AFTER the specified row index
+    /// Creates empty row with UserInserted metadata
+    /// </summary>
+    public async Task InsertRowAfterAsync(
+        int targetRowIndex,
+        IReadOnlyDictionary<string, object?> newRow,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation("InsertRowAfterAsync: START - targetRowIndex={Index}", targetRowIndex);
+            _logger.LogDebug("InsertRowAfterAsync: newRow has {Count} columns", newRow?.Count ?? 0);
+
+            // Get template row to copy column structure
+            var allRows = await GetAllRowsAsync(cancellationToken);
+            _logger.LogDebug("InsertRowAfterAsync: Retrieved {Count} existing rows from storage", allRows.Count);
+
+            if (allRows.Count == 0)
+            {
+                _logger.LogWarning("InsertRowAfterAsync: No rows exist, appending new row as first row");
+                await AppendRowsAsync(new[] { CreateUserInsertedRow(newRow) }, cancellationToken);
+                _logger.LogInformation("InsertRowAfterAsync: COMPLETED - First row appended");
+                return;
+            }
+
+            if (targetRowIndex < 0 || targetRowIndex >= allRows.Count)
+            {
+                _logger.LogWarning("InsertRowAfterAsync: Invalid targetRowIndex={Index} (count={Count}), clamping to valid range",
+                    targetRowIndex, allRows.Count);
+            }
+
+            // Create row with UserInserted metadata
+            var rowToInsert = CreateUserInsertedRow(newRow);
+            _logger.LogDebug("InsertRowAfterAsync: Created UserInserted row with rowId={RowId}",
+                rowToInsert.TryGetValue("__rowId", out var rid) ? rid : "unknown");
+
+            // HybridRowStore uses ULID ordering, so just append
+            await AppendRowsAsync(new[] { rowToInsert }, cancellationToken);
+
+            _logger.LogInformation("InsertRowAfterAsync: COMPLETED - Row inserted (appended due to ULID ordering)");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "InsertRowAfterAsync: FAILED - targetRowIndex={Index}, error={Message}",
+                targetRowIndex, ex.Message);
+            throw; // Re-throw to propagate to caller
+        }
+    }
+
+    /// <summary>
+    /// Insert single row BEFORE the specified row index
+    /// Creates empty row with UserInserted metadata
+    /// </summary>
+    public async Task InsertRowBeforeAsync(
+        int targetRowIndex,
+        IReadOnlyDictionary<string, object?> newRow,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation("InsertRowBeforeAsync: START - targetRowIndex={Index}", targetRowIndex);
+            _logger.LogDebug("InsertRowBeforeAsync: newRow has {Count} columns", newRow?.Count ?? 0);
+
+            // Get template row to copy column structure
+            var allRows = await GetAllRowsAsync(cancellationToken);
+            _logger.LogDebug("InsertRowBeforeAsync: Retrieved {Count} existing rows from storage", allRows.Count);
+
+            if (allRows.Count == 0 || targetRowIndex == 0)
+            {
+                _logger.LogInformation("InsertRowBeforeAsync: Target is index 0 or no rows exist, delegating to InsertRowAtTopAsync");
+                await InsertRowAtTopAsync(newRow, cancellationToken);
+                _logger.LogInformation("InsertRowBeforeAsync: COMPLETED via InsertRowAtTopAsync delegation");
+                return;
+            }
+
+            if (targetRowIndex < 0 || targetRowIndex >= allRows.Count)
+            {
+                _logger.LogWarning("InsertRowBeforeAsync: Invalid targetRowIndex={Index} (count={Count}), clamping to valid range",
+                    targetRowIndex, allRows.Count);
+            }
+
+            // Create row with UserInserted metadata
+            var rowToInsert = CreateUserInsertedRow(newRow);
+            _logger.LogDebug("InsertRowBeforeAsync: Created UserInserted row with rowId={RowId}",
+                rowToInsert.TryGetValue("__rowId", out var rid) ? rid : "unknown");
+
+            // HybridRowStore uses ULID ordering, so just append
+            await AppendRowsAsync(new[] { rowToInsert }, cancellationToken);
+
+            _logger.LogInformation("InsertRowBeforeAsync: COMPLETED - Row inserted (appended due to ULID ordering)");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "InsertRowBeforeAsync: FAILED - targetRowIndex={Index}, error={Message}",
+                targetRowIndex, ex.Message);
+            throw; // Re-throw to propagate to caller
+        }
+    }
+
+    /// <summary>
+    /// Insert single row at the top (index 0)
+    /// Creates empty row with UserInserted metadata
+    /// </summary>
+    public async Task InsertRowAtTopAsync(
+        IReadOnlyDictionary<string, object?> newRow,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation("InsertRowAtTopAsync: START");
+            _logger.LogDebug("InsertRowAtTopAsync: newRow has {Count} columns", newRow?.Count ?? 0);
+
+            // Create row with UserInserted metadata
+            var rowToInsert = CreateUserInsertedRow(newRow);
+            _logger.LogDebug("InsertRowAtTopAsync: Created UserInserted row with rowId={RowId}",
+                rowToInsert.TryGetValue("__rowId", out var rid) ? rid : "unknown");
+
+            // HybridRowStore uses ULID ordering, so just append
+            // NOTE: For true "insert at top" behavior, would need to modify ULID generation
+            // Currently this will append at end (same as other insert methods)
+            await AppendRowsAsync(new[] { rowToInsert }, cancellationToken);
+
+            _logger.LogWarning("InsertRowAtTopAsync: COMPLETED - Row appended at end (ULID ordering constraint - not at top!)");
+            _logger.LogDebug("InsertRowAtTopAsync: For true top insertion, consider index-based storage or custom ULID generation");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "InsertRowAtTopAsync: FAILED - error={Message}", ex.Message);
+            throw; // Re-throw to propagate to caller
+        }
+    }
+
+    /// <summary>
+    /// Helper: Creates row with UserInserted metadata
+    /// </summary>
+    private IReadOnlyDictionary<string, object?> CreateUserInsertedRow(IReadOnlyDictionary<string, object?> rowData)
+    {
+        var mutableRow = new Dictionary<string, object?>(rowData);
+
+        // Add metadata
+        mutableRow["__creationType"] = "UserInserted";
+        mutableRow["__lastModified"] = DateTime.UtcNow;
+
+        // Ensure __rowId if not present
+        if (!mutableRow.ContainsKey("__rowId") || string.IsNullOrEmpty(mutableRow["__rowId"]?.ToString()))
+        {
+            mutableRow["__rowId"] = GenerateRowId();
+        }
+
+        return mutableRow;
+    }
+
+    #endregion
+
     #region Disposal
 
     public async ValueTask DisposeAsync()

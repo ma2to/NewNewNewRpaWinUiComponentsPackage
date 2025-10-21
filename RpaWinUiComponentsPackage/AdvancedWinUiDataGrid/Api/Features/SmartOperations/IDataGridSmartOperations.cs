@@ -126,4 +126,35 @@ public interface IDataGridSmartOperations
     Task<PublicSmartOperationResult> EnsureMinRowsAndLastEmptyAsync(
         PublicSmartOperationsConfig? config = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Insert single empty row AFTER the specified row index.
+    /// Row will be marked with UserInserted metadata and protected by grace period.
+    /// </summary>
+    /// <param name="targetRowIndex">Index of row after which to insert new row</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Result with statistics about the operation</returns>
+    Task<PublicSmartOperationResult> InsertRowAfterAsync(
+        int targetRowIndex,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Insert single empty row BEFORE the specified row index.
+    /// Row will be marked with UserInserted metadata and protected by grace period.
+    /// </summary>
+    /// <param name="targetRowIndex">Index of row before which to insert new row</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Result with statistics about the operation</returns>
+    Task<PublicSmartOperationResult> InsertRowBeforeAsync(
+        int targetRowIndex,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Insert single empty row at the top (index 0).
+    /// Row will be marked with UserInserted metadata and protected by grace period.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Result with statistics about the operation</returns>
+    Task<PublicSmartOperationResult> InsertRowAtTopAsync(
+        CancellationToken cancellationToken = default);
 }

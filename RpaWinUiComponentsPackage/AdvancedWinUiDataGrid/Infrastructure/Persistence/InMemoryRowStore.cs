@@ -1436,5 +1436,62 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
 
     #endregion
 
+    #region Insert Row Convenience Methods
+
+    /// <summary>
+    /// Insert single row AFTER the specified row index
+    /// </summary>
+    public async Task InsertRowAfterAsync(
+        int targetRowIndex,
+        IReadOnlyDictionary<string, object?> newRow,
+        CancellationToken cancellationToken = default)
+    {
+        var insertIndex = targetRowIndex + 1;
+        await InsertRowsAsync(new[] { CreateUserInsertedRow(newRow) }, insertIndex, cancellationToken);
+    }
+
+    /// <summary>
+    /// Insert single row BEFORE the specified row index
+    /// </summary>
+    public async Task InsertRowBeforeAsync(
+        int targetRowIndex,
+        IReadOnlyDictionary<string, object?> newRow,
+        CancellationToken cancellationToken = default)
+    {
+        await InsertRowsAsync(new[] { CreateUserInsertedRow(newRow) }, targetRowIndex, cancellationToken);
+    }
+
+    /// <summary>
+    /// Insert single row at the top (index 0)
+    /// </summary>
+    public async Task InsertRowAtTopAsync(
+        IReadOnlyDictionary<string, object?> newRow,
+        CancellationToken cancellationToken = default)
+    {
+        await InsertRowsAsync(new[] { CreateUserInsertedRow(newRow) }, 0, cancellationToken);
+    }
+
+    /// <summary>
+    /// Helper: Creates row with UserInserted metadata
+    /// </summary>
+    private IReadOnlyDictionary<string, object?> CreateUserInsertedRow(IReadOnlyDictionary<string, object?> rowData)
+    {
+        var mutableRow = new Dictionary<string, object?>(rowData);
+
+        // Add metadata
+        mutableRow["__creationType"] = "UserInserted";
+        mutableRow["__lastModified"] = DateTime.UtcNow;
+
+        // Ensure __rowId if not present
+        if (!mutableRow.ContainsKey("__rowId") || string.IsNullOrEmpty(mutableRow["__rowId"]?.ToString()))
+        {
+            mutableRow["__rowId"] = Guid.NewGuid().ToString();
+        }
+
+        return mutableRow;
+    }
+
+    #endregion
+
     #endregion
 }

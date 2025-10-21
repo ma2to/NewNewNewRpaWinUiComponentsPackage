@@ -38,8 +38,9 @@ internal sealed class InternalUIOperationHandler : IDisposable
         if (_options.OperationMode == PublicDataGridOperationMode.Interactive && _uiControl != null)
         {
             _uiControl.DeleteRowRequested += OnDeleteRowRequested;
+            _uiControl.InsertRowRequested += OnInsertRowRequested;
             _uiControl.CellEditCompleted += OnCellEditCompleted;
-            _logger.LogInformation("InternalUIOperationHandler activated for Interactive mode (auto-delete and auto-expand enabled)");
+            _logger.LogInformation("InternalUIOperationHandler activated for Interactive mode (auto-delete, auto-insert, and auto-expand enabled)");
         }
         else
         {
@@ -96,6 +97,43 @@ internal sealed class InternalUIOperationHandler : IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Exception during auto-delete handling");
+        }
+    }
+
+    /// <summary>
+    /// Handles insert row requests from UI control.
+    /// Automatically calls facade.SmartOperations.InsertRowAfterAsync with the row index.
+    /// </summary>
+    private async void OnInsertRowRequested(object? sender, InsertRowRequestedEventArgs args)
+    {
+        if (_isDisposed)
+        {
+            _logger.LogWarning("Cannot handle insert request - handler is disposed");
+            return;
+        }
+
+        try
+        {
+            _logger.LogInformation("Auto-handling insert row request for row {RowIndex}, rowId {RowId}", args.RowIndex, args.RowId);
+            _logger.LogDebug("Insert row request triggered from UI button click");
+
+            var result = await _facade.SmartOperations.InsertRowAfterAsync(args.RowIndex);
+
+            if (result.IsSuccess)
+            {
+                _logger.LogInformation("Auto-insert successful: final row count {FinalRowCount}, empty rows created {EmptyRowsCreated}",
+                    result.FinalRowCount, result.Statistics.EmptyRowsCreated);
+                _logger.LogDebug("Auto-insert operation completed successfully");
+            }
+            else
+            {
+                _logger.LogError("Auto-insert failed: {Error}", result.ErrorMessage);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Exception during auto-insert handling: row {RowIndex}, rowId {RowId}",
+                args.RowIndex, args.RowId);
         }
     }
 
@@ -247,6 +285,7 @@ internal sealed class InternalUIOperationHandler : IDisposable
         if (_options.OperationMode == PublicDataGridOperationMode.Interactive && _uiControl != null)
         {
             _uiControl.DeleteRowRequested -= OnDeleteRowRequested;
+            _uiControl.InsertRowRequested -= OnInsertRowRequested;
             _uiControl.CellEditCompleted -= OnCellEditCompleted;
             _logger.LogInformation("InternalUIOperationHandler deactivated (unsubscribed from events)");
         }

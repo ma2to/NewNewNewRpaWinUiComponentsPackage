@@ -266,6 +266,9 @@ public enum SpecialColumnType
     /// <summary>Delete row button column</summary>
     DeleteRow,
 
+    /// <summary>Insert row button column</summary>
+    InsertRow,
+
     /// <summary>Validation alerts column</summary>
     ValidationAlerts,
 
