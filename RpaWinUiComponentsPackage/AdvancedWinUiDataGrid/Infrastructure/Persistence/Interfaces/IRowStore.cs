@@ -358,6 +358,34 @@ internal interface IRowStore
         bool caseSensitive = false,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Set complex filter expression for the store
+    /// NEW API: Supports complex logical expressions with AND/OR/ANDALSO/ORELSE and nested conditions
+    /// Example: ((Age > 18 AND City = 'Bratislava') OR (Status = 'Active'))
+    /// Replaces SetFilterCriteria for advanced filtering scenarios
+    /// </summary>
+    /// <param name="expression">Filter expression tree (null to clear filter)</param>
+    void SetFilterExpression(Features.Filter.Models.FilterExpression? expression);
+
+    /// <summary>
+    /// Get current filter expression
+    /// </summary>
+    /// <returns>Current filter expression (null if no filter active)</returns>
+    Features.Filter.Models.FilterExpression? GetFilterExpression();
+
+    /// <summary>
+    /// Initialize store with fixed number of empty rows (for page-based initialization)
+    /// Replaces EnsureInitialEmptyRowAsync - creates exactly N empty rows instead of ensuring minimum 1
+    /// Used during grid initialization to pre-allocate rows for first page
+    /// </summary>
+    /// <param name="columnNames">Column names for empty rows</param>
+    /// <param name="rowCount">Number of empty rows to create (typically page size)</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    Task InitializeEmptyRowsAsync(
+        IEnumerable<string> columnNames,
+        int rowCount,
+        CancellationToken cancellationToken = default);
+
     // Public API synchronous compatibility methods
     Task<int> AddRowAsync(IReadOnlyDictionary<string, object?> rowData, CancellationToken cancellationToken = default);
     Task<int> AddRowsAsync(IEnumerable<IReadOnlyDictionary<string, object?>> rowsData, CancellationToken cancellationToken = default);
@@ -369,4 +397,62 @@ internal interface IRowStore
     IReadOnlyList<IReadOnlyDictionary<string, object?>> GetAllRows();
     int GetRowCount();
     bool RowExists(int rowIndex);
+
+    // SENIOR FIX: Validation cache methods (prevents ValidateAll infinite loop)
+    /// <summary>
+    /// Checks if a row has already been validated (cache check).
+    /// </summary>
+    bool IsRowValidationCached(string rowId);
+
+    /// <summary>
+    /// Marks a row as validated in the cache.
+    /// </summary>
+    void MarkRowAsValidated(string rowId);
+
+    /// <summary>
+    /// Clears validation cache.
+    /// </summary>
+    void ClearValidationCache();
+
+    /// <summary>
+    /// Batch writes validation results for multiple rows in a single operation.
+    /// Prevents infinite validation loop by avoiding multiple DataChanged events.
+    /// </summary>
+    Task WriteValidationResultsBatchAsync(
+        Dictionary<string, ValidationError[]> validationResults,
+        CancellationToken cancellationToken = default);
+
+    // ========== BREAKING CHANGE v3.0: rowId-based helper methods ==========
+
+    /// <summary>
+    /// Gets the stable rowId for a row at the specified index.
+    /// HELPER: Converts volatile rowIndex to stable rowId.
+    /// </summary>
+    /// <param name="rowIndex">Zero-based row index (current position in view)</param>
+    /// <returns>Stable rowId (from __rowId field) or null if row not found</returns>
+    string? GetRowIdByIndex(int rowIndex);
+
+    /// <summary>
+    /// Gets the current rowIndex for a row with the specified rowId.
+    /// HELPER: Converts stable rowId to volatile rowIndex (current position in view).
+    /// </summary>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
+    /// <returns>Current zero-based row index or null if row not found</returns>
+    int? GetRowIndexById(string rowId);
+
+    /// <summary>
+    /// Gets a row by stable rowId.
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
+    /// </summary>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
+    /// <returns>Row data or null if not found</returns>
+    IReadOnlyDictionary<string, object?>? GetRowById(string rowId);
+
+    /// <summary>
+    /// Checks if a row exists by stable rowId.
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
+    /// </summary>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
+    /// <returns>True if row exists, false otherwise</returns>
+    bool RowExistsById(string rowId);
 }

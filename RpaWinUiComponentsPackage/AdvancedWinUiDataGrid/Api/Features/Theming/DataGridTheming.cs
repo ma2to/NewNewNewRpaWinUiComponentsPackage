@@ -72,66 +72,95 @@ internal sealed class DataGridTheming : IDataGridTheming
         }
     }
 
-    public async Task<PublicResult> SetCellBackgroundColorAsync(int rowIndex, string columnName, string color, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Sets cell background color by stable row ID.
+    /// BREAKING CHANGE v3.0: Uses rowId-based key for stable color identification.
+    /// </summary>
+    public async Task<PublicResult> SetCellBackgroundColorAsync(string rowId, string columnName, string color, CancellationToken cancellationToken = default)
     {
         try
         {
-            _logger?.LogInformation("Setting cell background color for [{RowIndex}, {ColumnName}] via Theming module", rowIndex, columnName);
+            _logger?.LogInformation("Setting cell background color for rowId {RowId}, column {ColumnName}", rowId, columnName);
 
-            await _colorService.SetCellBackgroundColorAsync(rowIndex, columnName, color, cancellationToken);
+            // Use ColorService with rowId-based key: Cell_{rowId}_{columnName}
+            var key = $"Cell_{rowId}_{columnName}";
+            await _colorService.SetElementStatePropertyColorAsync(key, "Normal", "BackgroundColor", color, cancellationToken);
+
             return PublicResult.Success();
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "SetCellBackgroundColor failed in Theming module");
+            _logger?.LogError(ex, "SetCellBackgroundColor failed for rowId {RowId}", rowId);
             throw;
         }
     }
 
-    public async Task<PublicResult> SetCellForegroundColorAsync(int rowIndex, string columnName, string color, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Sets cell foreground color by stable row ID.
+    /// BREAKING CHANGE v3.0: Uses rowId-based key for stable color identification.
+    /// </summary>
+    public async Task<PublicResult> SetCellForegroundColorAsync(string rowId, string columnName, string color, CancellationToken cancellationToken = default)
     {
         try
         {
-            _logger?.LogInformation("Setting cell foreground color for [{RowIndex}, {ColumnName}] via Theming module", rowIndex, columnName);
+            _logger?.LogInformation("Setting cell foreground color for rowId {RowId}, column {ColumnName}", rowId, columnName);
 
-            await _colorService.SetCellForegroundColorAsync(rowIndex, columnName, color, cancellationToken);
+            // Use ColorService with rowId-based key: Cell_{rowId}_{columnName}
+            var key = $"Cell_{rowId}_{columnName}";
+            await _colorService.SetElementStatePropertyColorAsync(key, "Normal", "TextColor", color, cancellationToken);
+
             return PublicResult.Success();
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "SetCellForegroundColor failed in Theming module");
+            _logger?.LogError(ex, "SetCellForegroundColor failed for rowId {RowId}", rowId);
             throw;
         }
     }
 
-    public async Task<PublicResult> SetRowBackgroundColorAsync(int rowIndex, string color, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Sets row background color by stable row ID.
+    /// BREAKING CHANGE v3.0: Uses rowId-based key for stable color identification.
+    /// </summary>
+    public async Task<PublicResult> SetRowBackgroundColorAsync(string rowId, string color, CancellationToken cancellationToken = default)
     {
         try
         {
-            _logger?.LogInformation("Setting row background color for row {RowIndex} via Theming module", rowIndex);
+            _logger?.LogInformation("Setting row background color for rowId {RowId}", rowId);
 
-            await _colorService.SetRowBackgroundColorAsync(rowIndex, color, cancellationToken);
+            // Use ColorService with rowId-based key: Row_{rowId}
+            var key = $"Row_{rowId}";
+            await _colorService.SetElementStatePropertyColorAsync(key, "Normal", "BackgroundColor", color, cancellationToken);
+
             return PublicResult.Success();
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "SetRowBackgroundColor failed in Theming module");
+            _logger?.LogError(ex, "SetRowBackgroundColor failed for rowId {RowId}", rowId);
             throw;
         }
     }
 
-    public async Task<PublicResult> ClearCellColorsAsync(int rowIndex, string columnName, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Clears custom colors from a cell by stable row ID.
+    /// BREAKING CHANGE v3.0: Uses rowId-based key for stable color identification.
+    /// </summary>
+    public async Task<PublicResult> ClearCellColorsAsync(string rowId, string columnName, CancellationToken cancellationToken = default)
     {
         try
         {
-            _logger?.LogInformation("Clearing cell colors for [{RowIndex}, {ColumnName}] via Theming module", rowIndex, columnName);
+            _logger?.LogInformation("Clearing cell colors for rowId {RowId}, column {ColumnName}", rowId, columnName);
 
-            await _colorService.ClearCellColorsAsync(rowIndex, columnName, cancellationToken);
+            // Clear by setting null/transparent colors for the cell
+            var key = $"Cell_{rowId}_{columnName}";
+            await _colorService.SetElementStatePropertyColorAsync(key, "Normal", "BackgroundColor", null, cancellationToken);
+            await _colorService.SetElementStatePropertyColorAsync(key, "Normal", "TextColor", null, cancellationToken);
+
             return PublicResult.Success();
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "ClearCellColors failed in Theming module");
+            _logger?.LogError(ex, "ClearCellColors failed for rowId {RowId}", rowId);
             throw;
         }
     }

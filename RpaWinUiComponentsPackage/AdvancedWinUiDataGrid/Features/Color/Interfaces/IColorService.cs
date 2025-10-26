@@ -85,10 +85,24 @@ internal interface IColorService
     /// </summary>
     Task ResetZebraRowColorsToDefaultAsync(CancellationToken cancellationToken = default);
 
-    // Old API compatibility methods
+    // Old API compatibility methods - UNSTABLE (rowIndex-based)
+    [Obsolete("Use SetCellBackgroundColorAsync(string rowId, string columnName, ...) instead. rowIndex is unstable and changes on sort/filter/delete operations.", false)]
     Task SetCellBackgroundColorAsync(int rowIndex, string columnName, string color, CancellationToken cancellationToken = default);
+
+    [Obsolete("Use SetCellForegroundColorAsync(string rowId, string columnName, ...) instead. rowIndex is unstable and changes on sort/filter/delete operations.", false)]
     Task SetCellForegroundColorAsync(int rowIndex, string columnName, string color, CancellationToken cancellationToken = default);
+
+    [Obsolete("Use SetRowBackgroundColorAsync(string rowId, ...) instead. rowIndex is unstable and changes on sort/filter/delete operations.", false)]
     Task SetRowBackgroundColorAsync(int rowIndex, string color, CancellationToken cancellationToken = default);
+
+    [Obsolete("Use ClearCellColorsAsync(string rowId, string columnName) instead. rowIndex is unstable and changes on sort/filter/delete operations.", false)]
     Task ClearCellColorsAsync(int rowIndex, string columnName, CancellationToken cancellationToken = default);
+
     Task ClearAllColorsAsync(CancellationToken cancellationToken = default);
+
+    // NEW: Stable rowId-based API methods
+    Task SetCellBackgroundColorAsync(string rowId, string columnName, string color, CancellationToken cancellationToken = default);
+    Task SetCellForegroundColorAsync(string rowId, string columnName, string color, CancellationToken cancellationToken = default);
+    Task SetRowBackgroundColorAsync(string rowId, string color, CancellationToken cancellationToken = default);
+    Task ClearCellColorsAsync(string rowId, string columnName, CancellationToken cancellationToken = default);
 }

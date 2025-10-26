@@ -10,6 +10,11 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Validation.In
 internal interface IValidationService
 {
     /// <summary>
+    /// Event fired when validation state changes (after batch, real-time, or manual validation).
+    /// Subscribers should call GetValidationErrorsAsync() and ApplyValidationErrors() to update UI.
+    /// </summary>
+    event EventHandler? ValidationChanged;
+    /// <summary>
     /// CRITICAL: Validates all non-empty rows with batched, thread-safe processing
     /// CRITICAL: Must be batched, thread-safe and work with streams (in-memory / cache / disk)
     /// Called by Import & Paste & Export operations automatically
@@ -103,14 +108,31 @@ internal interface IValidationService
 
     /// <summary>
     /// Validates a single cell with real-time validation mode
+    /// WARNING: rowIndex is unstable - changes on sort/filter/delete. Use ValidateCellAsync(string rowId, ...) instead.
     /// </summary>
     /// <param name="rowIndex">Row index</param>
     /// <param name="columnName">Column name</param>
     /// <param name="newValue">New value for the cell</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Validation result for the cell</returns>
+    [Obsolete("Use ValidateCellAsync(string rowId, ...) instead. rowIndex is unstable and changes on sort/filter/delete operations.", false)]
     Task<ValidationResult> ValidateCellAsync(
         int rowIndex,
+        string columnName,
+        object? newValue,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Validates a single cell with real-time validation mode
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
+    /// </summary>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
+    /// <param name="columnName">Column name</param>
+    /// <param name="newValue">New value for the cell</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Validation result for the cell</returns>
+    Task<ValidationResult> ValidateCellAsync(
+        string rowId,
         string columnName,
         object? newValue,
         CancellationToken cancellationToken = default);
@@ -132,20 +154,45 @@ internal interface IValidationService
 
     /// <summary>
     /// Gets validation alerts message for a specific row
+    /// WARNING: rowIndex is unstable - changes on sort/filter/delete. Use GetValidationAlertsForRow(string rowId) instead.
     /// </summary>
     /// <param name="rowIndex">Row index</param>
     /// <returns>Formatted validation alerts string</returns>
+    [Obsolete("Use GetValidationAlertsForRow(string rowId) instead. rowIndex is unstable and changes on sort/filter/delete operations.", false)]
     string GetValidationAlertsForRow(int rowIndex);
 
     /// <summary>
+    /// Gets validation alerts message for a specific row
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
+    /// </summary>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
+    /// <returns>Formatted validation alerts string</returns>
+    string GetValidationAlertsForRow(string rowId);
+
+    /// <summary>
     /// Updates validation alerts for a specific row
+    /// WARNING: rowIndex is unstable - changes on sort/filter/delete. Use UpdateValidationAlertsAsync(string rowId, ...) instead.
     /// </summary>
     /// <param name="rowIndex">Row index</param>
     /// <param name="results">Validation results for the row</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Result of the operation</returns>
+    [Obsolete("Use UpdateValidationAlertsAsync(string rowId, ...) instead. rowIndex is unstable and changes on sort/filter/delete operations.", false)]
     Task<Result> UpdateValidationAlertsAsync(
         int rowIndex,
+        IReadOnlyList<ValidationResult> results,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Updates validation alerts for a specific row
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
+    /// </summary>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
+    /// <param name="results">Validation results for the row</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Result of the operation</returns>
+    Task<Result> UpdateValidationAlertsAsync(
+        string rowId,
         IReadOnlyList<ValidationResult> results,
         CancellationToken cancellationToken = default);
 
@@ -168,4 +215,10 @@ internal interface IValidationService
         bool onlyFiltered = false,
         bool onlyChecked = false,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Fires ValidationChanged event to notify subscribers of validation state changes.
+    /// Used by CellEditService and other services to trigger UI updates after validation.
+    /// </summary>
+    void FireValidationChanged();
 }

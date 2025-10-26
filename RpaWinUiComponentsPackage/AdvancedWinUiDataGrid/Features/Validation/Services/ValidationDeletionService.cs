@@ -6,8 +6,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Core.ValueObjects;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.SmartAddDelete.Interfaces;
-using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.SmartAddDelete.Commands;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Rows.Commands;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Rows.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Persistence.Interfaces;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Validation.Services;
@@ -15,22 +15,22 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Validation.Se
 /// <summary>
 /// Internal service for validation-based and duplicate-based row deletion.
 /// CRITICAL: Applies ONLY the validation rules provided in criteria, NOT all system rules.
-/// Integrates with SmartOperationService for 3-step cleanup after deletion.
+/// NEW ARCHITECTURE: Uses RowManagementService for data-shifting deletion.
 /// </summary>
 internal sealed class ValidationDeletionService
 {
     private readonly ILogger<ValidationDeletionService> _logger;
     private readonly IRowStore _rowStore;
-    private readonly ISmartOperationService _smartOperations;
+    private readonly IRowManagementService _rowManagement;
 
     public ValidationDeletionService(
         ILogger<ValidationDeletionService> logger,
         IRowStore rowStore,
-        ISmartOperationService smartOperations)
+        IRowManagementService rowManagement)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _rowStore = rowStore ?? throw new ArgumentNullException(nameof(rowStore));
-        _smartOperations = smartOperations ?? throw new ArgumentNullException(nameof(smartOperations));
+        _rowManagement = rowManagement ?? throw new ArgumentNullException(nameof(rowManagement));
     }
 
     /// <summary>
@@ -66,7 +66,12 @@ internal sealed class ValidationDeletionService
             var totalRowsScanned = 0;
             var initialRowCount = (int)await _rowStore.GetRowCountAsync(cancellationToken);
 
-            _logger.LogDebug("Streaming rows to evaluate validation rules...");
+            // SENIOR FEATURE: Determine if rules check for empty/null cells (Required rule)
+            bool rulesCheckForEmpty = IsEmptyCheckRule(criteria.ValidationRules);
+
+            _logger.LogDebug(
+                "Streaming rows to evaluate validation rules (emptyCheck={EmptyCheck})...",
+                rulesCheckForEmpty);
 
             // STEP 1: Stream rows and evaluate ONLY the provided validation rules
             await foreach (var batch in _rowStore.StreamRowsAsync(
@@ -80,20 +85,55 @@ internal sealed class ValidationDeletionService
                     cancellationToken.ThrowIfCancellationRequested();
                     totalRowsScanned++;
 
-                    // Evaluate row against provided rules
-                    bool hasValidationFailure = EvaluateRowAgainstRules(row, criteria.ValidationRules);
+                    // SENIOR FEATURE: Check if entire row is empty
+                    bool isEmptyRow = IsEntireRowEmpty(row);
 
-                    // Determine if row should be deleted based on mode
-                    bool shouldDelete = criteria.DeletionMode == PublicValidationDeletionMode.DeleteInvalid
-                        ? hasValidationFailure  // Delete rows that FAIL
-                        : !hasValidationFailure; // Delete rows that PASS
-
-                    if (shouldDelete && row.TryGetValue("__rowId", out var rowIdObj))
+                    if (isEmptyRow)
                     {
-                        var rowId = rowIdObj?.ToString();
-                        if (!string.IsNullOrEmpty(rowId))
+                        if (rulesCheckForEmpty)
                         {
-                            rowIdsToDelete.Add(rowId);
+                            // Rule checks for empty/null cells (Required type)
+                            // EXTRA LOGIC: Delete empty rows (trailing check happens later)
+                            // Empty rows should be deleted because Required rule expects non-empty values
+                            if (row.TryGetValue("__rowId", out var emptyRowIdObj))
+                            {
+                                var emptyRowId = emptyRowIdObj?.ToString();
+                                if (!string.IsNullOrEmpty(emptyRowId))
+                                {
+                                    rowIdsToDelete.Add(emptyRowId);
+                                    _logger.LogTrace(
+                                        "Empty row marked for deletion (RowId={RowId}) - Required rule",
+                                        emptyRowId);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            // Rule is NOT empty check (Regex, Range, Custom)
+                            // Skip empty rows - they don't violate non-Required rules
+                            _logger.LogTrace(
+                                "Skipping empty row (RowId={RowId}) - non-Required rule",
+                                row.GetValueOrDefault("__rowId"));
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        // Row has data - evaluate against provided rules
+                        bool hasValidationFailure = EvaluateRowAgainstRules(row, criteria.ValidationRules);
+
+                        // Determine if row should be deleted based on mode
+                        bool shouldDelete = criteria.DeletionMode == PublicValidationDeletionMode.DeleteInvalid
+                            ? hasValidationFailure  // Delete rows that FAIL
+                            : !hasValidationFailure; // Delete rows that PASS
+
+                        if (shouldDelete && row.TryGetValue("__rowId", out var rowIdObj))
+                        {
+                            var rowId = rowIdObj?.ToString();
+                            if (!string.IsNullOrEmpty(rowId))
+                            {
+                                rowIdsToDelete.Add(rowId);
+                            }
                         }
                     }
                 }
@@ -102,6 +142,17 @@ internal sealed class ValidationDeletionService
             _logger.LogInformation(
                 "Validation evaluation complete: scanned={Scanned}, toDelete={ToDelete}, mode={Mode}",
                 totalRowsScanned, rowIdsToDelete.Count, criteria.DeletionMode);
+
+            // STEP 1.5: Remove trailing empty rows from deletion list
+            // EXTRA LOGIC: Trailing empty rows should NOT be deleted (already empty, pointless to recycle)
+            if (rulesCheckForEmpty && rowIdsToDelete.Count > 0)
+            {
+                _logger.LogDebug("Removing trailing empty rows from deletion list...");
+                rowIdsToDelete = await RemoveTrailingEmptyRowsAsync(rowIdsToDelete, cancellationToken);
+                _logger.LogInformation(
+                    "After removing trailing empty rows: {Count} rows to delete",
+                    rowIdsToDelete.Count);
+            }
 
             if (rowIdsToDelete.Count == 0)
             {
@@ -115,36 +166,33 @@ internal sealed class ValidationDeletionService
                     details: $"Scanned {totalRowsScanned} rows, no matches for deletion");
             }
 
-            // STEP 2: Delete rows using SmartDeleteRowsByIdAsync (applies 3-step cleanup)
-            _logger.LogInformation("Deleting {Count} rows via SmartDeleteRowsByIdAsync...", rowIdsToDelete.Count);
+            // STEP 2: Delete rows using RowManagementService (NEW ARCHITECTURE - data shifting)
+            _logger.LogInformation("Deleting {Count} rows via RowManagementService...", rowIdsToDelete.Count);
 
-            var deleteCommand = SmartDeleteRowsByIdInternalCommand.Create(
+            var deleteCommand = DeleteRowsByIdCommand.Create(
                 rowIdsToDelete: rowIdsToDelete,
-                configuration: config,
                 currentRowCount: initialRowCount);
 
-            var deleteResult = await _smartOperations.SmartDeleteRowsByIdAsync(deleteCommand, cancellationToken);
+            var deleteResult = await _rowManagement.DeleteRowsByIdAsync(deleteCommand, cancellationToken);
 
             stopwatch.Stop();
 
             if (!deleteResult.Success)
             {
-                _logger.LogError("Smart delete operation failed: {Error}", string.Join(", ", deleteResult.Messages));
+                _logger.LogError("Row management delete failed: {Errors}", string.Join(", ", deleteResult.Messages));
                 return PublicValidationDeletionResult.Failure(
                     string.Join(", ", deleteResult.Messages),
                     stopwatch.Elapsed);
             }
 
-            var emptyRowsCreated = deleteResult.Statistics.EmptyRowsCreated;
-
             _logger.LogInformation(
-                "Validation-based deletion {OperationId} completed: deleted={Deleted}, final={Final}, empty={Empty}, duration={Duration}ms",
-                operationId, rowIdsToDelete.Count, deleteResult.FinalRowCount, emptyRowsCreated, stopwatch.ElapsedMilliseconds);
+                "Validation-based deletion {OperationId} completed: deleted={Deleted}, final={Final}, duration={Duration}ms",
+                operationId, deleteResult.RowsAffected, deleteResult.FinalRowCount, stopwatch.ElapsedMilliseconds);
 
             return PublicValidationDeletionResult.Success(
-                rowsDeleted: rowIdsToDelete.Count,
+                rowsDeleted: deleteResult.RowsAffected,
                 finalRowCount: deleteResult.FinalRowCount,
-                emptyRowsCreated: emptyRowsCreated,
+                emptyRowsCreated: 0, // NEW ARCHITECTURE: No empty row creation, data simply shifts
                 duration: stopwatch.Elapsed,
                 details: $"Mode: {criteria.DeletionMode}, Rules: {criteria.ValidationRules.Count}, Scanned: {totalRowsScanned}");
         }
@@ -266,36 +314,33 @@ internal sealed class ValidationDeletionService
                     details: $"Scanned {totalRowsScanned} rows, found {duplicateGroupCount} duplicate groups");
             }
 
-            // STEP 3: Delete rows using SmartDeleteRowsByIdAsync (applies 3-step cleanup)
-            _logger.LogInformation("Deleting {Count} duplicate rows via SmartDeleteRowsByIdAsync...", rowIdsToDelete.Count);
+            // STEP 3: Delete rows using RowManagementService (NEW ARCHITECTURE - data shifting)
+            _logger.LogInformation("Deleting {Count} duplicate rows via RowManagementService...", rowIdsToDelete.Count);
 
-            var deleteCommand = SmartDeleteRowsByIdInternalCommand.Create(
+            var deleteCommand = DeleteRowsByIdCommand.Create(
                 rowIdsToDelete: rowIdsToDelete,
-                configuration: config,
                 currentRowCount: initialRowCount);
 
-            var deleteResult = await _smartOperations.SmartDeleteRowsByIdAsync(deleteCommand, cancellationToken);
+            var deleteResult = await _rowManagement.DeleteRowsByIdAsync(deleteCommand, cancellationToken);
 
             stopwatch.Stop();
 
             if (!deleteResult.Success)
             {
-                _logger.LogError("Smart delete operation failed: {Error}", string.Join(", ", deleteResult.Messages));
+                _logger.LogError("Row management delete failed: {Errors}", string.Join(", ", deleteResult.Messages));
                 return PublicValidationDeletionResult.Failure(
                     string.Join(", ", deleteResult.Messages),
                     stopwatch.Elapsed);
             }
 
-            var emptyRowsCreated = deleteResult.Statistics.EmptyRowsCreated;
-
             _logger.LogInformation(
-                "Duplicate deletion {OperationId} completed: deleted={Deleted}, final={Final}, empty={Empty}, duration={Duration}ms",
-                operationId, rowIdsToDelete.Count, deleteResult.FinalRowCount, emptyRowsCreated, stopwatch.ElapsedMilliseconds);
+                "Duplicate deletion {OperationId} completed: deleted={Deleted}, final={Final}, duration={Duration}ms",
+                operationId, deleteResult.RowsAffected, deleteResult.FinalRowCount, stopwatch.ElapsedMilliseconds);
 
             return PublicValidationDeletionResult.Success(
-                rowsDeleted: rowIdsToDelete.Count,
+                rowsDeleted: deleteResult.RowsAffected,
                 finalRowCount: deleteResult.FinalRowCount,
-                emptyRowsCreated: emptyRowsCreated,
+                emptyRowsCreated: 0, // NEW ARCHITECTURE: No empty row creation, data simply shifts
                 duration: stopwatch.Elapsed,
                 details: $"Strategy: {criteria.Strategy}, Groups: {duplicateGroupCount}, Scanned: {totalRowsScanned}");
         }
@@ -410,6 +455,111 @@ internal sealed class ValidationDeletionService
         }
 
         return string.Join("|", parts);
+    }
+
+    /// <summary>
+    /// Checks if entire row is empty (all data columns null/empty).
+    /// SENIOR FEATURE: System columns (starting with "__") are ignored.
+    /// Returns TRUE if all data columns are null or whitespace, FALSE otherwise.
+    /// </summary>
+    /// <param name="row">Row data dictionary</param>
+    /// <returns>TRUE if entire row is empty, FALSE if at least one column has data</returns>
+    private bool IsEntireRowEmpty(IReadOnlyDictionary<string, object?> row)
+    {
+        // Check if ANY data column (non-system column) has non-empty value
+        return !row
+            .Where(kvp => !kvp.Key.StartsWith("__"))  // Ignore system columns (__rowId, __metadata, etc.)
+            .Any(kvp => !IsNullOrEmpty(kvp.Value));   // Use existing IsNullOrEmpty helper
+    }
+
+    /// <summary>
+    /// Determines if validation rules check for empty/null cells.
+    /// SENIOR FEATURE: Returns TRUE if ANY rule is Required type (checks for null OR empty string).
+    /// This determines whether empty rows should be deleted or skipped.
+    /// </summary>
+    /// <param name="rules">Dictionary of validation rules</param>
+    /// <returns>TRUE if any rule is Required type, FALSE otherwise</returns>
+    private bool IsEmptyCheckRule(IReadOnlyDictionary<string, PublicValidationRule> rules)
+    {
+        return rules.Values.Any(r => r.RuleType == PublicValidationRuleType.Required);
+    }
+
+    /// <summary>
+    /// Removes trailing empty rows from deletion list.
+    /// SENIOR FEATURE: Trailing = empty rows that have NO data rows after them.
+    /// EXTRA LOGIC: Trailing empty rows should NOT be deleted (already empty, pointless to recycle).
+    /// This prevents unnecessary deletion of empty rows at the end of the grid.
+    /// </summary>
+    /// <param name="rowIdsToDelete">List of row IDs marked for deletion</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Filtered list with trailing empty rows removed</returns>
+    private async Task<List<string>> RemoveTrailingEmptyRowsAsync(
+        List<string> rowIdsToDelete,
+        CancellationToken cancellationToken)
+    {
+        if (rowIdsToDelete.Count == 0)
+            return rowIdsToDelete;
+
+        _logger.LogDebug("Removing trailing empty rows from deletion list ({Count} candidates)...", rowIdsToDelete.Count);
+
+        // Get ALL rows to determine trailing empty rows
+        var allRows = new List<(string rowId, bool isEmpty, int index)>();
+        var index = 0;
+
+        await foreach (var batch in _rowStore.StreamRowsAsync(
+            onlyFiltered: false,
+            onlyChecked: false,
+            batchSize: 1000,
+            cancellationToken))
+        {
+            foreach (var row in batch)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var rowId = row.GetValueOrDefault("__rowId")?.ToString();
+                if (string.IsNullOrEmpty(rowId))
+                    continue;
+
+                bool isEmpty = IsEntireRowEmpty(row);
+                allRows.Add((rowId, isEmpty, index));
+                index++;
+            }
+        }
+
+        if (allRows.Count == 0)
+        {
+            _logger.LogWarning("No rows found in grid - cannot determine trailing empty rows");
+            return rowIdsToDelete;
+        }
+
+        // Find index of last NON-EMPTY row
+        var lastNonEmptyIndex = allRows
+            .Where(r => !r.isEmpty)
+            .Select(r => (int?)r.index)
+            .Max() ?? -1;
+
+        _logger.LogDebug("Last non-empty row found at index {Index}", lastNonEmptyIndex);
+
+        // All rows after lastNonEmptyIndex are TRAILING empty rows
+        var trailingEmptyRowIds = allRows
+            .Where(r => r.index > lastNonEmptyIndex && r.isEmpty)
+            .Select(r => r.rowId)
+            .ToHashSet();
+
+        _logger.LogDebug(
+            "Found {TrailingCount} trailing empty rows (after last data row at index {LastIndex})",
+            trailingEmptyRowIds.Count, lastNonEmptyIndex);
+
+        // Remove trailing empty rows from deletion list
+        var filteredList = rowIdsToDelete
+            .Where(id => !trailingEmptyRowIds.Contains(id))
+            .ToList();
+
+        _logger.LogInformation(
+            "Filtered deletion list: {Original} -> {Filtered} (removed {Removed} trailing empty rows)",
+            rowIdsToDelete.Count, filteredList.Count, rowIdsToDelete.Count - filteredList.Count);
+
+        return filteredList;
     }
 
     #endregion

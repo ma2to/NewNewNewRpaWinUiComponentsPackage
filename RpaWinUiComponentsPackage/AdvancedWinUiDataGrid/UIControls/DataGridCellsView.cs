@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.ViewModels;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Viewport;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIControls.Menus;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIControls;
 
@@ -30,10 +31,16 @@ public sealed class DataGridCellsView : UserControl, IDisposable
     private readonly ViewportManager _viewportManager;
     private readonly DataGridElementFactory _elementFactory;
     private readonly ILogger<DataGridCellsView> _logger;
+    private readonly RowContextMenu _rowContextMenu; // SENIOR IMPLEMENTATION: Excel-like row context menu
 
     private readonly ScrollViewer _scrollViewer;
     private readonly ItemsRepeater _itemsRepeater;
-    private bool _isMouseDown; // Tracks whether mouse is pressed for drag selection
+
+    // SENIOR FIX: Custom drag selection tracking (fixes e.Handled = true blocking event bubbling)
+    private CellViewModel? _pressedCell; // Cell where mouse was initially pressed
+    private bool _isDragging; // True when user started dragging (moved to different cell)
+    private CellViewModel? _lastSelectedCell; // ✅ FIX: Track last selected cell to prevent duplicate events
+
     private bool _disposed;
     private bool _isUpdatingViewport; // Prevent re-entrant viewport updates
 
@@ -67,27 +74,41 @@ public sealed class DataGridCellsView : UserControl, IDisposable
     /// </summary>
     /// <param name="viewModel">The view model that manages the grid's data and state</param>
     /// <param name="logger">Optional logger for diagnostics (uses NullLogger if not provided)</param>
+    /// <param name="loggerFactory">Optional logger factory for creating child component loggers</param>
     /// <exception cref="ArgumentNullException">Thrown when viewModel is null</exception>
     public DataGridCellsView(
         DataGridViewModel viewModel,
-        ILogger<DataGridCellsView>? logger = null)
+        ILogger<DataGridCellsView>? logger = null,
+        ILoggerFactory? loggerFactory = null)
     {
         _viewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<DataGridCellsView>.Instance;
 
+        // SENIOR IMPLEMENTATION: Initialize Row Context Menu (Excel-like Insert/Delete)
+        _rowContextMenu = new RowContextMenu();
+        _rowContextMenu.InsertRowsAboveRequested += OnRowContextMenuInsertAbove;
+        _rowContextMenu.InsertRowsBelowRequested += OnRowContextMenuInsertBelow;
+        _rowContextMenu.DeleteRowsRequested += OnRowContextMenuDelete;
+
         // Create ViewportManager (uses ViewModel.Rows as data source)
-        var viewportLogger = Microsoft.Extensions.Logging.Abstractions.NullLogger<ViewportManager>.Instance;
+        var viewportLogger = loggerFactory?.CreateLogger<ViewportManager>()
+            ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ViewportManager>.Instance;
         _viewportManager = new ViewportManager(
             _viewModel,
             _viewModel.Theme,
             viewportLogger);
 
-        // Create ElementFactory
-        var factoryLogger = Microsoft.Extensions.Logging.Abstractions.NullLogger<DataGridElementFactory>.Instance;
+        // SENIOR FIX: Set ViewportManager reference in ViewModel for cache invalidation on data reload
+        _viewModel.ViewportManager = _viewportManager;
+
+        // Create ElementFactory with logger factory for child components
+        var factoryLogger = loggerFactory?.CreateLogger<DataGridElementFactory>()
+            ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<DataGridElementFactory>.Instance;
         _elementFactory = new DataGridElementFactory(
             _viewportManager,
             _viewModel,
-            factoryLogger);
+            factoryLogger,
+            loggerFactory);
 
         // Forward events from ElementFactory
         _elementFactory.OnRowSelectionChanged += HandleRowSelectionChanged;
@@ -108,17 +129,28 @@ public sealed class DataGridCellsView : UserControl, IDisposable
             }
         };
 
+        // SENIOR IMPLEMENTATION: Attach RightTapped handler for Row Context Menu (Excel-like)
+        _itemsRepeater.RightTapped += OnItemsRepeaterRightTapped;
+
         // Create ScrollViewer for scrollable area
         _scrollViewer = new ScrollViewer
         {
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, 
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,   
             Content = _itemsRepeater
         };
 
-        // Handle pointer events for range selection
-        _scrollViewer.PointerPressed += OnPointerPressed;
+        // SENIOR FIX: Handle pointer released for drag selection end
+        // (PointerPressed removed - drag detection now happens in OnCellPointerEntered)
         _scrollViewer.PointerReleased += OnPointerReleased;
+
+        // ✅ CRITICAL FIX: Handle pointer capture lost (when pointer leaves window, another control captures, etc.)
+        // This ensures drag selection ends properly even if PointerReleased doesn't fire
+        _scrollViewer.PointerCaptureLost += OnPointerCaptureLost;
+
+        // ✅ CRITICAL FIX: Handle pointer moved for continuous drag selection updates
+        // This provides smooth range selection feedback as user drags across cells
+        _scrollViewer.PointerMoved += OnScrollViewerPointerMoved;
 
         // Handle scroll changes to update viewport
         _scrollViewer.ViewChanged += OnScrollViewChanged;
@@ -136,18 +168,37 @@ public sealed class DataGridCellsView : UserControl, IDisposable
             _viewModel.Rows.Count);
     }
 
-    private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
-    {
-        _isMouseDown = true;
-    }
-
     private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
     {
-        if (_isMouseDown)
+        // SENIOR FIX: End drag selection when pointer released
+        if (_isDragging)
         {
-            _isMouseDown = false;
             _viewModel.EndRangeSelection();
+            _logger.LogDebug("Drag selection ended (pointer released)");
         }
+
+        // Reset drag state
+        _pressedCell = null;
+        _isDragging = false;
+    }
+
+    /// <summary>
+    /// ✅ CRITICAL FIX: Handles pointer capture lost event to properly end drag selection.
+    /// This is crucial for cases where PointerReleased doesn't fire (e.g., pointer leaves window,
+    /// another control captures pointer, user switches apps).
+    /// </summary>
+    private void OnPointerCaptureLost(object sender, PointerRoutedEventArgs e)
+    {
+        // End drag selection when pointer capture is lost
+        if (_isDragging)
+        {
+            _viewModel.EndRangeSelection();
+            _logger.LogDebug("Drag selection ended (pointer capture lost)");
+        }
+
+        // Reset drag state
+        _pressedCell = null;
+        _isDragging = false;
     }
 
     /// <summary>
@@ -180,14 +231,7 @@ public sealed class DataGridCellsView : UserControl, IDisposable
 
             // Update viewport (load POCO + create ViewModels)
             await _viewportManager.UpdateViewportAsync(firstVisibleIndex, lastVisibleIndex);
-
-            // Update ItemsRepeater data source
-            // NOTE: ItemsRepeater uses index-based access via ElementFactory
-            // We set ItemsSource to a simple range to trigger factory calls
-            if (!e.IsIntermediate) // Only update after scroll completes
-            {
-                _itemsRepeater.ItemsSource = Enumerable.Range(0, _viewportManager.TotalRowCount).ToList();
-            }
+            // ItemsSource already set during initialization - no need to reset on scroll!
         }
         catch (Exception ex)
         {
@@ -203,7 +247,7 @@ public sealed class DataGridCellsView : UserControl, IDisposable
     /// Handles row collection changes (add, remove, reset).
     /// Invalidates viewport cache and updates total row count.
     /// </summary>
-    private void OnRowsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    private async void OnRowsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         try
         {
@@ -218,6 +262,16 @@ public sealed class DataGridCellsView : UserControl, IDisposable
 
             // Update ItemsRepeater
             _itemsRepeater.ItemsSource = Enumerable.Range(0, _viewModel.Rows.Count).ToList();
+
+            // SENIOR FIX: Update viewport IMMEDIATELY after cache invalidation
+            // Prevents "Loading..." placeholders by pre-loading first 50 rows
+            // BUG: Without this, ViewportManager cache is empty → GetRowViewModel() returns NULL → "Loading..." shown
+            var rowsToLoad = Math.Min(50, _viewModel.Rows.Count);
+            if (rowsToLoad > 0)
+            {
+                await _viewportManager.UpdateViewportAsync(0, rowsToLoad - 1);
+                _logger.LogTrace("Pre-loaded {Count} rows into viewport cache after collection change", rowsToLoad);
+            }
         }
         catch (Exception ex)
         {
@@ -242,24 +296,111 @@ public sealed class DataGridCellsView : UserControl, IDisposable
 
     private void OnCellSelected(object? sender, CellSelectionEventArgs e)
     {
-        if (_isMouseDown && !e.IsCtrlPressed)
+        // ✅ HIGH FIX: Prevent duplicate selection events for same cell without Ctrl
+        // Compare RowId + ColumnName (stable identifiers) instead of object references (recycled ViewModels)
+        if (_lastSelectedCell != null &&
+            _lastSelectedCell.RowId == e.Cell.RowId &&
+            _lastSelectedCell.ColumnName == e.Cell.ColumnName &&
+            !e.IsCtrlPressed)
         {
-            // Start range selection
-            _viewModel.StartRangeSelection(e.Cell);
+            _logger.LogTrace("Ignoring duplicate cell selection for RowId={RowId}, Column={ColumnName}",
+                e.Cell.RowId, e.Cell.ColumnName);
+            return;
         }
-        else
+
+        // SENIOR FIX: Store pressed cell for drag detection
+        // Drag will be initiated when pointer moves to different cell (in OnScrollViewerPointerMoved)
+        _pressedCell = e.Cell;
+        _isDragging = false;
+        _lastSelectedCell = e.Cell;
+
+        // ✅ CRITICAL FIX: Capture pointer on ScrollViewer to ensure PointerReleased fires
+        // Without this, e.Handled = true in CellControl blocks pointer events from reaching parent
+        if (e.PointerEventArgs?.Pointer != null)
         {
-            // Single or Ctrl+click selection
-            _viewModel.SelectCell(e.Cell, e.IsCtrlPressed);
+            var captured = _scrollViewer.CapturePointer(e.PointerEventArgs.Pointer);
+            if (captured)
+            {
+                _logger.LogTrace("Pointer captured for drag selection support");
+            }
+            else
+            {
+                _logger.LogWarning("Failed to capture pointer - drag selection may not work properly");
+            }
+        }
+
+        // Always call SelectCell for proper single/multi-select behavior
+        // If user drags to another cell, OnScrollViewerPointerMoved will initiate range selection
+        _viewModel.SelectCell(e.Cell, e.IsCtrlPressed);
+
+        _logger.LogTrace("Cell selected: [{Row},{Col}], Ctrl={IsCtrl}",
+            e.Cell.RowIndex, e.Cell.ColumnIndex, e.IsCtrlPressed);
+    }
+
+    /// <summary>
+    /// ✅ CRITICAL FIX: Handles pointer moved on ScrollViewer for continuous drag selection.
+    /// This method detects when pointer moves to different cells while pressed and updates range selection.
+    /// Works in conjunction with pointer capture to provide smooth drag selection feedback.
+    /// </summary>
+    private void OnScrollViewerPointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (_pressedCell == null)
+            return;
+
+        // Get pointer position relative to ScrollViewer
+        var point = e.GetCurrentPoint(_scrollViewer).Position;
+
+        // Find all elements at the pointer position
+        var elements = Microsoft.UI.Xaml.Media.VisualTreeHelper.FindElementsInHostCoordinates(point, _scrollViewer);
+
+        // Find the first CellControl in the visual tree
+        var cellControl = elements.OfType<CellControl>().FirstOrDefault();
+        if (cellControl != null && cellControl.ViewModel != null)
+        {
+            var currentCell = cellControl.ViewModel;
+
+            // If pointer moved to a different cell, start/continue drag selection
+            if (currentCell != _pressedCell)
+            {
+                if (!_isDragging)
+                {
+                    // First move to different cell - start drag selection
+                    _isDragging = true;
+                    _viewModel.StartRangeSelection(_pressedCell);
+
+                    _logger.LogInformation("Drag selection started from cell [{Row},{Col}] via PointerMoved",
+                        _pressedCell.RowIndex, _pressedCell.ColumnIndex);
+                }
+
+                // Update range selection to current cell
+                _viewModel.UpdateRangeSelection(currentCell);
+
+                _logger.LogTrace("Drag selection updated to cell [{Row},{Col}] via PointerMoved",
+                    currentCell.RowIndex, currentCell.ColumnIndex);
+            }
         }
     }
 
     private void OnCellPointerEntered(object? sender, CellViewModel cell)
     {
-        // Handle pointer entered - for range selection
-        if (_isMouseDown)
+        // SENIOR FIX: Detect drag start when pointer moves to different cell while pressed
+        if (_pressedCell != null && !_isDragging)
+        {
+            // User pressed cell and now moved to another cell → start drag selection
+            _isDragging = true;
+            _viewModel.StartRangeSelection(_pressedCell);
+
+            _logger.LogInformation("Drag selection started from cell [{Row},{Col}]",
+                _pressedCell.RowIndex, _pressedCell.ColumnIndex);
+        }
+
+        // Continue range selection if already dragging
+        if (_isDragging)
         {
             _viewModel.UpdateRangeSelection(cell);
+
+            _logger.LogTrace("Drag selection updated to cell [{Row},{Col}]",
+                cell.RowIndex, cell.ColumnIndex);
         }
     }
 
@@ -269,6 +410,120 @@ public sealed class DataGridCellsView : UserControl, IDisposable
         // This allows the application layer to trigger auto-expand when last row is edited
         CellEditCompleted?.Invoke(this, cell);
     }
+
+    #region SENIOR IMPLEMENTATION: Row Context Menu Handlers (Excel-like Insert/Delete)
+
+    /// <summary>
+    /// SENIOR IMPLEMENTATION: Handles right-click on ItemsRepeater to show Row Context Menu.
+    /// Excel-like behavior: Insert Above/Below, Delete selected rows.
+    /// Supports multi-row selection (e.g., select 5 rows → Insert 5 Rows Above/Below).
+    /// </summary>
+    private void OnItemsRepeaterRightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        _logger.LogInformation("Right-click detected on ItemsRepeater - showing Row Context Menu");
+
+        // Get all selected rows (from checkbox column)
+        var selectedRows = _viewModel.Rows
+            .Where(r => r.IsSelected)
+            .ToList();
+
+        // If no rows selected, try to select the row under cursor
+        if (selectedRows.Count == 0)
+        {
+            // Find the row element that was right-clicked
+            var originalSource = e.OriginalSource as FrameworkElement;
+            while (originalSource != null)
+            {
+                if (originalSource.DataContext is DataGridRowViewModel rowVm)
+                {
+                    rowVm.IsSelected = true;
+                    selectedRows.Add(rowVm);
+                    _logger.LogInformation("Auto-selected row {RowIndex} under cursor", rowVm.RowIndex);
+                    break;
+                }
+                originalSource = originalSource.Parent as FrameworkElement;
+            }
+        }
+
+        // If still no selection, show empty menu (or skip)
+        if (selectedRows.Count == 0)
+        {
+            _logger.LogWarning("No rows selected - context menu skipped");
+            e.Handled = true;
+            return;
+        }
+
+        // Extract indices and IDs
+        var selectedIndices = selectedRows.Select(r => r.RowIndex).ToList();
+        var selectedIds = selectedRows.Select(r => r.RowId).ToList();
+
+        _logger.LogInformation("Showing Row Context Menu for {Count} selected rows (indices: {Indices})",
+            selectedRows.Count, string.Join(", ", selectedIndices));
+
+        // Create and show context menu
+        var contextMenu = _rowContextMenu.CreateRowContextMenu(selectedIndices, selectedIds);
+        contextMenu.ShowAt(_itemsRepeater, e.GetPosition(_itemsRepeater));
+
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// SENIOR IMPLEMENTATION: Handles "Insert Rows Above" request from context menu.
+    /// Fires InsertRowRequested event for application layer to handle via Rows API.
+    /// </summary>
+    private void OnRowContextMenuInsertAbove(object? sender, InsertRowsEventArgs e)
+    {
+        _logger.LogInformation("Row Context Menu: Insert {Count} rows ABOVE index {Index}",
+            e.RowCount, e.ReferenceRowIndex);
+
+        // Fire event for each row to insert (application layer will call Rows.InsertRowAsync)
+        for (int i = 0; i < e.RowCount; i++)
+        {
+            var insertIndex = e.ReferenceRowIndex; // Always insert at same index (previous inserts shift down)
+            var eventArgs = new InsertRowRequestedEventArgs(insertIndex, null, "Above");
+            InsertRowRequested?.Invoke(this, eventArgs);
+        }
+    }
+
+    /// <summary>
+    /// SENIOR IMPLEMENTATION: Handles "Insert Rows Below" request from context menu.
+    /// Fires InsertRowRequested event for application layer to handle via Rows API.
+    /// </summary>
+    private void OnRowContextMenuInsertBelow(object? sender, InsertRowsEventArgs e)
+    {
+        _logger.LogInformation("Row Context Menu: Insert {Count} rows BELOW index {Index}",
+            e.RowCount, e.ReferenceRowIndex);
+
+        // Insert BELOW = insert at (referenceIndex + 1)
+        var insertIndex = e.ReferenceRowIndex + 1;
+
+        // Fire event for each row to insert
+        for (int i = 0; i < e.RowCount; i++)
+        {
+            var eventArgs = new InsertRowRequestedEventArgs(insertIndex, null, "Below");
+            InsertRowRequested?.Invoke(this, eventArgs);
+        }
+    }
+
+    /// <summary>
+    /// SENIOR IMPLEMENTATION: Handles "Delete Rows" request from context menu.
+    /// Fires DeleteRowRequested event for application layer to handle via Rows API.
+    /// </summary>
+    private void OnRowContextMenuDelete(object? sender, DeleteRowsEventArgs e)
+    {
+        _logger.LogInformation("Row Context Menu: Delete {Count} rows (IDs: {Ids})",
+            e.RowIds.Count, string.Join(", ", e.RowIds.Take(5)));
+
+        // Fire event for each row to delete (application layer will call Rows.RemoveRowsAsync)
+        foreach (var rowId in e.RowIds)
+        {
+            var rowIndex = e.RowIndices[e.RowIds.ToList().IndexOf(rowId)];
+            var eventArgs = new DeleteRowRequestedEventArgs(rowIndex, rowId);
+            DeleteRowRequested?.Invoke(this, eventArgs);
+        }
+    }
+
+    #endregion
 
     /// <summary>
     /// Disposes the DataGridCellsView and cleans up all resources.
@@ -309,9 +564,25 @@ public sealed class DataGridCellsView : UserControl, IDisposable
         // Unsubscribe from ScrollViewer events
         if (_scrollViewer != null)
         {
-            _scrollViewer.PointerPressed -= OnPointerPressed;
+            // SENIOR FIX: PointerPressed subscription removed (no longer used)
             _scrollViewer.PointerReleased -= OnPointerReleased;
+            _scrollViewer.PointerCaptureLost -= OnPointerCaptureLost;
+            _scrollViewer.PointerMoved -= OnScrollViewerPointerMoved;
             _scrollViewer.ViewChanged -= OnScrollViewChanged;
+        }
+
+        // SENIOR IMPLEMENTATION: Unsubscribe from Row Context Menu events
+        if (_rowContextMenu != null)
+        {
+            _rowContextMenu.InsertRowsAboveRequested -= OnRowContextMenuInsertAbove;
+            _rowContextMenu.InsertRowsBelowRequested -= OnRowContextMenuInsertBelow;
+            _rowContextMenu.DeleteRowsRequested -= OnRowContextMenuDelete;
+        }
+
+        // SENIOR IMPLEMENTATION: Unsubscribe from ItemsRepeater events
+        if (_itemsRepeater != null)
+        {
+            _itemsRepeater.RightTapped -= OnItemsRepeaterRightTapped;
         }
 
         _logger.LogInformation("DataGridCellsView disposed");

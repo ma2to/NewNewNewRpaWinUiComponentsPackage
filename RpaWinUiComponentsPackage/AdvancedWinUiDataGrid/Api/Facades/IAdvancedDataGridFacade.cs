@@ -102,10 +102,9 @@ public interface IAdvancedDataGridFacade : IAsyncDisposable
     /// </summary>
     MVVM.IDataGridMVVM MVVM { get; }
 
-    /// <summary>
-    /// Smart row management operations (add/delete with minimum rows)
-    /// </summary>
-    SmartOperations.IDataGridSmartOperations SmartOperations { get; }
+    // REMOVED: SmartOperations - replaced by simpler Rows.RemoveRowsAsync and data-shifting architecture
+    // Use Rows.RemoveRowsAsync(rowIds) for deletion with automatic data shifting
+    // SmartOperations.IDataGridSmartOperations SmartOperations { get; }
 
     /// <summary>
     /// Environment configuration management (application-level settings)

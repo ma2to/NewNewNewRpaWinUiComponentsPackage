@@ -243,7 +243,24 @@ internal enum FilterOperator
     IsEmpty,
 
     /// <summary>Is not empty</summary>
-    IsNotEmpty
+    IsNotEmpty,
+
+    /// <summary>
+    /// IN operator (for multiple values)
+    /// SQL: WHERE column IN ('value1', 'value2', 'value3', ...)
+    /// Use case: Checkbox filter mode - show rows matching any of the selected values
+    /// Example: Status IN ('Active', 'Pending')
+    /// </summary>
+    In,
+
+    /// <summary>
+    /// REGEXP operator (for regex pattern matching)
+    /// SQL: WHERE column REGEXP 'pattern'
+    /// Use case: Advanced pattern matching
+    /// Example: Email REGEXP '^test.*@example\.com$'
+    /// NOTE: Requires SQLite REGEXP function registration (custom function)
+    /// </summary>
+    Regex
 }
 
 /// <summary>

@@ -47,8 +47,23 @@ internal sealed record ColorConfiguration
     public string? ForegroundColor { get; init; }
     public string? BorderColor { get; init; }
     public ColorMode Mode { get; init; } = ColorMode.Cell;
+
+    /// <summary>
+    /// WARNING: Unstable - changes on sort/filter/delete. Use RowId instead.
+    /// </summary>
     public int? RowIndex { get; init; }
+
+    /// <summary>
+    /// WARNING: Unstable - changes on column reorder/hide. Use ColumnName instead.
+    /// </summary>
     public int? ColumnIndex { get; init; }
+
+    /// <summary>
+    /// Stable row identifier (from __rowId field) - persists across sort/filter/delete operations
+    /// When both RowId and RowIndex are set, RowId takes precedence.
+    /// </summary>
+    public string? RowId { get; init; }
+
     public string? ColumnName { get; init; }
 
     public static ColorConfiguration CreateCellColor(int rowIndex, int columnIndex, string backgroundColor, string? foregroundColor = null) =>
@@ -75,6 +90,26 @@ internal sealed record ColorConfiguration
         {
             Mode = ColorMode.Column,
             ColumnName = columnName,
+            BackgroundColor = backgroundColor,
+            ForegroundColor = foregroundColor
+        };
+
+    // NEW: Stable rowId-based factory methods
+    public static ColorConfiguration CreateCellColorByRowId(string rowId, string columnName, string backgroundColor, string? foregroundColor = null) =>
+        new()
+        {
+            Mode = ColorMode.Cell,
+            RowId = rowId,
+            ColumnName = columnName,
+            BackgroundColor = backgroundColor,
+            ForegroundColor = foregroundColor
+        };
+
+    public static ColorConfiguration CreateRowColorByRowId(string rowId, string backgroundColor, string? foregroundColor = null) =>
+        new()
+        {
+            Mode = ColorMode.Row,
+            RowId = rowId,
             BackgroundColor = backgroundColor,
             ForegroundColor = foregroundColor
         };

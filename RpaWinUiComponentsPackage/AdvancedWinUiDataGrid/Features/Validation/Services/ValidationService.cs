@@ -4,6 +4,7 @@ using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Validation.Interfaces;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Linq;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.NullPattern;
 
@@ -23,6 +24,13 @@ internal sealed class ValidationService : IValidationService
     private readonly Infrastructure.Persistence.Interfaces.IRowStore _rowStore;
     private readonly AdvancedDataGridOptions _options;
     private readonly ConcurrentBag<IValidationRule> _validationRules;
+
+    /// <summary>
+    /// SENIOR FEATURE: Event fired when validation state changes.
+    /// Used by CellEditService and other services to trigger UI updates via ApplyValidationErrors().
+    /// Subscribers should call GetValidationErrorsAsync() and ApplyValidationErrors() on UI thread.
+    /// </summary>
+    public event EventHandler? ValidationChanged;
 
     /// <summary>
     /// ValidationService constructor
@@ -400,12 +408,60 @@ internal sealed class ValidationService : IValidationService
                 await Task.Delay(1, cancellationToken);
         }
 
-        // Write validation results to IRowStore for persistence and caching
-        var allErrors = validationErrors.ToList();
-        await _rowStore.WriteValidationResultsAsync(allErrors, cancellationToken);
+        // SENIOR FIX: Batch write validation results (Option 2)
+        // Group errors by rowId for batch write operation
+        var validationResultsDict = new Dictionary<string, ValidationError[]>();
 
-        _logger.LogInformation("Stored {ErrorCount} validation errors to row store for operation {OperationId}",
-            allErrors.Count, operationId);
+        foreach (var error in validationErrors)
+        {
+            if (string.IsNullOrEmpty(error.RowId))
+                continue;
+
+            if (!validationResultsDict.ContainsKey(error.RowId))
+            {
+                validationResultsDict[error.RowId] = Array.Empty<ValidationError>();
+            }
+
+            var existing = validationResultsDict[error.RowId].ToList();
+            existing.Add(error);
+            validationResultsDict[error.RowId] = existing.ToArray();
+        }
+
+        // ADAPTIVE VALIDATION STORAGE: Switch between InMemory and SQLite based on row count
+        // Uses ValidationStorageThreshold from options to determine storage strategy
+        var rowCount = await _rowStore.GetRowCountAsync(cancellationToken);
+        var useValidationSqlite = rowCount >= _options.ValidationStorageThreshold;
+
+        if (useValidationSqlite)
+        {
+            // KOMBINÁCIA 2: SQLite + SQLite (1M and more rows)
+            // Použiť WriteValidationResultsAsync() → async pipeline → SQLite
+            _logger.LogInformation(
+                "Using SQLite validation storage (row count {RowCount} >= threshold {Threshold}) for operation {OperationId}",
+                rowCount, _options.ValidationStorageThreshold, operationId);
+
+            // Convert Dictionary to IEnumerable<ValidationError>
+            var allErrors = validationResultsDict
+                .SelectMany(kvp => kvp.Value)
+                .ToList();
+
+            await _rowStore.WriteValidationResultsAsync(allErrors, cancellationToken);
+        }
+        else
+        {
+            // KOMBINÁCIA 1/4: InMemory validations (< 1M rows)
+            _logger.LogInformation(
+                "Using InMemory validation storage (row count {RowCount} < threshold {Threshold}) for operation {OperationId}",
+                rowCount, _options.ValidationStorageThreshold, operationId);
+
+            // Write all validation results in a single batch operation
+            // This prevents infinite loop by avoiding multiple DataChanged events
+            await _rowStore.WriteValidationResultsBatchAsync(validationResultsDict, cancellationToken);
+        }
+
+        _logger.LogInformation(
+            "Batch validation write completed: {RowCount} rows validated, {ErrorCount} total errors for operation {OperationId}",
+            validationResultsDict.Count, totalErrors, operationId);
 
         return Result<int>.Success(totalErrors);
     }
@@ -440,6 +496,13 @@ internal sealed class ValidationService : IValidationService
                         rowId = rowIdValue?.ToString() ?? string.Empty;
                     }
 
+                    // SENIOR FIX: Skip if already validated (Option 3 - cache check)
+                    // Prevents re-validation of already validated rows
+                    if (!string.IsNullOrEmpty(rowId) && _rowStore.IsRowValidationCached(rowId))
+                    {
+                        return; // Skip this row (already validated)
+                    }
+
                     foreach (var rule in rules)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
@@ -451,7 +514,8 @@ internal sealed class ValidationService : IValidationService
                                 RowIndex = absoluteRowIndex,
                                 OperationId = operationId.ToString()
                             };
-                            var validationResult = rule.Validate(rowData.row, context);
+                            // SENIOR FIX: Use wrapper to automatically skip validation for entirely empty rows
+                            var validationResult = ValidateRowWithEmptyCheck(rule, rowData.row, context);
 
                             if (!validationResult.IsValid)
                             {
@@ -495,6 +559,41 @@ internal sealed class ValidationService : IValidationService
         }, cancellationToken);
 
         return (batchErrors.Count, batchWarnings.Count, batchErrors.ToList(), batchWarnings.ToList());
+    }
+
+    /// <summary>
+    /// Wrapper that validates a row with automatic empty row detection.
+    /// SENIOR FEATURE: Skips validation for entirely empty rows (all data columns null/empty).
+    /// Returns ValidationResult.Success() for empty rows to prevent false validation errors.
+    /// For partially filled rows, delegates to the original rule.Validate() method.
+    /// </summary>
+    /// <param name="rule">Validation rule to apply</param>
+    /// <param name="row">Row data dictionary (includes system columns like __rowId)</param>
+    /// <param name="context">Validation context with RowIndex and OperationId</param>
+    /// <returns>ValidationResult - Success for empty rows, otherwise rule.Validate() result</returns>
+    private ValidationResult ValidateRowWithEmptyCheck(
+        IValidationRule rule,
+        IReadOnlyDictionary<string, object?> row,
+        ValidationContext context)
+    {
+        // Check if entire row is empty (all data columns null/empty)
+        // System columns (starting with "__") are ignored
+        var hasAnyNonEmptyColumn = row
+            .Where(kvp => !kvp.Key.StartsWith("__"))  // Ignore system columns (__rowId, __metadata, etc.)
+            .Any(kvp => kvp.Value != null && !IsEmptyValue(kvp.Value));
+
+        if (!hasAnyNonEmptyColumn)
+        {
+            // Entire row is empty - skip validation (return Success)
+            _logger.LogTrace(
+                "Skipping validation for empty row (RowId={RowId}, RowIndex={RowIndex})",
+                row.GetValueOrDefault("__rowId"), context.RowIndex);
+
+            return ValidationResult.Success();
+        }
+
+        // Row has at least one non-empty column - validate normally using original rule
+        return rule.Validate(row, context);
     }
 
     /// <summary>
@@ -810,6 +909,86 @@ internal sealed class ValidationService : IValidationService
     }
 
     /// <summary>
+    /// Validates a single cell with real-time validation mode using stable rowId
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations
+    /// </summary>
+    public async Task<ValidationResult> ValidateCellAsync(
+        string rowId,
+        string columnName,
+        object? newValue,
+        CancellationToken cancellationToken = default)
+    {
+        var operationId = Guid.NewGuid();
+        _logger.LogDebug("Starting real-time cell validation for row {RowId}, column {ColumnName} with operation {OperationId}",
+            rowId, columnName, operationId);
+
+        try
+        {
+            // Get current row by stable rowId
+            var row = _rowStore.GetRowById(rowId);
+            if (row == null)
+            {
+                _logger.LogWarning("Row {RowId} not found during cell validation", rowId);
+                return ValidationResult.Error($"Row {rowId} not found");
+            }
+
+            // Get rowIndex for context (backward compatibility)
+            var rowIndex = _rowStore.GetRowIndexById(rowId) ?? -1;
+
+            // Create updated row with new value
+            var updatedRow = new Dictionary<string, object?>(row)
+            {
+                [columnName] = newValue
+            };
+
+            // Create real-time validation context
+            var context = new ValidationContext
+            {
+                RowIndex = rowIndex,
+                ColumnName = columnName,
+                OperationId = operationId.ToString(),
+                Properties = new Dictionary<string, object?>
+                {
+                    ["ValidationMode"] = Common.Models.ValidationMode.RealTime,
+                    ["OldValue"] = row.TryGetValue(columnName, out var oldValue) ? oldValue : null,
+                    ["NewValue"] = newValue,
+                    ["RowId"] = rowId  // Add stable rowId to context
+                }
+            };
+
+            // Get applicable rules for this column
+            var applicableRules = _validationRules
+                .Where(rule => rule.DependentColumns.Contains(columnName, StringComparer.OrdinalIgnoreCase))
+                .ToArray();
+
+            _logger.LogDebug("Found {RuleCount} applicable rules for column {ColumnName}",
+                applicableRules.Length, columnName);
+
+            // Validate with each applicable rule
+            foreach (var rule in applicableRules)
+            {
+                var result = await rule.ValidateAsync(updatedRow, context, cancellationToken);
+                if (!result.IsValid)
+                {
+                    _logger.LogWarning("Real-time validation failed for row {RowId}, column {ColumnName}: {Message}",
+                        rowId, columnName, result.ErrorMessage);
+                    return result;
+                }
+            }
+
+            _logger.LogDebug("Real-time cell validation successful for row {RowId}, column {ColumnName}",
+                rowId, columnName);
+            return ValidationResult.Success();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Real-time cell validation failed for row {RowId}, column {ColumnName}: {Message}",
+                rowId, columnName, ex.Message);
+            return ValidationResult.Error($"Validation error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Determines validation mode based on operation name
     /// SMART DECISION: Returns Batch or RealTime based on operation type
     /// </summary>
@@ -930,6 +1109,31 @@ internal sealed class ValidationService : IValidationService
     }
 
     /// <summary>
+    /// Gets validation alerts message for a specific row using stable rowId
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations
+    /// Format: "Error: msg1; Warning: msg2"
+    /// </summary>
+    public string GetValidationAlertsForRow(string rowId)
+    {
+        try
+        {
+            // Get validation errors for this row from row store by stable rowId
+            var row = _rowStore.GetRowById(rowId);
+            if (row != null && row.TryGetValue("validAlerts", out var alerts))
+            {
+                return alerts?.ToString() ?? string.Empty;
+            }
+
+            return string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to get validation alerts for row {RowId}", rowId);
+            return string.Empty;
+        }
+    }
+
+    /// <summary>
     /// Updates validation alerts for a specific row
     /// CRITICAL: Formats and stores validation messages in validAlerts column
     /// </summary>
@@ -985,6 +1189,67 @@ internal sealed class ValidationService : IValidationService
         {
             _logger.LogError(ex, "Failed to update validation alerts for row {RowIndex}: {Message}",
                 rowIndex, ex.Message);
+            return Result.Failure($"Failed to update validation alerts: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Updates validation alerts for a specific row using stable rowId
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations
+    /// CRITICAL: Formats and stores validation messages in validAlerts column
+    /// </summary>
+    public async Task<Result> UpdateValidationAlertsAsync(
+        string rowId,
+        IReadOnlyList<ValidationResult> results,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogDebug("Updating validation alerts for row {RowId} with {ResultCount} results",
+                rowId, results.Count);
+
+            if (results.Count == 0 || results.All(r => r.IsValid))
+            {
+                // No errors - clear alerts
+                var row = _rowStore.GetRowById(rowId);
+                if (row != null)
+                {
+                    var updatedRow = new Dictionary<string, object?>(row)
+                    {
+                        ["validAlerts"] = string.Empty
+                    };
+                    await _rowStore.UpdateRowByIdAsync(rowId, updatedRow, cancellationToken);
+                }
+
+                return Result.Success();
+            }
+
+            // Format alerts: "Error: msg1; Warning: msg2"
+            var errorMessages = results
+                .Where(r => !r.IsValid)
+                .Select(r => $"{r.Severity}: {r.ErrorMessage}")
+                .ToList();
+
+            var alertMessage = string.Join("; ", errorMessages);
+
+            // Update row with alerts using stable rowId
+            var currentRow = _rowStore.GetRowById(rowId);
+            if (currentRow != null)
+            {
+                var updatedRow = new Dictionary<string, object?>(currentRow)
+                {
+                    ["validAlerts"] = alertMessage
+                };
+                await _rowStore.UpdateRowByIdAsync(rowId, updatedRow, cancellationToken);
+            }
+
+            _logger.LogInformation("Updated validation alerts for row {RowId}: {Alerts}", rowId, alertMessage);
+            return Result.Success();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update validation alerts for row {RowId}: {Message}",
+                rowId, ex.Message);
             return Result.Failure($"Failed to update validation alerts: {ex.Message}");
         }
     }
@@ -1126,6 +1391,40 @@ internal sealed class ValidationService : IValidationService
         {
             _logger.LogError(ex, "Failed to get validation errors: {Message}", ex.Message);
             return Array.Empty<ValidationError>();
+        }
+    }
+
+    /// <summary>
+    /// SENIOR METHOD: Fires ValidationChanged event to notify subscribers.
+    ///
+    /// Used by CellEditService and other services to trigger UI updates after validation completes.
+    /// Subscribers typically call GetValidationErrorsAsync() and DataGridViewModel.ApplyValidationErrors().
+    ///
+    /// USAGE EXAMPLE (CellEditService):
+    /// ```csharp
+    /// var validationResult = await _validationService.ValidateRowAsync(...);
+    /// if (!validationResult.IsValid) {
+    ///     // Update ValidationAlerts column
+    ///     await _specialColumnService.UpdateValidationAlertsAsync(...);
+    /// }
+    /// // Fire event to trigger UI border updates
+    /// _validationService.FireValidationChanged();
+    /// ```
+    /// </summary>
+    public void FireValidationChanged()
+    {
+        try
+        {
+            // SENIOR PATTERN: Thread-safe event invocation with null-conditional operator
+            // This is the standard C# pattern for raising events safely
+            ValidationChanged?.Invoke(this, EventArgs.Empty);
+
+            _logger.LogDebug("ValidationChanged event fired - subscribers will update UI");
+        }
+        catch (Exception ex)
+        {
+            // DEFENSIVE: Never let subscriber exceptions crash the service
+            _logger.LogError(ex, "Exception in ValidationChanged event handler: {Message}", ex.Message);
         }
     }
 }

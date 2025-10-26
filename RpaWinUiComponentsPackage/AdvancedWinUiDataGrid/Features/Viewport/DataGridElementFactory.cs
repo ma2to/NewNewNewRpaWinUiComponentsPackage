@@ -26,6 +26,7 @@ internal sealed class DataGridElementFactory : IElementFactory
     private readonly ViewportManager _viewportManager;
     private readonly DataGridViewModel _viewModel;
     private readonly ILogger<DataGridElementFactory> _logger;
+    private readonly ILoggerFactory? _loggerFactory;
 
     // Recycling pool for Grid elements
     private readonly Queue<Grid> _recycledElements = new();
@@ -44,11 +45,13 @@ internal sealed class DataGridElementFactory : IElementFactory
     public DataGridElementFactory(
         ViewportManager viewportManager,
         DataGridViewModel viewModel,
-        ILogger<DataGridElementFactory> logger)
+        ILogger<DataGridElementFactory> logger,
+        ILoggerFactory? loggerFactory = null)
     {
         _viewportManager = viewportManager ?? throw new ArgumentNullException(nameof(viewportManager));
         _viewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _loggerFactory = loggerFactory;
 
         _logger.LogInformation("DataGridElementFactory created (MAX_RECYCLE_POOL: {MaxPool})", MAX_RECYCLE_POOL);
     }
@@ -166,13 +169,36 @@ internal sealed class DataGridElementFactory : IElementFactory
         var controlData = new RowControlData(rowViewModel);
         rowGrid.Tag = controlData;
 
-        // Add column definitions based on ColumnHeaders
+        // SENIOR FIX: Add column definitions based on ColumnHeaders
+        // ValidationAlerts column uses Star width (fills remaining space) with MinWidth constraint
+        // All other columns use Pixel width (fixed)
         foreach (var header in _viewModel.ColumnHeaders)
         {
-            var colDef = new ColumnDefinition
+            ColumnDefinition colDef;
+
+            if (header.SpecialType == Common.SpecialColumnType.ValidationAlerts)
             {
-                Width = new GridLength(header.Width, GridUnitType.Pixel)
-            };
+                // ValidationAlerts: Star width (fills remaining space after other columns)
+                // Min width: header.Width (e.g. 150px) - cannot shrink below this
+                // Real width: calculated as remaining space after subtracting other columns
+                // NOTE: If user resizes via drag & drop, header.Width updates and GridUnitType switches to Pixel
+                colDef = new ColumnDefinition
+                {
+                    Width = new GridLength(1, GridUnitType.Star),  // Fills remaining space
+                    MinWidth = header.Width  // Cannot go below this (e.g. 150px)
+                };
+
+                _logger.LogTrace("ValidationAlerts column: Star width with MinWidth={MinWidth}px", header.Width);
+            }
+            else
+            {
+                // All other columns: Fixed Pixel width
+                colDef = new ColumnDefinition
+                {
+                    Width = new GridLength(header.Width, GridUnitType.Pixel)
+                };
+            }
+
             rowGrid.ColumnDefinitions.Add(colDef);
         }
 
@@ -208,7 +234,7 @@ internal sealed class DataGridElementFactory : IElementFactory
     /// </summary>
     private FrameworkElement CreateSpecialColumnCell(CellViewModel cellViewModel, RowControlData controlData)
     {
-        var specialControl = new SpecialColumnCellControl(cellViewModel);
+        var specialControl = new SpecialColumnCellControl(cellViewModel, _loggerFactory?.CreateLogger<SpecialColumnCellControl>());
 
         // Create event handlers
         Action<int, bool> rowSelectionHandler = (rowIndex, isSelected) =>
@@ -247,7 +273,7 @@ internal sealed class DataGridElementFactory : IElementFactory
     /// </summary>
     private FrameworkElement CreateNormalCell(CellViewModel cellViewModel, RowControlData controlData)
     {
-        var cellControl = new CellControl(cellViewModel);
+        var cellControl = new CellControl(cellViewModel, _loggerFactory?.CreateLogger<CellControl>());
 
         // Create event handlers
         EventHandler<CellSelectionEventArgs> cellSelectedHandler = (sender, args) =>

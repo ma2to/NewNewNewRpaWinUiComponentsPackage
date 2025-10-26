@@ -588,6 +588,31 @@ internal sealed class AutoRowHeightService : IAutoRowHeightService
         }
     }
 
+    public async Task<Common.Models.Result<double>> AdjustRowHeightAsync(string rowId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // Get row data by stable rowId
+            var rowData = _rowStore.GetRowById(rowId);
+            if (rowData == null)
+                return Common.Models.Result<double>.Failure($"Row {rowId} not found");
+
+            // Get current rowIndex for calculation (needed by CalculateRowHeightAsync)
+            var rowIndex = _rowStore.GetRowIndexById(rowId);
+            if (rowIndex == null)
+                return Common.Models.Result<double>.Failure($"Row {rowId} not found in current view");
+
+            var result = await CalculateRowHeightAsync(rowIndex.Value, rowData, null, cancellationToken);
+            return result.IsSuccess
+                ? Common.Models.Result<double>.Success(result.CalculatedHeight)
+                : Common.Models.Result<double>.Failure(result.ErrorMessage ?? "Calculation failed");
+        }
+        catch (Exception ex)
+        {
+            return Common.Models.Result<double>.Failure($"Adjust row height failed: {ex.Message}");
+        }
+    }
+
     public async Task<Common.Models.Result> AdjustAllRowHeightsAsync(CancellationToken cancellationToken = default)
     {
         try

@@ -24,7 +24,8 @@ internal sealed class CopyPasteService : ICopyPasteService
     private readonly Infrastructure.Persistence.Interfaces.IRowStore _rowStore;
     private readonly AdvancedDataGridOptions _options;
     private readonly IOperationLogger<CopyPasteService> _operationLogger;
-    private readonly Features.SmartAddDelete.Interfaces.ISmartOperationService _smartOperationService;
+    // REMOVED: SmartOperationService - no longer needed with new data-shifting architecture
+    // private readonly Features.SmartAddDelete.Interfaces.ISmartOperationService _smartOperationService;
     private readonly object _clipboardLock = new object();
     private volatile object? _clipboardData;
 
@@ -38,14 +39,12 @@ internal sealed class CopyPasteService : ICopyPasteService
         IValidationService validationService,
         Infrastructure.Persistence.Interfaces.IRowStore rowStore,
         AdvancedDataGridOptions options,
-        Features.SmartAddDelete.Interfaces.ISmartOperationService smartOperationService,
         IOperationLogger<CopyPasteService>? operationLogger = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _validationService = validationService ?? throw new ArgumentNullException(nameof(validationService));
         _rowStore = rowStore ?? throw new ArgumentNullException(nameof(rowStore));
         _options = options ?? throw new ArgumentNullException(nameof(options));
-        _smartOperationService = smartOperationService ?? throw new ArgumentNullException(nameof(smartOperationService));
 
         // Použijeme null pattern ak logger nie je poskytnutý
         _operationLogger = operationLogger ?? NullOperationLogger<CopyPasteService>.Instance;
@@ -203,15 +202,8 @@ internal sealed class CopyPasteService : ICopyPasteService
             _logger.LogInformation("Data successfully pasted for operation {OperationId}", operationId);
 
             // CRITICAL FIX: Enforce 2-step cleanup after paste (remove ALL empty rows, ensure last empty)
-            // Uses SmartOperationService for consistent cleanup logic across all features
-            _logger.LogInformation("Starting 2-step cleanup after paste for operation {OperationId}", operationId);
-            var cleanupConfig = new Core.ValueObjects.RowManagementConfiguration
-            {
-                AlwaysKeepLastEmpty = true,
-                EnableAutoExpand = true,
-                EnableSmartDelete = true
-            };
-            await _smartOperationService.EnsureMinRowsAndLastEmptyAsync(cleanupConfig, templateRow: null, cancellationToken);
+            // NEW ARCHITECTURE: No cleanup needed - data shifting handles row management automatically
+            _logger.LogInformation("Paste completed for operation {OperationId} - no manual cleanup needed with data-shifting architecture", operationId);
 
             // CRITICAL: Automatic post-paste validation (only if ShouldRunAutomaticValidation returns true)
             if (command.ValidateAfterPaste && _validationService.ShouldRunAutomaticValidation("PasteAsync"))
@@ -733,27 +725,52 @@ internal sealed class CopyPasteService : ICopyPasteService
     }
 
     /// <summary>
-    /// Formátuje dáta ako hodnoty oddelené tabulátormi
+    /// SENIOR IMPLEMENTATION: Formátuje dáta ako hodnoty oddelené tabulátormi s Excel escaping.
+    ///
+    /// EXCEL TSV FORMAT:
+    /// - Normal cells: separated by \t (no quotes)
+    /// - Multiline cells: wrapped in quotes "Multi\nLine\nCell"
+    /// - Cells with tabs: wrapped in quotes "Cell\tWith\tTabs"
+    /// - Cells with quotes: quotes doubled AND wrapped "Cell with ""quote"""
+    ///
+    /// CRITICAL: Before pasting, values are ESCAPED (quotes added if needed).
+    /// CRITICAL: After pasting, ParseTabSeparatedDataAsync UNESCAPES (quotes removed).
+    ///
+    /// EXAMPLE OUTPUT:
+    /// Column1\tColumn2\tColumn3\n
+    /// Cell1\t"Multi\nLine\nCell"\tCell3\n
+    /// Cell1\t"Cell\tWith\tTabs"\tCell3\n
+    /// Cell1\t"Cell with ""quote"""\tCell3\n
     /// </summary>
     private async Task<string> FormatAsTabSeparatedAsync(CopyDataCommand command, CancellationToken cancellationToken)
     {
+        _logger.LogDebug("Formatting {RowCount} rows as TSV with Excel escaping", command.SelectedData.Count());
+
         var lines = new List<string>();
 
         if (command.IncludeHeaders && command.SelectedData.Any())
         {
             var headers = command.SelectedData.First().Keys;
-            lines.Add(string.Join('\t', headers));
+            // SENIOR FIX: Escape header values too (in case column names contain special chars)
+            lines.Add(string.Join('\t', headers.Select(EscapeTsvValue)));
         }
 
         foreach (var row in command.SelectedData)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var values = row.Values.Select(v => v?.ToString() ?? "");
+
+            // SENIOR FIX: Escape all cell values before joining with tabs
+            // This ensures multiline/tab content is properly quoted for Excel
+            var values = row.Values.Select(v => EscapeTsvValue(v?.ToString() ?? ""));
             lines.Add(string.Join('\t', values));
         }
 
         await Task.CompletedTask;
-        return string.Join('\n', lines);
+        var result = string.Join('\n', lines);
+
+        _logger.LogInformation("Formatted TSV with {LineCount} lines ({Length} chars)", lines.Count, result.Length);
+
+        return result;
     }
 
     /// <summary>
@@ -867,48 +884,166 @@ internal sealed class CopyPasteService : ICopyPasteService
     }
 
     /// <summary>
-    /// Parsuje clipboard dáta oddelené tabulátormi
+    /// SENIOR IMPLEMENTATION: Parses Tab-Separated Values with Excel multiline/tab support.
+    ///
+    /// EXCEL TSV FORMAT:
+    /// - Normal cells: separated by \t
+    /// - Multiline cells: wrapped in quotes "Multi\nLine\nCell"
+    /// - Cells with tabs: wrapped in quotes "Cell\tWith\tTabs"
+    /// - Escaped quotes: doubled "" inside quoted values "Cell with ""quote"""
+    ///
+    /// CRITICAL: Uses character-by-character parsing instead of Split() to handle embedded delimiters.
+    ///
+    /// EXAMPLE INPUT:
+    /// Column1\tColumn2\tColumn3\n
+    /// Cell1\t"Multi\nLine\nCell"\tCell3\n
+    /// Cell1\t"Cell\tWith\tTabs"\tCell3\n
+    /// Cell1\t"Cell with ""quote"""\tCell3\n
+    ///
+    /// EXAMPLE OUTPUT (unescaped):
+    /// Column2 value: "Multi\nLine\nCell" (3 lines, NO quotes in final value)
     /// </summary>
     private async Task<List<IReadOnlyDictionary<string, object?>>> ParseTabSeparatedDataAsync(
         string clipboardData,
         PasteDataCommand command,
         CancellationToken cancellationToken)
     {
-        var lines = clipboardData.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         var result = new List<IReadOnlyDictionary<string, object?>>();
+        var currentRow = new List<string>();
+        var currentCell = new StringBuilder();
+        bool inQuotes = false;
+        bool isFirstRow = true;
+        string[]? headers = null;
 
-        if (lines.Length == 0)
-            return result;
+        _logger.LogDebug("Parsing TSV data with Excel multiline support (length: {Length} chars)", clipboardData.Length);
 
-        // Use first line as headers or generate column names
-        var headers = lines[0].Split('\t');
-        var startIndex = 0;
-
-        // If first row looks like headers, skip it for data
-        if (IsHeaderRow(headers))
-        {
-            startIndex = 1;
-        }
-        else
-        {
-            // Generate column names
-            headers = headers.Select((_, i) => $"Column{i + 1}").ToArray();
-        }
-
-        for (int i = startIndex; i < lines.Length; i++)
+        for (int i = 0; i < clipboardData.Length; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var values = lines[i].Split('\t');
-            var row = new Dictionary<string, object?>();
+            char c = clipboardData[i];
+            char? next = i + 1 < clipboardData.Length ? clipboardData[i + 1] : null;
 
-            for (int j = 0; j < Math.Min(headers.Length, values.Length); j++)
+            if (c == '"')
             {
-                row[headers[j]] = string.IsNullOrEmpty(values[j]) ? null : values[j];
+                if (inQuotes && next == '"')
+                {
+                    // SENIOR PATTERN: Escaped quote ("") → append single quote to cell content
+                    // Example: "Cell with ""quote""" → Cell with "quote"
+                    currentCell.Append('"');
+                    i++; // Skip next quote
+                }
+                else
+                {
+                    // Toggle quote mode (start or end of quoted value)
+                    // CRITICAL: Quotes themselves are NOT added to cell content
+                    inQuotes = !inQuotes;
+                }
             }
+            else if (c == '\t' && !inQuotes)
+            {
+                // SENIOR PATTERN: Tab outside quotes = end of cell
+                currentRow.Add(currentCell.ToString());
+                currentCell.Clear();
+            }
+            else if ((c == '\n' || c == '\r') && !inQuotes)
+            {
+                // SENIOR PATTERN: Newline outside quotes = end of row
+                if (c == '\r' && next == '\n')
+                {
+                    i++; // Skip \n after \r (handle Windows CRLF)
+                }
 
-            result.Add(row);
+                if (currentCell.Length > 0 || currentRow.Count > 0)
+                {
+                    currentRow.Add(currentCell.ToString());
+                    currentCell.Clear();
+
+                    if (isFirstRow)
+                    {
+                        // SENIOR PATTERN: First row = headers (or auto-generate if not header-like)
+                        if (IsHeaderRow(currentRow.ToArray()))
+                        {
+                            headers = currentRow.ToArray();
+                            _logger.LogDebug("Detected {HeaderCount} headers from first row", headers.Length);
+                        }
+                        else
+                        {
+                            // First row is data - generate column names
+                            headers = currentRow.Select((_, idx) => $"Column{idx + 1}").ToArray();
+                            _logger.LogDebug("Generated {HeaderCount} column names (first row is data)", headers.Length);
+
+                            // Add first row as data
+                            var firstDataRow = new Dictionary<string, object?>();
+                            for (int j = 0; j < Math.Min(headers.Length, currentRow.Count); j++)
+                            {
+                                firstDataRow[headers[j]] = string.IsNullOrEmpty(currentRow[j]) ? null : currentRow[j];
+                            }
+                            result.Add(firstDataRow);
+                        }
+
+                        isFirstRow = false;
+                    }
+                    else if (headers != null)
+                    {
+                        // SENIOR PATTERN: Build data row dictionary
+                        var dataRow = new Dictionary<string, object?>();
+                        for (int j = 0; j < Math.Min(headers.Length, currentRow.Count); j++)
+                        {
+                            // CRITICAL: Values are UNESCAPED (quotes removed, "" → ")
+                            dataRow[headers[j]] = string.IsNullOrEmpty(currentRow[j]) ? null : currentRow[j];
+                        }
+                        result.Add(dataRow);
+                    }
+
+                    currentRow.Clear();
+                }
+            }
+            else
+            {
+                // Regular character - add to current cell
+                // SENIOR PATTERN: Tabs and newlines inside quotes are preserved as-is
+                currentCell.Append(c);
+            }
         }
+
+        // SENIOR PATTERN: Handle last row if no trailing newline
+        if (currentCell.Length > 0 || currentRow.Count > 0)
+        {
+            currentRow.Add(currentCell.ToString());
+
+            if (isFirstRow && headers == null)
+            {
+                // Only one row total - treat as headers or generate column names
+                if (IsHeaderRow(currentRow.ToArray()))
+                {
+                    headers = currentRow.ToArray();
+                }
+                else
+                {
+                    headers = currentRow.Select((_, idx) => $"Column{idx + 1}").ToArray();
+                    var dataRow = new Dictionary<string, object?>();
+                    for (int j = 0; j < Math.Min(headers.Length, currentRow.Count); j++)
+                    {
+                        dataRow[headers[j]] = string.IsNullOrEmpty(currentRow[j]) ? null : currentRow[j];
+                    }
+                    result.Add(dataRow);
+                }
+            }
+            else if (headers != null)
+            {
+                // Last data row
+                var dataRow = new Dictionary<string, object?>();
+                for (int j = 0; j < Math.Min(headers.Length, currentRow.Count); j++)
+                {
+                    dataRow[headers[j]] = string.IsNullOrEmpty(currentRow[j]) ? null : currentRow[j];
+                }
+                result.Add(dataRow);
+            }
+        }
+
+        _logger.LogInformation("Parsed {RowCount} data rows from TSV with {HeaderCount} columns",
+            result.Count, headers?.Length ?? 0);
 
         await Task.CompletedTask;
         return result;
@@ -1208,6 +1343,50 @@ internal sealed class CopyPasteService : ICopyPasteService
             _logger.LogError(ex, "Set clipboard text failed: {Message}", ex.Message);
             return Common.Models.Result.Failure($"Set clipboard failed: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// SENIOR HELPER: Escapes TSV value for Excel compatibility.
+    ///
+    /// ESCAPING RULES:
+    /// 1. If value contains tab, newline, carriage return, or quote → wrap in quotes
+    /// 2. If wrapping in quotes, double any existing quotes (\" → \"\")
+    /// 3. Otherwise, return value as-is (no quotes needed)
+    ///
+    /// EXAMPLES:
+    /// - "NormalText" → NormalText (no special chars, no quotes)
+    /// - "Multi\nLine" → "Multi\nLine" (newline → quoted)
+    /// - "Cell\tWith\tTab" → "Cell\tWith\tTab" (tabs → quoted)
+    /// - "Cell with \"quote\"" → "Cell with \"\"quote\"\"" (quote → doubled AND quoted)
+    /// - "" → "" (empty string stays empty)
+    ///
+    /// CRITICAL: Quotes are added BEFORE pasting to clipboard.
+    /// CRITICAL: Quotes are removed AFTER pasting from clipboard (in ParseTabSeparatedDataAsync).
+    /// </summary>
+    /// <param name="value">Value to escape</param>
+    /// <returns>Escaped value ready for TSV format</returns>
+    private string EscapeTsvValue(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return value;
+
+        // SENIOR PATTERN: Check if quoting is needed
+        // Quote if value contains any special characters: tab, newline, carriage return, or quote
+        bool needsQuoting = value.Contains('\t') ||
+                           value.Contains('\n') ||
+                           value.Contains('\r') ||
+                           value.Contains('"');
+
+        if (!needsQuoting)
+        {
+            // Normal value - no escaping needed
+            return value;
+        }
+
+        // SENIOR PATTERN: Escape quotes by doubling them, then wrap entire value in quotes
+        // Example: Cell with "quote" → Cell with ""quote"" → "Cell with ""quote"""
+        var escaped = value.Replace("\"", "\"\"");
+        return $"\"{escaped}\"";
     }
 
     #endregion

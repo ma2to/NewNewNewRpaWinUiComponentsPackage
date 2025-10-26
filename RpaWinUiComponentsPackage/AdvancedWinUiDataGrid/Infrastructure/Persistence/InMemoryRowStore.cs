@@ -25,6 +25,7 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
     private readonly object _modificationLock = new();
     // ULID MIGRATION: No _nextRowId needed - each Ulid.NewUlid() is unique
     private IReadOnlyList<object> _filterCriteria = Array.Empty<object>();
+    private Features.Filter.Models.FilterExpression? _filterExpression; // Complex filter expression tree
     private bool _hasValidationState = false;
 
     // FILTERED VIEW SUPPORT - Performance-optimized filtered data access
@@ -39,6 +40,12 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
     private List<string>? _sortedRowKeys; // Cached list of row keys in ULID chronological order
     private bool _sortedRowKeysInvalid = true; // Flag to trigger cache rebuild
     private readonly object _orderLock = new(); // Thread-safe order cache operations
+
+    // SENIOR FIX: VALIDATION CACHE - Prevents ValidateAll infinite loop
+    // CRITICAL: Tracks which rows have been validated to avoid re-validation (cache check)
+    // Cleared on data changes (ClearAsync, AddRangeAsync) to ensure fresh validation
+    private readonly Dictionary<string, bool> _validatedRowsCache = new(); // Validated row IDs
+    private bool _isValidating = false; // Re-entrancy guard for batch validation
 
     public InMemoryRowStore(ILogger<InMemoryRowStore> logger)
     {
@@ -139,8 +146,21 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
             {
                 var count = _rows.Count;
                 _rows.Clear();
+
+                // SENIOR FIX: Invalidate sorted keys cache after clearing rows
+                // BUG: Without this, cache contains old ULID keys → GetAllRows() returns 0 rows
+                // SCENARIO: Import #1 → cache built → Import #2 → Clear → cache still has old keys → TryGetValue fails
+                lock (_orderLock)
+                {
+                    _sortedRowKeysInvalid = true;
+                }
+
+                // SENIOR FIX: Clear validation cache when data is cleared
+                // Ensures fresh validation when new data is imported
+                _validatedRowsCache.Clear();
+
                 // ULID MIGRATION: No _nextRowId reset needed - each Ulid.NewUlid() is unique
-                _logger.LogDebug("Cleared all rows: {ClearedCount} rows removed", count);
+                _logger.LogDebug("Cleared all rows: {ClearedCount} rows removed, sorted keys cache and validation cache cleared", count);
             }
         }, cancellationToken);
     }
@@ -173,9 +193,23 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
                     _rows.TryAdd(rowId, rowWithId);
                     addedCount++;
                 }
+
+                // SENIOR FIX: Invalidate sorted keys cache after adding new rows
+                // BUG: Cache contains old ULID keys → new rows not visible in GetAllRows()
+                if (addedCount > 0)
+                {
+                    lock (_orderLock)
+                    {
+                        _sortedRowKeysInvalid = true;
+                    }
+
+                    // SENIOR FIX: Clear validation cache when new rows added
+                    // Ensures new rows are validated (not skipped as "already validated")
+                    _validatedRowsCache.Clear();
+                }
             }
 
-            _logger.LogDebug("Added {AddedCount} rows in batch", addedCount);
+            _logger.LogDebug("Added {AddedCount} rows in batch, sorted keys cache and validation cache cleared", addedCount);
             return addedCount;
         }, cancellationToken);
     }
@@ -380,6 +414,42 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
         }
     }
 
+    public async Task InitializeEmptyRowsAsync(
+        IEnumerable<string> columnNames,
+        int rowCount,
+        CancellationToken cancellationToken = default)
+    {
+        if (rowCount <= 0)
+        {
+            _logger.LogWarning("InitializeEmptyRowsAsync: rowCount must be positive, got {RowCount}", rowCount);
+            return;
+        }
+
+        _logger.LogInformation("InitializeEmptyRowsAsync: Creating {RowCount} empty rows", rowCount);
+
+        var columnList = columnNames.ToList();
+        var emptyRows = new List<IReadOnlyDictionary<string, object?>>(rowCount);
+
+        // Create N empty rows (all columns set to null)
+        for (int i = 0; i < rowCount; i++)
+        {
+            var emptyRow = new Dictionary<string, object?> { ["__rowId"] = Ulid.NewUlid().ToString() };
+            foreach (var columnName in columnList)
+            {
+                if (columnName != "__rowId")
+                {
+                    emptyRow[columnName] = null;
+                }
+            }
+            emptyRows.Add(emptyRow);
+        }
+
+        // Append all empty rows in bulk
+        await AppendRowsAsync(emptyRows, cancellationToken);
+
+        _logger.LogInformation("InitializeEmptyRowsAsync: Successfully created {RowCount} empty rows", rowCount);
+    }
+
     /// <summary>
     /// Insert rows at position - IRowStore implementation
     /// </summary>
@@ -575,6 +645,63 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
         SetFilterCriteria(null);
     }
 
+    public void SetFilterExpression(Features.Filter.Models.FilterExpression? expression)
+    {
+        lock (_filterLock)
+        {
+            _filterExpression = expression;
+
+            if (expression == null)
+            {
+                // No filter - clear filtered view index
+                _filteredRowIds = null;
+                _filteredToOriginalIndexMap = null;
+                _logger.LogInformation("Filter expression cleared - no active filters");
+                return;
+            }
+
+            // Build filtered view index using filter expression evaluator
+            _logger.LogInformation("Building filtered view index using filter expression over {TotalRows} rows", _rows.Count);
+
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+            _filteredRowIds = new List<string>();
+            _filteredToOriginalIndexMap = new Dictionary<int, int>();
+
+            // Create evaluator (pass null for logger - different type)
+            var evaluator = new Features.Filter.Services.FilterExpressionEvaluator(null);
+
+            // Get all rows as ordered list (need deterministic ordering for index mapping)
+            var allRows = _rows.ToList(); // List<KeyValuePair<string, IReadOnlyDictionary>>
+            int filteredIdx = 0;
+
+            for (int originalIdx = 0; originalIdx < allRows.Count; originalIdx++)
+            {
+                var rowKvp = allRows[originalIdx];
+                var row = rowKvp.Value;
+
+                // Evaluate filter expression against row
+                if (evaluator.Evaluate(expression, row))
+                {
+                    var rowId = rowKvp.Key; // ULID string
+                    _filteredRowIds.Add(rowId);
+                    _filteredToOriginalIndexMap[filteredIdx] = originalIdx;
+                    filteredIdx++;
+                }
+            }
+
+            stopwatch.Stop();
+
+            _logger.LogInformation("Filtered view index built using expression: {FilteredCount}/{TotalCount} rows match (took {Duration}ms)",
+                _filteredRowIds.Count, allRows.Count, stopwatch.ElapsedMilliseconds);
+        }
+    }
+
+    public Features.Filter.Models.FilterExpression? GetFilterExpression()
+    {
+        return _filterExpression;
+    }
+
     /// <summary>
     /// Set sort criteria - IRowStore implementation
     /// Note: InMemoryRowStore does not use this (sorting handled by SortService).
@@ -699,6 +826,114 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
         }
 
         return Task.FromResult<IReadOnlyList<ValidationError>>(Array.Empty<ValidationError>());
+    }
+
+    /// <summary>
+    /// SENIOR FIX: Checks if a row has already been validated (cache check).
+    /// Used by ValidateAll to skip already validated rows (Option 3 - cache skip).
+    /// Prevents infinite validation loop and improves performance.
+    /// </summary>
+    /// <param name="rowId">Row ID to check</param>
+    /// <returns>True if row is in validation cache, false otherwise</returns>
+    public bool IsRowValidationCached(string rowId)
+    {
+        lock (_modificationLock)
+        {
+            return _validatedRowsCache.ContainsKey(rowId) && _validatedRowsCache[rowId];
+        }
+    }
+
+    /// <summary>
+    /// SENIOR FIX: Marks a row as validated in the cache.
+    /// Called after successful validation to prevent re-validation.
+    /// </summary>
+    /// <param name="rowId">Row ID to mark as validated</param>
+    public void MarkRowAsValidated(string rowId)
+    {
+        lock (_modificationLock)
+        {
+            _validatedRowsCache[rowId] = true;
+        }
+    }
+
+    /// <summary>
+    /// SENIOR FIX: Clears validation cache.
+    /// Called when data changes (ClearAsync, AddRangeAsync) to ensure fresh validation.
+    /// </summary>
+    public void ClearValidationCache()
+    {
+        lock (_modificationLock)
+        {
+            _validatedRowsCache.Clear();
+            _logger.LogDebug("Validation cache cleared");
+        }
+    }
+
+    /// <summary>
+    /// SENIOR FIX: Batch writes validation results for multiple rows in a single operation (Option 2).
+    /// Prevents infinite validation loop by:
+    /// 1. Re-entrancy guard (_isValidating flag)
+    /// 2. Single DataChanged event fire after all writes complete
+    /// 3. Cache marking to skip already validated rows
+    /// </summary>
+    /// <param name="validationResults">Dictionary of rowId → validation errors</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    public async Task WriteValidationResultsBatchAsync(
+        Dictionary<string, ValidationError[]> validationResults,
+        CancellationToken cancellationToken = default)
+    {
+        if (_isValidating)
+        {
+            _logger.LogWarning("Validation already in progress - skipping batch write");
+            return;
+        }
+
+        try
+        {
+            _isValidating = true;
+
+            await Task.Run(() =>
+            {
+                lock (_modificationLock)
+                {
+                    foreach (var (rowId, errors) in validationResults)
+                    {
+                        if (!_rows.TryGetValue(rowId, out var row))
+                            continue;
+
+                        // Clear existing validation errors for this row
+                        if (_validationErrors.ContainsKey(rowId))
+                        {
+                            _validationErrors[rowId].Clear();
+                        }
+                        else
+                        {
+                            _validationErrors[rowId] = new List<ValidationError>();
+                        }
+
+                        // Add new validation errors
+                        if (errors.Length > 0)
+                        {
+                            _validationErrors[rowId].AddRange(errors);
+                        }
+
+                        // Mark as validated
+                        _validatedRowsCache[rowId] = true;
+                    }
+
+                    _logger.LogInformation(
+                        "Batch validation write completed: {RowCount} rows validated",
+                        validationResults.Count);
+                }
+            }, cancellationToken);
+
+            // NOTE: No explicit DataChanged event needed here
+            // Validation state is queried directly from _validationErrors dictionary
+        }
+        finally
+        {
+            _isValidating = false;
+        }
     }
 
     /// <summary>
@@ -976,9 +1211,9 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
             if (rowIdValue is string rowId && !string.IsNullOrEmpty(rowId))
                 return rowId;
 
-            // Legacy support: int rowId converted to string
-            if (rowIdValue is int intId)
-                return intId.ToString();
+            // // Legacy support: int rowId converted to string
+            // if (rowIdValue is int intId)
+            //     return intId.ToString();
         }
         return null;
     }
@@ -995,9 +1230,9 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
             if (rowIdValue is string existingId && !string.IsNullOrEmpty(existingId))
                 return existingId;
 
-            // Legacy int support - convert to string
-            if (rowIdValue is int intId)
-                return intId.ToString();
+            // // Legacy int support - convert to string
+            // if (rowIdValue is int intId)
+            //     return intId.ToString();
         }
 
         // Generate new ULID (thread-safe, timestamp-based, lexicographically sortable)
@@ -1313,6 +1548,12 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
             case "IsNotEmpty":
                 return !IsValueEmpty(cellValue);
 
+            case "In":
+                return ValueInList(cellValue, filterValue);
+
+            case "Regex":
+                return ValueMatchesRegex(cellValue, filterValue);
+
             default:
                 _logger.LogWarning("Unknown filter operator: {Operator}", operatorName);
                 return false;
@@ -1434,6 +1675,87 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
         return false;
     }
 
+    /// <summary>
+    /// Checks if cellValue is in the list of filterValues (IN operator)
+    /// Supports List, IEnumerable, array, or single comma-separated string
+    /// Example: Status IN ('Active', 'Pending', 'Completed')
+    /// </summary>
+    private bool ValueInList(object? cellValue, object? filterValue)
+    {
+        if (cellValue == null || filterValue == null)
+            return false;
+
+        // Convert cellValue to string for comparison
+        var cellStr = cellValue.ToString() ?? "";
+
+        // Handle different filterValue types
+        if (filterValue is System.Collections.IEnumerable enumerable && !(filterValue is string))
+        {
+            // filterValue is a collection (List<string>, string[], etc.)
+            foreach (var item in enumerable)
+            {
+                var itemStr = item?.ToString() ?? "";
+                if (string.Equals(cellStr, itemStr, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+        else if (filterValue is string filterStr)
+        {
+            // filterValue is a single string (might be comma-separated)
+            // Split by comma and check each value
+            var values = filterStr.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            foreach (var value in values)
+            {
+                if (string.Equals(cellStr, value, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Fallback: direct equality check
+        return string.Equals(cellStr, filterValue.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Checks if cellValue matches the regex pattern (REGEXP operator)
+    /// Example: Email REGEXP '^test.*@example\.com$'
+    /// </summary>
+    private bool ValueMatchesRegex(object? cellValue, object? filterValue)
+    {
+        if (cellValue == null || filterValue == null)
+            return false;
+
+        var cellStr = cellValue.ToString() ?? "";
+        var patternStr = filterValue.ToString() ?? "";
+
+        if (string.IsNullOrWhiteSpace(patternStr))
+            return false;
+
+        try
+        {
+            var regex = new System.Text.RegularExpressions.Regex(
+                patternStr,
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
+            return regex.IsMatch(cellStr);
+        }
+        catch (System.Text.RegularExpressions.RegexParseException ex)
+        {
+            _logger.LogWarning(ex, "Invalid regex pattern: {Pattern}", patternStr);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error evaluating regex pattern: {Pattern}", patternStr);
+            return false;
+        }
+    }
+
     #endregion
 
     #region Insert Row Convenience Methods
@@ -1489,6 +1811,72 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
         }
 
         return mutableRow;
+    }
+
+    #endregion
+
+    #region BREAKING CHANGE v3.0: rowId-based helper methods
+
+    /// <summary>
+    /// Gets the rowId for a given row index.
+    /// HELPER: Enables conversion from volatile rowIndex to stable rowId.
+    /// </summary>
+    /// <param name="rowIndex">Row index in current view (filtered or unfiltered)</param>
+    /// <returns>RowId if found, null otherwise</returns>
+    public string? GetRowIdByIndex(int rowIndex)
+    {
+        var row = GetRow(rowIndex);
+        if (row != null && row.TryGetValue("__rowId", out var rowIdValue))
+        {
+            return rowIdValue?.ToString();
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Gets the current row index for a given rowId.
+    /// HELPER: Enables conversion from stable rowId to volatile rowIndex.
+    /// WARNING: Returned index is VOLATILE and may change after sort/filter/delete.
+    /// </summary>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
+    /// <returns>Current row index if found, null otherwise</returns>
+    public int? GetRowIndexById(string rowId)
+    {
+        var allRows = GetAllRows();
+        for (int i = 0; i < allRows.Count; i++)
+        {
+            if (allRows[i].TryGetValue("__rowId", out var rowIdValue))
+            {
+                if (rowIdValue?.ToString() == rowId)
+                {
+                    return i;
+                }
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Gets a row by its stable rowId (synchronous version).
+    /// STABLE: RowId persists across sort/filter/delete operations.
+    /// NOTE: Uses existing GetRowByIdAsync implementation (line ~943)
+    /// </summary>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
+    /// <returns>Row data if found, null otherwise</returns>
+    public IReadOnlyDictionary<string, object?>? GetRowById(string rowId)
+    {
+        return GetRowByIdAsync(rowId).GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Checks if a row exists by its stable rowId.
+    /// STABLE: RowId persists across sort/filter/delete operations.
+    /// </summary>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
+    /// <returns>True if row exists, false otherwise</returns>
+    public bool RowExistsById(string rowId)
+    {
+        return GetRowById(rowId) != null;
     }
 
     #endregion

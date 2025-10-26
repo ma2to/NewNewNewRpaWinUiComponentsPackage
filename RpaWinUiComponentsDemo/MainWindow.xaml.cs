@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIControls;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.AutoRowHeight;
 
 namespace RpaWinUiComponents.Demo;
 
@@ -64,11 +65,17 @@ public sealed partial class MainWindow : Window
                 LoggerFactory = loggerFactory,     // CRITICAL: Pass logger factory to component
                 DispatcherQueue = this.DispatcherQueue,
 
+                // ✅ FIXED: Enable AutoRowHeight for multiline cell content
+                AutoRowHeightMode = PublicAutoRowHeightMode.Enabled,
+                MinimumRowHeight = 30.0,
+                MaximumRowHeight = 200.0,
+
                 // ENABLE SPECIAL COLUMNS for testing
                 EnableRowNumberColumn = true,
                 EnableCheckboxColumn = true,
                 EnableValidationAlertsColumn = true,
                 EnableDeleteRowColumn = true,
+                EnableInsertRowColumn = true,
                 ValidationAlertsColumnMinWidth = 150.0,
 
                 // AUTOMATIC VALIDATION: Validates on import, paste, edit, row operations
@@ -112,6 +119,28 @@ public sealed partial class MainWindow : Window
                 // Define validation rules after grid initialization
                 AddLogMessage("");
                 await DefineValidationRulesAsync();
+
+                // Enable AutoRowHeight explicitly via API
+                AddLogMessage("");
+                AddLogMessage("=== ENABLING AUTO ROW HEIGHT ===");
+                try
+                {
+                    var autoRowResult = await _gridFacade.AutoRowHeight.EnableAutoRowHeightAsync(CancellationToken.None);
+                    if (autoRowResult.IsSuccess)
+                    {
+                        AddLogMessage("✓ AutoRowHeight enabled successfully");
+                        AddLogMessage($"  Min height: {_gridFacade.AutoRowHeight.GetMinRowHeight()}px");
+                        AddLogMessage($"  Max height: {_gridFacade.AutoRowHeight.GetMaxRowHeight()}px");
+                    }
+                    else
+                    {
+                        AddLogMessage($"✗ AutoRowHeight enable failed: {autoRowResult.ErrorMessage}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    AddLogMessage($"✗ AutoRowHeight exception: {ex.Message}");
+                }
 
                 AddLogMessage("");
                 AddLogMessage("Available operations:");
@@ -297,22 +326,10 @@ public sealed partial class MainWindow : Window
                 AddLogMessage("✓ All rows are valid!");
             }
 
-            // CRITICAL FIX: Apply validation errors to UI ViewModels to show red borders
-            AddLogMessage("🎨 Applying validation errors to UI (red borders, validation alerts)...");
-
-            // Get validation errors from backend and apply to UI
-            var validationErrors = await _gridFacade.Validation.GetValidationErrorsAsync();
-            if (validationErrors != null && validationErrors.Count > 0)
-            {
-                AddLogMessage($"  - Found {validationErrors.Count} validation errors in backend");
-                _gridControl.ViewModel.ApplyValidationErrors(validationErrors);
-                AddLogMessage($"✓ Validation errors applied to UI successfully!");
-            }
-            else
-            {
-                AddLogMessage("  - No validation errors to display, clearing UI");
-                _gridControl.ViewModel.ClearValidationErrors();
-            }
+            // Validation errors are applied automatically via InternalUIUpdateHandler.ValidationChanged event
+            // No need to manually call ApplyValidationErrors() - it happens automatically in Interactive mode
+            AddLogMessage("");
+            AddLogMessage("✓ Validation UI updates handled automatically by component");
         }
         catch (Exception ex)
         {
@@ -693,7 +710,10 @@ public sealed partial class MainWindow : Window
                 dependentColumns: new[] { "Column_1" },
                 validator: (row, context) =>
                 {
-                    var value = row["Column_1"];
+                    // Skip validation if column doesn't exist (empty row, etc.)
+                    if (!row.TryGetValue("Column_1", out var value))
+                        return ValidationResult.Success();
+
                     if (value == null || string.IsNullOrWhiteSpace(value.ToString()))
                     {
                         return ValidationResult.Error("Column_1 is required", PublicValidationSeverity.Error, "Column_1");
@@ -710,7 +730,10 @@ public sealed partial class MainWindow : Window
                 dependentColumns: new[] { "Column_2" },
                 validator: (row, context) =>
                 {
-                    var value = row["Column_2"];
+                    // Skip validation if column doesn't exist (empty row, etc.)
+                    if (!row.TryGetValue("Column_2", out var value))
+                        return ValidationResult.Success();
+
                     if (value != null)
                     {
                         var strValue = value.ToString();
@@ -741,7 +764,10 @@ public sealed partial class MainWindow : Window
                 dependentColumns: new[] { "Column_3" },
                 validator: (row, context) =>
                 {
-                    var value = row["Column_3"];
+                    // Skip validation if column doesn't exist (empty row, etc.)
+                    if (!row.TryGetValue("Column_3", out var value))
+                        return ValidationResult.Success();
+
                     if (value != null && value.ToString()!.Length > 20)
                     {
                         return ValidationResult.Error("Column_3 must be less than 20 characters", PublicValidationSeverity.Warning, "Column_3");
@@ -758,7 +784,10 @@ public sealed partial class MainWindow : Window
                 dependentColumns: new[] { "Column_4" },
                 validator: (row, context) =>
                 {
-                    var value = row["Column_4"];
+                    // Skip validation if column doesn't exist (empty row, etc.)
+                    if (!row.TryGetValue("Column_4", out var value))
+                        return ValidationResult.Success();
+
                     if (value != null)
                     {
                         var strValue = value.ToString();

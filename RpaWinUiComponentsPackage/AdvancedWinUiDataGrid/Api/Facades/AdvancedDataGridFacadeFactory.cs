@@ -31,7 +31,7 @@ public static class AdvancedDataGridFacadeFactory
         // Register optional host dependencies
         if (loggerFactory != null)
         {
-            services.AddSingleton(loggerFactory);
+            services.AddSingleton<ILoggerFactory>(loggerFactory);
             options.LoggerFactory = loggerFactory;
         }
 
@@ -70,7 +70,7 @@ public static class AdvancedDataGridFacadeFactory
         var hostLoggerFactory = hostServices.GetService<ILoggerFactory>();
         if (hostLoggerFactory != null)
         {
-            services.AddSingleton(hostLoggerFactory);
+            services.AddSingleton<ILoggerFactory>(hostLoggerFactory);
             options.LoggerFactory = hostLoggerFactory;
         }
 

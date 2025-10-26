@@ -18,7 +18,12 @@ internal sealed class SelectionService : ISelectionService
     private readonly ILogger<SelectionService> _logger;
     private readonly AdvancedDataGridOptions _options;
     private readonly IOperationLogger<SelectionService> _operationLogger;
-    private readonly ConcurrentDictionary<int, bool> _selectedRows = new();
+
+    /// <summary>
+    /// MIGRATED: Changed from ConcurrentDictionary<int, bool> to ConcurrentDictionary<string, bool>
+    /// Now uses stable rowId as key instead of volatile rowIndex
+    /// </summary>
+    private readonly ConcurrentDictionary<string, bool> _selectedRows = new();
     private readonly Infrastructure.Persistence.Interfaces.IRowStore? _rowStore;
 
     public SelectionService(
@@ -644,12 +649,30 @@ internal sealed class SelectionService : ISelectionService
     }
 
     /// <summary>
-    /// Checks if a row is selected
+    /// Checks if a row is selected by rowIndex
+    /// WARNING: Uses volatile rowIndex - kept for backward compatibility
     /// </summary>
     public bool IsRowSelected(int rowIndex)
     {
-        // Implementation would check row selection state
+        // Convert rowIndex to stable rowId for lookup
+        if (_rowStore != null)
+        {
+            var rowId = _rowStore.GetRowIdByIndex(rowIndex);
+            if (rowId != null && _selectedRows.ContainsKey(rowId))
+            {
+                return _selectedRows[rowId];
+            }
+        }
         return false;
+    }
+
+    /// <summary>
+    /// Checks if a row is selected by stable rowId
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations
+    /// </summary>
+    public bool IsRowSelected(string rowId)
+    {
+        return _selectedRows.TryGetValue(rowId, out var isSelected) && isSelected;
     }
 
     /// <summary>
@@ -738,6 +761,7 @@ internal sealed class SelectionService : ISelectionService
 
     /// <summary>
     /// Selects a specific row by index (async for public API)
+    /// WARNING: Uses volatile rowIndex - kept for backward compatibility
     /// </summary>
     public async Task<Common.Models.Result> SelectRowAsync(int rowIndex, CancellationToken cancellationToken = default)
     {
@@ -747,7 +771,17 @@ internal sealed class SelectionService : ISelectionService
             {
                 _logger.LogInformation("Selecting row {RowIndex}", rowIndex);
                 SelectRow(rowIndex);
-                _selectedRows[rowIndex] = true;
+
+                // Convert rowIndex to stable rowId for storage
+                if (_rowStore != null)
+                {
+                    var rowId = _rowStore.GetRowIdByIndex(rowIndex);
+                    if (rowId != null)
+                    {
+                        _selectedRows[rowId] = true;
+                    }
+                }
+
                 return Common.Models.Result.Success();
             }
             catch (Exception ex)
@@ -759,7 +793,43 @@ internal sealed class SelectionService : ISelectionService
     }
 
     /// <summary>
+    /// Selects a specific row by stable rowId (async for public API)
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations
+    /// </summary>
+    public async Task<Common.Models.Result> SelectRowAsync(string rowId, CancellationToken cancellationToken = default)
+    {
+        return await Task.Run(() =>
+        {
+            try
+            {
+                _logger.LogInformation("Selecting row {RowId}", rowId);
+
+                // Store selection by stable rowId
+                _selectedRows[rowId] = true;
+
+                // Get current rowIndex for SelectRow call (backward compatibility)
+                if (_rowStore != null)
+                {
+                    var rowIndex = _rowStore.GetRowIndexById(rowId);
+                    if (rowIndex.HasValue)
+                    {
+                        SelectRow(rowIndex.Value);
+                    }
+                }
+
+                return Common.Models.Result.Success();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to select row {RowId}: {Message}", rowId, ex.Message);
+                return Common.Models.Result.Failure($"Failed to select row: {ex.Message}");
+            }
+        }, cancellationToken);
+    }
+
+    /// <summary>
     /// Selects multiple rows by indices (async for public API)
+    /// WARNING: Uses volatile rowIndices - kept for backward compatibility
     /// </summary>
     public async Task<Common.Models.Result> SelectRowsAsync(IEnumerable<int> rowIndices, CancellationToken cancellationToken = default)
     {
@@ -773,7 +843,55 @@ internal sealed class SelectionService : ISelectionService
                 foreach (var rowIndex in indices)
                 {
                     SelectRow(rowIndex);
-                    _selectedRows[rowIndex] = true;
+
+                    // Convert rowIndex to stable rowId for storage
+                    if (_rowStore != null)
+                    {
+                        var rowId = _rowStore.GetRowIdByIndex(rowIndex);
+                        if (rowId != null)
+                        {
+                            _selectedRows[rowId] = true;
+                        }
+                    }
+                }
+
+                return Common.Models.Result.Success();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to select rows: {Message}", ex.Message);
+                return Common.Models.Result.Failure($"Failed to select rows: {ex.Message}");
+            }
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Selects multiple rows by stable rowIds (async for public API)
+    /// STABLE: Uses rowIds which persist across sort/filter/delete operations
+    /// </summary>
+    public async Task<Common.Models.Result> SelectRowsAsync(IEnumerable<string> rowIds, CancellationToken cancellationToken = default)
+    {
+        return await Task.Run(() =>
+        {
+            try
+            {
+                var ids = rowIds.ToList();
+                _logger.LogInformation("Selecting {Count} rows by rowId", ids.Count);
+
+                foreach (var rowId in ids)
+                {
+                    // Store selection by stable rowId
+                    _selectedRows[rowId] = true;
+
+                    // Get current rowIndex for SelectRow call (backward compatibility)
+                    if (_rowStore != null)
+                    {
+                        var rowIndex = _rowStore.GetRowIndexById(rowId);
+                        if (rowIndex.HasValue)
+                        {
+                            SelectRow(rowIndex.Value);
+                        }
+                    }
                 }
 
                 return Common.Models.Result.Success();
@@ -788,6 +906,7 @@ internal sealed class SelectionService : ISelectionService
 
     /// <summary>
     /// Selects a range of rows (async for public API)
+    /// WARNING: Range uses volatile rowIndices - selection persisted by rowId
     /// </summary>
     public async Task<Common.Models.Result> SelectRowRangeAsync(int startRowIndex, int endRowIndex, CancellationToken cancellationToken = default)
     {
@@ -803,7 +922,16 @@ internal sealed class SelectionService : ISelectionService
                 for (int i = start; i <= end; i++)
                 {
                     SelectRow(i);
-                    _selectedRows[i] = true;
+
+                    // Convert rowIndex to stable rowId for storage
+                    if (_rowStore != null)
+                    {
+                        var rowId = _rowStore.GetRowIdByIndex(i);
+                        if (rowId != null)
+                        {
+                            _selectedRows[rowId] = true;
+                        }
+                    }
                 }
 
                 return Common.Models.Result.Success();

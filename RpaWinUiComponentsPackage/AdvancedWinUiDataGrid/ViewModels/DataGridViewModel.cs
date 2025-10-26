@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIControls;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.ViewModels;
 
@@ -15,6 +16,7 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.ViewModels;
 public sealed class DataGridViewModel : ViewModelBase
 {
     private readonly ILogger<DataGridViewModel>? _logger;
+    private readonly ILoggerFactory? _loggerFactory;
     private readonly Microsoft.UI.Dispatching.DispatcherQueue? _dispatcherQueue;
     private bool _isSearchPanelVisible = true;
     private bool _isFilterRowVisible = true;
@@ -58,18 +60,27 @@ public sealed class DataGridViewModel : ViewModelBase
     public BulkObservableCollection<DataGridRowViewModel> Rows { get; } = new();
 
     /// <summary>
+    /// SENIOR FIX: ViewportManager reference for cache invalidation on data reload
+    /// Set by DataGridCellsView after creating ViewportManager instance
+    /// </summary>
+    internal Features.Viewport.ViewportManager? ViewportManager { get; set; }
+
+    /// <summary>
     /// Creates a new instance of the DataGridViewModel.
     /// This is the main view model that manages all grid state including columns, rows, filters, and search.
     /// </summary>
     /// <param name="logger">Optional logger for diagnostics and troubleshooting</param>
+    /// <param name="loggerFactory">Optional logger factory for creating child component loggers (CellViewModel, etc.)</param>
     /// <param name="dispatcherQueue">Optional DispatcherQueue for UI thread marshalling (required for resize operations)</param>
     /// <param name="themeManager">Optional theme manager for color management (if not provided, creates default instance)</param>
     public DataGridViewModel(
         ILogger<DataGridViewModel>? logger = null,
+        ILoggerFactory? loggerFactory = null,
         Microsoft.UI.Dispatching.DispatcherQueue? dispatcherQueue = null,
         ThemeManager? themeManager = null)
     {
         _logger = logger;
+        _loggerFactory = loggerFactory;
         _dispatcherQueue = dispatcherQueue;
         Theme = themeManager ?? new ThemeManager(logger: null); // Fallback to default if not provided
         _logger?.LogInformation("DataGridViewModel created");
@@ -81,6 +92,18 @@ public sealed class DataGridViewModel : ViewModelBase
     /// This ensures column widths stay synchronized across headers, filters, and data cells.
     /// </summary>
     public event EventHandler? ColumnDefinitionsChanged;
+
+    /// <summary>
+    /// Event fired when user clicks column header to request sorting (FÁZA 5)
+    /// Facade should subscribe to this event and call SortService.SortByColumnAsync()
+    /// </summary>
+    public event EventHandler<SortRequestedEventArgs>? SortRequested;
+
+    /// <summary>
+    /// Event fired when user requests to insert new row via context menu (FÁZA 4)
+    /// Facade should subscribe to this event and call IRowStore.InsertRowAfterAsync() or InsertRowBeforeAsync()
+    /// </summary>
+    public event EventHandler<InsertRowRequestedEventArgs>? InsertRowRequested;
 
     // Selection state - tracks the current cell selection for multi-select and range selection
     private CellViewModel? _lastSelectedCell;
@@ -292,7 +315,10 @@ public sealed class DataGridViewModel : ViewModelBase
             Width = width,
             IsResizable = isResizable,
             SpecialType = specialType,
-            DisplayOrder = displayOrder
+            DisplayOrder = displayOrder,
+            // CRITICAL: ValidationAlerts column uses auto-width (Star sizing) by default
+            // After user manually resizes it, UseAutoWidth will be set to false
+            UseAutoWidth = specialType == SpecialColumnType.ValidationAlerts
         };
     }
 
@@ -307,13 +333,14 @@ public sealed class DataGridViewModel : ViewModelBase
         var definitions = new List<ColumnDefinition>();
         foreach (var header in ColumnHeaders)
         {
-            // ValidationAlerts stĺpec má vyplniť medzeru medzi dátovými stĺpcami a delete stĺpcom
-            if (header.SpecialType == SpecialColumnType.ValidationAlerts)
+            // Check if column should use auto-width (Star sizing)
+            // This is typically true for ValidationAlerts column UNTIL user manually resizes it
+            if (header.UseAutoWidth)
             {
                 definitions.Add(new ColumnDefinition
                 {
-                    Width = new GridLength(1, GridUnitType.Star), // Vyplní zostávajúci priestor
-                    MinWidth = header.Width // Minimálna šírka z nastavení
+                    Width = new GridLength(1, GridUnitType.Star), // Auto-expand to fill available space
+                    MinWidth = header.Width // Minimum width from settings
                 });
             }
             else
@@ -433,6 +460,11 @@ public sealed class DataGridViewModel : ViewModelBase
 
         Rows.Clear();
 
+        // SENIOR FIX: Invalidate ViewportManager cache to prevent "Loading..." bug on reload
+        // ViewportManager cache holds ViewModels pointing to old disposed rows
+        // Must invalidate cache AFTER Rows.Clear() to force fresh ViewModel creation
+        ViewportManager?.InvalidateCache();
+
         // PERFORMANCE: Build all rows first, then add in bulk with single notification
         var rowViewModels = new List<DataGridRowViewModel>(dataList.Count);
 
@@ -457,7 +489,7 @@ public sealed class DataGridViewModel : ViewModelBase
             for (int colIndex = 0; colIndex < ColumnHeaders.Count; colIndex++)
             {
                 var header = ColumnHeaders[colIndex];
-                var cellVm = new CellViewModel(Theme) // Pass ThemeManager to cell for theme-aware colors
+                var cellVm = new CellViewModel(Theme, _loggerFactory?.CreateLogger<CellViewModel>()) // Pass ThemeManager and logger to cell
                 {
                     RowIndex = rowIndex,
                     RowId = rowId, // CRITICAL: Store stable row ID for delete operations
@@ -840,8 +872,9 @@ public sealed class DataGridViewModel : ViewModelBase
 
     /// <summary>
     /// Handles single cell selection with support for multi-select using Ctrl key.
-    /// When Ctrl is not pressed, clears all selections and selects only the clicked cell.
+    /// When Ctrl is not pressed, deselects all OTHER cells and selects only the clicked cell.
     /// When Ctrl is pressed, toggles the clicked cell without affecting other selections.
+    /// SENIOR FIX: Preserves drag-and-drop range selection functionality (uses StartRangeSelection instead).
     /// </summary>
     /// <param name="cell">The cell that was clicked</param>
     /// <param name="isCtrlPressed">Whether the Ctrl key was held during the click</param>
@@ -849,20 +882,58 @@ public sealed class DataGridViewModel : ViewModelBase
     {
         if (cell == null) return;
 
+        _logger?.LogTrace("DataGridViewModel: SelectCell called for [{Row},{Col}], Ctrl={IsCtrl}",
+            cell.RowIndex, cell.ColumnIndex, isCtrlPressed);
+
         if (isCtrlPressed)
         {
             // Multi-selection mode: toggle this cell (add/remove from selection)
+            var wasSelected = cell.IsSelected;
             cell.IsSelected = !cell.IsSelected;
             _lastSelectedCell = cell;
+
+            _logger?.LogTrace("Multi-select TOGGLE: [{Row},{Col}] {Action}",
+                cell.RowIndex, cell.ColumnIndex, wasSelected ? "deselected" : "selected");
             _logger?.LogInformation("Cell toggled at [{Row}, {Col}], now {Selected}",
                 cell.RowIndex, cell.ColumnIndex, cell.IsSelected ? "selected" : "deselected");
         }
         else
         {
-            // Single selection mode: clear all and select this one
-            ClearAllSelections();
+            // SENIOR FIX: Single-select mode - deselect all OTHER cells
+            // Note: Range selection uses StartRangeSelection() instead, so this is safe
+            // Optimization: Only iterate if we need to clear other selections
+            if (!cell.IsSelected || GetSelectedCellsCount() > 1)
+            {
+                _logger?.LogTrace("Single-select: Deselecting all cells except [{Row},{Col}]",
+                    cell.RowIndex, cell.ColumnIndex);
+
+                // ✅ MEDIUM FIX: Deselect all cells except the clicked one
+                // Skip special columns (they should not be selectable anyway)
+                int deselectedCount = 0;
+                foreach (var row in Rows)
+                {
+                    foreach (var c in row.Cells.Where(c => !c.IsSpecialColumn))
+                    {
+                        if (c != cell && c.IsSelected)
+                        {
+                            _logger?.LogTrace("DESELECT: [{Row},{Col}]", c.RowIndex, c.ColumnIndex);
+                            c.IsSelected = false;
+                            deselectedCount++;
+                        }
+                    }
+                }
+
+                _logger?.LogTrace("Deselected {Count} cells", deselectedCount);
+            }
+            else
+            {
+                _logger?.LogTrace("Cell already selected and only one selected - no deselection needed");
+            }
+
+            // ✅ Select the clicked cell
             cell.IsSelected = true;
             _lastSelectedCell = cell;
+
             _logger?.LogInformation("Cell selected at [{Row}, {Col}]", cell.RowIndex, cell.ColumnIndex);
         }
     }
@@ -977,6 +1048,21 @@ public sealed class DataGridViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// SENIOR FIX: Gets count of currently selected cells in the grid.
+    /// Used for optimization in SelectCell() to determine if we need to deselect other cells.
+    /// </summary>
+    /// <returns>Number of currently selected cells</returns>
+    private int GetSelectedCellsCount()
+    {
+        int count = 0;
+        foreach (var row in Rows)
+        {
+            count += row.Cells.Count(c => c.IsSelected);
+        }
+        return count;
+    }
+
+    /// <summary>
     /// Selects all rows in the grid by setting their checkbox column to checked.
     /// USE CASE: Header checkbox "Select All" clicked.
     /// </summary>
@@ -1028,8 +1114,10 @@ public sealed class DataGridViewModel : ViewModelBase
     /// Should be called after validation completes to show validation results in UI.
     /// </summary>
     /// <param name="validationErrors">List of validation errors from validation service</param>
-    public void ApplyValidationErrors(IReadOnlyList<PublicValidationErrorViewModel> validationErrors)
+    internal void ApplyValidationErrors(IReadOnlyList<Common.Models.ValidationError> validationErrors)
     {
+        _logger?.LogTrace("DataGridViewModel: ApplyValidationErrors called with {ErrorCount} errors", validationErrors?.Count ?? 0);
+
         if (validationErrors == null)
         {
             _logger?.LogWarning("ApplyValidationErrors called with null errors list");
@@ -1043,6 +1131,8 @@ public sealed class DataGridViewModel : ViewModelBase
             .Where(e => !string.IsNullOrEmpty(e.RowId) && !string.IsNullOrEmpty(e.ColumnName))
             .GroupBy(e => (e.RowId, e.ColumnName))
             .ToDictionary(g => g.Key, g => g.ToList());
+
+        _logger?.LogTrace("Grouped into {CellErrorCount} unique cell errors", errorsByCell.Count);
 
         // Clear ALL existing validation errors first
         foreach (var row in Rows)
@@ -1072,6 +1162,8 @@ public sealed class DataGridViewModel : ViewModelBase
                 var key = (rowId, cell.ColumnName);
                 if (errorsByCell.TryGetValue(key, out var cellErrors) && cellErrors.Any())
                 {
+                    _logger?.LogTrace("Setting IsValidationError=true for cell [{RowIndex},{ColumnIndex}] '{ColumnName}'",
+                        cell.RowIndex, cell.ColumnIndex, cell.ColumnName);
                     cell.IsValidationError = true;
                     cell.ValidationMessage = string.Join("; ", cellErrors.Select(e => e.Message));
                     appliedCount++;
@@ -1109,13 +1201,18 @@ public sealed class DataGridViewModel : ViewModelBase
 
         _logger?.LogInformation("Applied {AppliedCount} validation errors to {TotalCells} cells",
             appliedCount, Rows.Sum(r => r.Cells.Count));
+
+        // CRITICAL FIX: Force UI refresh by invalidating viewport cache
+        // This ensures validation error borders appear immediately in virtualized ItemsRepeater
+        ViewportManager?.InvalidateCache();
+        _logger?.LogTrace("ViewportManager cache invalidated to force UI refresh for validation errors");
     }
 
     /// <summary>
     /// Clears all validation errors from grid UI.
     /// Resets IsValidationError flags and validation messages on all cells.
     /// </summary>
-    public void ClearValidationErrors()
+    internal void ClearValidationErrors()
     {
         _logger?.LogInformation("Clearing all validation errors from grid UI");
 
@@ -1139,4 +1236,164 @@ public sealed class DataGridViewModel : ViewModelBase
     }
 
     #endregion
+
+    #region Sort on Header Click (FÁZA 5)
+
+    /// <summary>
+    /// Cycles column sort direction: None → Ascending → Descending → None
+    /// Clears sort indicators on other columns (single-column sort only)
+    /// Fires SortRequested event for facade to handle actual sorting via SortService
+    /// </summary>
+    /// <param name="columnName">Name of the column to sort</param>
+    public void CycleSortDirection(string columnName)
+    {
+        var header = ColumnHeaders.FirstOrDefault(h => h.ColumnName == columnName);
+        if (header == null)
+        {
+            _logger?.LogWarning("CycleSortDirection: Column {ColumnName} not found", columnName);
+            return;
+        }
+
+        // Cycle: None → Ascending → Descending → None
+        var newDirection = header.SortDirection switch
+        {
+            "None" => "Ascending",
+            "Ascending" => "Descending",
+            "Descending" => "None",
+            _ => "Ascending" // Fallback for invalid values
+        };
+
+        _logger?.LogInformation("Sort direction changed: {Column} {OldDir} → {NewDir}",
+            columnName, header.SortDirection, newDirection);
+
+        // Clear sort indicators on other columns (single-column sort)
+        foreach (var otherHeader in ColumnHeaders.Where(h => h != header))
+        {
+            if (otherHeader.SortDirection != "None")
+            {
+                otherHeader.SortDirection = "None";
+            }
+        }
+
+        // Update current column
+        header.SortDirection = newDirection;
+
+        // Fire event for facade to handle actual sorting
+        SortRequested?.Invoke(this, new SortRequestedEventArgs(columnName, newDirection));
+    }
+
+    /// <summary>
+    /// SENIOR ADDITION: Sets column sort direction to a specific value (used by Header Flyout)
+    /// Clears sort indicators on other columns (single-column sort only)
+    /// Fires SortRequested event for facade to handle actual sorting via SortService
+    /// </summary>
+    /// <param name="columnName">Name of the column to sort</param>
+    /// <param name="direction">Desired sort direction ("Ascending", "Descending", or "None")</param>
+    public void SetSortDirection(string columnName, string direction)
+    {
+        var header = ColumnHeaders.FirstOrDefault(h => h.ColumnName == columnName);
+        if (header == null)
+        {
+            _logger?.LogWarning("SetSortDirection: Column {ColumnName} not found", columnName);
+            return;
+        }
+
+        // Validate direction
+        var validDirections = new[] { "Ascending", "Descending", "None" };
+        var newDirection = validDirections.Contains(direction) ? direction : "None";
+
+        _logger?.LogInformation("Sort direction set: {Column} → {NewDir}",
+            columnName, newDirection);
+
+        // Clear sort indicators on other columns (single-column sort)
+        foreach (var otherHeader in ColumnHeaders.Where(h => h != header))
+        {
+            if (otherHeader.SortDirection != "None")
+            {
+                otherHeader.SortDirection = "None";
+            }
+        }
+
+        // Update current column
+        header.SortDirection = newDirection;
+
+        // Fire event for facade to handle actual sorting
+        SortRequested?.Invoke(this, new SortRequestedEventArgs(columnName, newDirection));
+    }
+
+    #endregion
+
+    #region Insert Row via Context Menu (FÁZA 4)
+
+    /// <summary>
+    /// Requests insert of new empty row above the specified row
+    /// Fires InsertRowRequested event for facade to handle via IRowStore.InsertRowBeforeAsync()
+    /// </summary>
+    /// <param name="rowIndex">Index of the reference row</param>
+    public void RequestInsertRowAbove(int rowIndex)
+    {
+        if (rowIndex < 0 || rowIndex >= Rows.Count)
+        {
+            _logger?.LogWarning("RequestInsertRowAbove: Invalid row index {RowIndex}", rowIndex);
+            return;
+        }
+
+        var row = Rows[rowIndex];
+        _logger?.LogInformation("Insert row above requested: RowIndex={RowIndex}, RowId={RowId}",
+            rowIndex, row.RowId);
+
+        InsertRowRequested?.Invoke(this, new InsertRowRequestedEventArgs(
+            rowIndex,
+            row.RowId,
+            "Above"));
+    }
+
+    /// <summary>
+    /// Requests insert of new empty row below the specified row
+    /// Fires InsertRowRequested event for facade to handle via IRowStore.InsertRowAfterAsync()
+    /// </summary>
+    /// <param name="rowIndex">Index of the reference row</param>
+    public void RequestInsertRowBelow(int rowIndex)
+    {
+        if (rowIndex < 0 || rowIndex >= Rows.Count)
+        {
+            _logger?.LogWarning("RequestInsertRowBelow: Invalid row index {RowIndex}", rowIndex);
+            return;
+        }
+
+        var row = Rows[rowIndex];
+        _logger?.LogInformation("Insert row below requested: RowIndex={RowIndex}, RowId={RowId}",
+            rowIndex, row.RowId);
+
+        InsertRowRequested?.Invoke(this, new InsertRowRequestedEventArgs(
+            rowIndex,
+            row.RowId,
+            "Below"));
+    }
+
+    #endregion
 }
+
+/// <summary>
+/// Event args for SortRequested event (FÁZA 5)
+/// Contains column name and new sort direction for facade to process
+/// </summary>
+public sealed class SortRequestedEventArgs : EventArgs
+{
+    /// <summary>
+    /// Name of the column to sort
+    /// </summary>
+    public string ColumnName { get; }
+
+    /// <summary>
+    /// New sort direction: "None", "Ascending", or "Descending"
+    /// </summary>
+    public string SortDirection { get; }
+
+    public SortRequestedEventArgs(string columnName, string sortDirection)
+    {
+        ColumnName = columnName;
+        SortDirection = sortDirection;
+    }
+}
+

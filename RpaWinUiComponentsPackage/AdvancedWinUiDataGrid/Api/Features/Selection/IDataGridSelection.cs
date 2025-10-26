@@ -9,19 +9,41 @@ public interface IDataGridSelection
 {
     /// <summary>
     /// Selects a specific row by index.
+    /// WARNING: rowIndex is unstable - changes on sort/filter/delete. Use SelectRowAsync(string rowId) instead.
     /// </summary>
     /// <param name="rowIndex">Row index to select</param>
     /// <param name="cancellationToken">Cancellation token for operation</param>
     /// <returns>Result of the operation</returns>
+    [Obsolete("Use SelectRowAsync(string rowId) instead. rowIndex is unstable and changes on sort/filter/delete operations.", false)]
     Task<PublicResult> SelectRowAsync(int rowIndex, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Selects a specific row by stable row ID.
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
+    /// </summary>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
+    /// <param name="cancellationToken">Cancellation token for operation</param>
+    /// <returns>Result of the operation</returns>
+    Task<PublicResult> SelectRowAsync(string rowId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Selects multiple rows by indices.
+    /// WARNING: rowIndices are unstable - change on sort/filter/delete. Use SelectRowsAsync(IEnumerable<string> rowIds) instead.
     /// </summary>
     /// <param name="rowIndices">Collection of row indices to select</param>
     /// <param name="cancellationToken">Cancellation token for operation</param>
     /// <returns>Result of the operation</returns>
+    [Obsolete("Use SelectRowsAsync(IEnumerable<string> rowIds) instead. rowIndices are unstable and change on sort/filter/delete operations.", false)]
     Task<PublicResult> SelectRowsAsync(IEnumerable<int> rowIndices, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Selects multiple rows by stable row IDs.
+    /// STABLE: Uses rowIds which persist across sort/filter/delete operations.
+    /// </summary>
+    /// <param name="rowIds">Collection of stable row identifiers (from __rowId field)</param>
+    /// <param name="cancellationToken">Cancellation token for operation</param>
+    /// <returns>Result of the operation</returns>
+    Task<PublicResult> SelectRowsAsync(IEnumerable<string> rowIds, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Selects a range of rows.
@@ -59,11 +81,21 @@ public interface IDataGridSelection
     int GetSelectedRowCount();
 
     /// <summary>
-    /// Checks if a row is selected.
+    /// Checks if a row is selected by index.
+    /// WARNING: rowIndex is unstable - changes on sort/filter/delete. Use IsRowSelected(string rowId) instead.
     /// </summary>
     /// <param name="rowIndex">Row index to check</param>
     /// <returns>True if row is selected</returns>
+    [Obsolete("Use IsRowSelected(string rowId) instead. rowIndex is unstable and changes on sort/filter/delete operations.", false)]
     bool IsRowSelected(int rowIndex);
+
+    /// <summary>
+    /// Checks if a row is selected by stable row ID.
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
+    /// </summary>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
+    /// <returns>True if row is selected</returns>
+    bool IsRowSelected(string rowId);
 
     /// <summary>
     /// Gets data from selected rows.

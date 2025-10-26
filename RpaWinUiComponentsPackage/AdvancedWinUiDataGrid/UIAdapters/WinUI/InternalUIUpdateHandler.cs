@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.ViewModels;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Persistence.Interfaces;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Validation.Interfaces;
 using System.Linq;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIAdapters.WinUI;
@@ -12,6 +13,7 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIAdapters.WinUI;
 /// This eliminates the need for full GetAllRows() + LoadData() rebuild for 10M+ row performance.
 ///
 /// CRITICAL: This handler is ONLY active in Interactive mode. In Headless mode, no subscriptions are made.
+/// CRITICAL: Also subscribes to ValidationChanged event to apply validation errors to UI (red borders, alerts).
 /// </summary>
 internal sealed class InternalUIUpdateHandler : IDisposable
 {
@@ -19,6 +21,7 @@ internal sealed class InternalUIUpdateHandler : IDisposable
     private readonly UiNotificationService _uiNotificationService;
     private readonly DataGridViewModel? _viewModel;
     private readonly IRowStore _rowStore;
+    private readonly IValidationService _validationService;
     private readonly AdvancedDataGridOptions _options;
     private readonly DispatcherQueue? _dispatcherQueue;
     private bool _isDisposed;
@@ -26,10 +29,12 @@ internal sealed class InternalUIUpdateHandler : IDisposable
     /// <summary>
     /// Creates internal UI update handler.
     /// Automatically subscribes to UI refresh events ONLY in Interactive mode.
+    /// CRITICAL FIX: Also subscribes to ValidationChanged event for automatic validation UI updates.
     /// </summary>
     public InternalUIUpdateHandler(
         UiNotificationService uiNotificationService,
         IRowStore rowStore,
+        IValidationService validationService,
         AdvancedDataGridOptions options,
         DispatcherQueue? dispatcherQueue = null,
         DataGridViewModel? viewModel = null,
@@ -37,6 +42,7 @@ internal sealed class InternalUIUpdateHandler : IDisposable
     {
         _uiNotificationService = uiNotificationService ?? throw new ArgumentNullException(nameof(uiNotificationService));
         _rowStore = rowStore ?? throw new ArgumentNullException(nameof(rowStore));
+        _validationService = validationService ?? throw new ArgumentNullException(nameof(validationService));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _dispatcherQueue = dispatcherQueue;
         _viewModel = viewModel;
@@ -47,6 +53,11 @@ internal sealed class InternalUIUpdateHandler : IDisposable
         {
             _uiNotificationService.OnDataRefreshed += HandleDataRefreshWithMetadata;
             _logger.LogInformation("InternalUIUpdateHandler activated for Interactive mode (granular updates enabled)");
+
+            // ✅ CRITICAL FIX: Subscribe to ValidationChanged event
+            // This ensures validation errors are automatically applied to UI (red borders, alerts)
+            _validationService.ValidationChanged += HandleValidationChanged;
+            _logger.LogInformation("ValidationChanged event subscription activated for automatic validation UI updates");
         }
         else
         {
@@ -290,6 +301,69 @@ internal sealed class InternalUIUpdateHandler : IDisposable
     }
 
     /// <summary>
+    /// CRITICAL FIX: Handles ValidationChanged event and applies validation errors to UI.
+    /// This method is called automatically when validation state changes (batch, real-time, manual).
+    /// Updates red borders and ValidationAlerts column in the grid.
+    /// </summary>
+    private async void HandleValidationChanged(object? sender, EventArgs e)
+    {
+        if (_isDisposed || _viewModel == null)
+        {
+            _logger.LogWarning("Cannot handle validation change - handler disposed or no ViewModel");
+            return;
+        }
+
+        _logger.LogDebug("ValidationChanged event received - applying validation errors to UI");
+
+        try
+        {
+            // Execute on UI thread if DispatcherQueue is available
+            var applyErrors = async () =>
+            {
+                try
+                {
+                    // Get latest validation errors from ValidationService
+                    var errors = await _validationService.GetValidationErrorsAsync(
+                        onlyFiltered: false,
+                        onlyChecked: false,
+                        cancellationToken: default);
+
+                    if (errors != null && errors.Count > 0)
+                    {
+                        // Apply to UI ViewModels (red borders, validation alerts)
+                        _viewModel.ApplyValidationErrors(errors);
+                        _logger.LogInformation("Applied {ErrorCount} validation errors to UI (red borders, alerts)", errors.Count);
+                    }
+                    else
+                    {
+                        // No errors → clear all validation UI
+                        _viewModel.ClearValidationErrors();
+                        _logger.LogDebug("No validation errors - cleared all validation UI");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to apply validation errors to UI: {Message}", ex.Message);
+                }
+            };
+
+            if (_dispatcherQueue != null)
+            {
+                _dispatcherQueue.TryEnqueue(DispatcherQueuePriority.Normal, async () => await applyErrors());
+            }
+            else
+            {
+                // No dispatcher - execute synchronously
+                await applyErrors();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "HandleValidationChanged failed: {Message}", ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Disposes the handler and unsubscribes from events.
     /// </summary>
     public void Dispose()
@@ -300,6 +374,7 @@ internal sealed class InternalUIUpdateHandler : IDisposable
         if (_options.OperationMode == PublicDataGridOperationMode.Interactive)
         {
             _uiNotificationService.OnDataRefreshed -= HandleDataRefreshWithMetadata;
+            _validationService.ValidationChanged -= HandleValidationChanged;  // ✅ CRITICAL FIX: Unsubscribe validation event
             _logger.LogInformation("InternalUIUpdateHandler deactivated (unsubscribed from events)");
         }
 

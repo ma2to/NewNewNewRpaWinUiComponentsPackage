@@ -14,6 +14,7 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIControls;
 public sealed class AdvancedDataGridControl : UserControl
 {
     private readonly ILogger<AdvancedDataGridControl>? _logger;
+    private readonly ILoggerFactory? _loggerFactory;
 
     /// <summary>
     /// Gets the view model that manages the grid's data and state.
@@ -65,10 +66,14 @@ public sealed class AdvancedDataGridControl : UserControl
     /// This constructor is useful when you want the control to create its own view model.
     /// </summary>
     /// <param name="logger">Optional logger for diagnostics and troubleshooting</param>
-    public AdvancedDataGridControl(ILogger<AdvancedDataGridControl>? logger = null)
+    /// <param name="loggerFactory">Optional logger factory for creating child component loggers</param>
+    public AdvancedDataGridControl(
+        ILogger<AdvancedDataGridControl>? logger = null,
+        ILoggerFactory? loggerFactory = null)
     {
         _logger = logger;
-        ViewModel = new DataGridViewModel(null, this.DispatcherQueue);
+        _loggerFactory = loggerFactory;
+        ViewModel = new DataGridViewModel(null, loggerFactory, this.DispatcherQueue);
 
         _logger?.LogInformation("AdvancedDataGridControl created with new ViewModel");
 
@@ -90,10 +95,15 @@ public sealed class AdvancedDataGridControl : UserControl
     /// </summary>
     /// <param name="viewModel">The view model to use for this control</param>
     /// <param name="logger">Optional logger for diagnostics and troubleshooting</param>
+    /// <param name="loggerFactory">Optional logger factory for creating child component loggers</param>
     /// <exception cref="ArgumentNullException">Thrown when viewModel is null</exception>
-    public AdvancedDataGridControl(DataGridViewModel viewModel, ILogger<AdvancedDataGridControl>? logger = null)
+    public AdvancedDataGridControl(
+        DataGridViewModel viewModel,
+        ILogger<AdvancedDataGridControl>? logger = null,
+        ILoggerFactory? loggerFactory = null)
     {
         _logger = logger;
+        _loggerFactory = loggerFactory;
         ViewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
 
         _logger?.LogInformation("AdvancedDataGridControl created with existing ViewModel");
@@ -183,11 +193,11 @@ public sealed class AdvancedDataGridControl : UserControl
         _filterRowContainer.Child = _filterRowView;
 
         // Create and wire up HeadersRowView - displays column headers with resize/sort capabilities
-        _headersRowView = new HeadersRowView(ViewModel);
+        _headersRowView = new HeadersRowView(ViewModel, _loggerFactory?.CreateLogger<HeadersRowView>(), _loggerFactory);
         _headersRowContainer.Child = _headersRowView;
 
         // Create and wire up DataGridCellsView - the main scrollable data area
-        _dataCellsView = new DataGridCellsView(ViewModel);
+        _dataCellsView = new DataGridCellsView(ViewModel, _loggerFactory?.CreateLogger<DataGridCellsView>(), _loggerFactory);
         _dataCellsView.DeleteRowRequested += OnDeleteRowRequestedInternal;
         _dataCellsView.InsertRowRequested += OnInsertRowRequestedInternal;
         _dataCellsView.RowSelectionChanged += OnRowSelectionChangedInternal;

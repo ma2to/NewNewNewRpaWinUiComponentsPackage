@@ -49,7 +49,8 @@ internal static class ServiceRegistration
         Features.Search.Registration.Register(services, options);
         Features.Initialization.Registration.Register(services, options);
         Features.Shortcuts.Registration.Register(services, options);
-        Features.SmartAddDelete.Registration.Register(services, options);
+        // NEW ARCHITECTURE: RowManagement replaces SmartAddDelete
+        Features.Rows.Registration.AddRowManagementServices(services);
 
         // NEW FEATURES - MEDIUM PRIORITY
         Features.Color.Registration.Register(services, options);
@@ -63,6 +64,7 @@ internal static class ServiceRegistration
         // SMART VALIDATION SYSTEM FEATURES
         Features.CellEdit.Registration.AddCellEditFeature(services);
         Infrastructure.SpecialColumns.Registration.AddSpecialColumnsInfrastructure(services);
+        Features.SpecialColumns.Registration.AddSpecialColumnsFeature(services);
 
         // COLUMN RESIZE FEATURE
         Features.ColumnResize.Registration.AddColumnResizeFeature(services);
@@ -93,7 +95,8 @@ internal static class ServiceRegistration
         services.AddScoped<AutoRowHeight.IDataGridAutoRowHeight, AutoRowHeight.DataGridAutoRowHeight>();
         services.AddScoped<Shortcuts.IDataGridShortcuts, Shortcuts.DataGridShortcuts>();
         services.AddScoped<MVVM.IDataGridMVVM, MVVM.DataGridMVVM>();
-        services.AddScoped<SmartOperations.IDataGridSmartOperations, SmartOperations.DataGridSmartOperations>();
+        // REMOVED: SmartOperations - replaced by RowManagement feature
+        // services.AddScoped<SmartOperations.IDataGridSmartOperations, SmartOperations.DataGridSmartOperations>();
         services.AddScoped<Environments.IEnvironmentConfiguration, Environments.EnvironmentConfiguration>();
 
         // Register NEW comprehensive color/theme facades (BOD 4-7)
@@ -157,8 +160,9 @@ internal static class ServiceRegistration
                 {
                     var dispatcher = sp.GetRequiredService<Microsoft.UI.Dispatching.DispatcherQueue>();
                     var logger = sp.GetService<ILogger<ViewModels.DataGridViewModel>>();
+                    var loggerFactory = sp.GetService<ILoggerFactory>();
                     var themeManager = sp.GetService<ViewModels.ThemeManager>();
-                    return new ViewModels.DataGridViewModel(logger, dispatcher, themeManager);
+                    return new ViewModels.DataGridViewModel(logger, loggerFactory, dispatcher, themeManager);
                 });
 
                 // Register UI control (singleton - one UI control per facade instance)
@@ -166,7 +170,8 @@ internal static class ServiceRegistration
                 {
                     var viewModel = sp.GetRequiredService<ViewModels.DataGridViewModel>();
                     var logger = sp.GetService<ILogger<UIControls.AdvancedDataGridControl>>();
-                    return new UIControls.AdvancedDataGridControl(viewModel, logger);
+                    var loggerFactory = sp.GetService<ILoggerFactory>();
+                    return new UIControls.AdvancedDataGridControl(viewModel, logger, loggerFactory);
                 });
 
                 // CRITICAL: InternalUIUpdateHandler for automatic granular updates (10M+ row performance)
@@ -202,18 +207,89 @@ internal static class ServiceRegistration
     }
 
     /// <summary>
-    /// Registers row store with factory support as per documentation
+    /// Registers row store with adaptive storage support
+    /// PRIORITY:
+    ///   1. User-provided factory (if options.RowStoreFactory != null)
+    ///   2. Adaptive storage (if options.UseAdaptiveStorage == true) [DEFAULT]
+    ///   3. Legacy InMemory (if options.UseAdaptiveStorage == false)
     /// </summary>
     private static void RegisterRowStore(IServiceCollection services, AdvancedDataGridOptions options)
     {
+        // Register DatabaseLifecycleManager (required for HybridRowStore in adaptive mode)
+        services.TryAddSingleton<Features.Database.Interfaces.IDatabaseLifecycleManager>(sp =>
+        {
+            var logger = sp.GetService<ILogger<Features.Database.Services.DatabaseLifecycleManager>>();
+            return new Features.Database.Services.DatabaseLifecycleManager(logger);
+        });
+
+        // DECISION TREE: 3 možnosti
+
         if (options.RowStoreFactory != null)
         {
+            // ═══════════════════════════════════════════════════════════════════
+            // VETVA 1: USER-PROVIDED FACTORY (HIGHEST PRIORITY)
+            // ═══════════════════════════════════════════════════════════════════
+            // Používateľ má vlastnú implementáciu IRowStore (Redis, MongoDB, custom...)
+            // PRÍKLAD:
+            //   options.RowStoreFactory = sp => new RedisRowStore(redis);
+
             services.AddSingleton(sp => options.RowStoreFactory!(sp));
+
+            // LOG: Informuj o použití custom factory
+            var sp = services.BuildServiceProvider();
+            var logger = sp.GetService<ILogger<object>>();
+            logger?.LogInformation("RowStore: Using custom user-provided factory");
+            sp.Dispose();
         }
+        // else if (options.UseAdaptiveStorage)
         else
         {
-            services.AddSingleton<Infrastructure.Persistence.Interfaces.IRowStore, InMemoryRowStore>();
+            // ═══════════════════════════════════════════════════════════════════
+            // VETVA 2: ADAPTIVE STORAGE (DEFAULT)
+            // ═══════════════════════════════════════════════════════════════════
+            // Automatické prepínanie InMemory ↔ Hybrid na základe row count
+            // THRESHOLDS:
+            //   - DataStorageThreshold (default 100,000)
+            //   - ValidationStorageThreshold (default 1,000,000)
+            // PRÍKLAD:
+            //   < 100K rows: InMemory + InMemory
+            //   100K-1M rows: SQLite + InMemory
+            //   1M and more rows: SQLite + SQLite
+
+            services.AddSingleton<Infrastructure.Persistence.Interfaces.IRowStore>(sp =>
+            {
+                var logger = sp.GetService<ILogger<AdaptiveRowStore>>();
+                var adaptiveStore = new AdaptiveRowStore(logger, options, sp);
+
+                logger?.LogInformation(
+                    "RowStore: Adaptive storage enabled (DataThreshold={DataThreshold}, ValidationThreshold={ValidationThreshold}, DatabasePath={Path})",
+                    options.DataStorageThreshold,
+                    options.ValidationStorageThreshold,
+                    options.DatabasePath ?? "(temp)");
+
+                return adaptiveStore;
+            });
         }
+        // else
+        // {
+        //     // ═══════════════════════════════════════════════════════════════════
+        //     // VETVA 3: LEGACY INMEMORY (STATIC)
+        //     // ═══════════════════════════════════════════════════════════════════
+        //     // Vždy InMemoryRowStore (žiadne prepínanie)
+        //     // Use-case:
+        //     //   - Malé datasety (< 100K rows guaranteed)
+        //     //   - Backward compatibility
+        //     //   - Testing/development
+        //     // PRÍKLAD:
+        //     //   options.UseAdaptiveStorage = false;
+        //
+        //     services.AddSingleton<Infrastructure.Persistence.Interfaces.IRowStore, InMemoryRowStore>();
+        //
+        //     var sp = services.BuildServiceProvider();
+        //     var logger = sp.GetService<ILogger<object>>();
+        //     logger?.LogInformation("RowStore: Using legacy InMemoryRowStore (no adaptive switching)");
+        //     sp.Dispose();
+        // }
     }
 
     /// <summary>

@@ -40,31 +40,33 @@ internal sealed class CellEditService : ICellEditService
     }
 
     /// <summary>
-    /// Begins an edit session for a specific cell
+    /// Begins an edit session for a specific cell by stable row ID.
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
+    /// BREAKING CHANGE v3.0: Replaces rowIndex-based BeginEditAsync.
     /// </summary>
-    public async Task<EditResult> BeginEditAsync(int rowIndex, string columnName, CancellationToken cancellationToken = default)
+    public async Task<EditResult> BeginEditAsync(string rowId, string columnName, CancellationToken cancellationToken = default)
     {
         try
         {
-            _logger.LogDebug("Beginning edit session for row {RowIndex}, column {ColumnName}", rowIndex, columnName);
+            _logger.LogDebug("Beginning edit session for rowId {RowId}, column {ColumnName}", rowId, columnName);
 
             lock (_sessionLock)
             {
                 // Check if there's already an active session
                 if (_currentEditSession != null && _currentEditSession.IsActive)
                 {
-                    _logger.LogWarning("Edit session already active for row {RowIndex}, column {ColumnName}",
-                        _currentEditSession.RowIndex, _currentEditSession.ColumnName);
+                    _logger.LogWarning("Edit session already active for rowId {RowId}, column {ColumnName}",
+                        _currentEditSession.RowId, _currentEditSession.ColumnName);
                     return EditResult.Failure("An edit session is already active. Please commit or cancel it first.");
                 }
             }
 
-            // Get current row data
-            var row = await _rowStore.GetRowAsync(rowIndex, cancellationToken);
+            // Get current row data by rowId
+            var row = await _rowStore.GetRowByIdAsync(rowId, cancellationToken);
             if (row == null)
             {
-                _logger.LogWarning("Row {RowIndex} not found when beginning edit", rowIndex);
-                return EditResult.Failure($"Row {rowIndex} not found");
+                _logger.LogWarning("Row {RowId} not found when beginning edit", rowId);
+                return EditResult.Failure($"Row {rowId} not found");
             }
 
             // Get current value
@@ -76,7 +78,7 @@ internal sealed class CellEditService : ICellEditService
                 _currentEditSession = new EditSession
                 {
                     SessionId = Guid.NewGuid(),
-                    RowIndex = rowIndex,
+                    RowId = rowId,  // CHANGED: Use RowId instead of RowIndex
                     ColumnName = columnName,
                     OriginalValue = currentValue,
                     CurrentValue = currentValue,
@@ -85,35 +87,37 @@ internal sealed class CellEditService : ICellEditService
                 };
             }
 
-            _logger.LogInformation("Edit session {SessionId} started for row {RowIndex}, column {ColumnName}",
-                _currentEditSession.SessionId, rowIndex, columnName);
+            _logger.LogInformation("Edit session {SessionId} started for rowId {RowId}, column {ColumnName}",
+                _currentEditSession.SessionId, rowId, columnName);
 
             return EditResult.Success(_currentEditSession.SessionId);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to begin edit session for row {RowIndex}, column {ColumnName}: {Message}",
-                rowIndex, columnName, ex.Message);
+            _logger.LogError(ex, "Failed to begin edit session for rowId {RowId}, column {ColumnName}: {Message}",
+                rowId, columnName, ex.Message);
             return EditResult.Failure($"Failed to begin edit: {ex.Message}");
         }
     }
 
     /// <summary>
-    /// Updates the value of a cell being edited (with real-time validation)
+    /// Updates the value of a cell being edited by stable row ID (with real-time validation).
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
+    /// BREAKING CHANGE v3.0: Replaces rowIndex-based UpdateCellAsync.
     /// </summary>
-    public async Task<EditResult> UpdateCellAsync(int rowIndex, string columnName, object? newValue, CancellationToken cancellationToken = default)
+    public async Task<EditResult> UpdateCellAsync(string rowId, string columnName, object? newValue, CancellationToken cancellationToken = default)
     {
         try
         {
-            _logger.LogDebug("Updating cell for row {RowIndex}, column {ColumnName} with value: {Value}",
-                rowIndex, columnName, newValue);
+            _logger.LogDebug("Updating cell for rowId {RowId}, column {ColumnName} with value: {Value}",
+                rowId, columnName, newValue);
 
-            // Get current row
-            var row = await _rowStore.GetRowAsync(rowIndex, cancellationToken);
+            // Get current row by rowId
+            var row = await _rowStore.GetRowByIdAsync(rowId, cancellationToken);
             if (row == null)
             {
-                _logger.LogWarning("Row {RowIndex} not found when updating cell", rowIndex);
-                return EditResult.Failure($"Row {rowIndex} not found");
+                _logger.LogWarning("Row {RowId} not found when updating cell", rowId);
+                return EditResult.Failure($"Row {rowId} not found");
             }
 
             // Get old value
@@ -125,8 +129,12 @@ internal sealed class CellEditService : ICellEditService
                 [columnName] = newValue
             };
 
-            // Update the row in store
-            await _rowStore.UpdateRowAsync(rowIndex, updatedRow, cancellationToken);
+            // Update the row in store by rowId
+            var updated = await _rowStore.UpdateRowByIdAsync(rowId, updatedRow, cancellationToken);
+            if (!updated)
+            {
+                return EditResult.Failure($"Failed to update row {rowId}");
+            }
 
             // Perform real-time validation for this cell (only if ShouldRunAutomaticValidation returns true)
             ValidationResult validationResult;
@@ -134,11 +142,14 @@ internal sealed class CellEditService : ICellEditService
 
             if (_validationService.ShouldRunAutomaticValidation("UpdateCellAsync"))
             {
-                _logger.LogDebug("Performing automatic real-time validation for row {RowIndex}, column {ColumnName}", rowIndex, columnName);
+                // Get current rowIndex for validation context (validation service still needs it)
+                var rowIndex = _rowStore.GetRowIndexById(rowId);
+
+                _logger.LogDebug("Performing automatic real-time validation for rowId {RowId}, column {ColumnName}", rowId, columnName);
 
                 var validationContext = new ValidationContext
                 {
-                    RowIndex = rowIndex,
+                    RowIndex = rowIndex ?? -1,  // Use -1 if not found (shouldn't happen)
                     ColumnName = columnName,
                     Properties = new Dictionary<string, object?>
                     {
@@ -157,21 +168,34 @@ internal sealed class CellEditService : ICellEditService
                     var severity = validationResult.Severity.ToString();
                     validationAlerts = $"{severity}: {validationResult.ErrorMessage}";
 
-                    await _specialColumnService.UpdateValidationAlertsAsync(rowIndex, validationAlerts, cancellationToken);
+                    // Update validation alerts (SpecialColumnService may need rowIndex - use GetRowIndexById)
+                    if (rowIndex.HasValue)
+                    {
+                        await _specialColumnService.UpdateValidationAlertsAsync(rowIndex.Value, validationAlerts, cancellationToken);
+                    }
 
-                    _logger.LogWarning("Cell update validation failed for row {RowIndex}, column {ColumnName}: {Message}",
-                        rowIndex, columnName, validationResult.ErrorMessage);
+                    _logger.LogWarning("Cell update validation failed for rowId {RowId}, column {ColumnName}: {Message}",
+                        rowId, columnName, validationResult.ErrorMessage);
+
+                    // SENIOR FIX: Fire ValidationChanged event to update cell borders (red) and ValidationAlerts
+                    _validationService.FireValidationChanged();
                 }
                 else
                 {
                     // Clear validation alerts for this row
-                    await _specialColumnService.ClearValidationAlertsAsync(rowIndex, cancellationToken);
+                    if (rowIndex.HasValue)
+                    {
+                        await _specialColumnService.ClearValidationAlertsAsync(rowIndex.Value, cancellationToken);
+                    }
+
+                    // SENIOR FIX: Fire ValidationChanged event to clear cell borders and ValidationAlerts
+                    _validationService.FireValidationChanged();
                 }
             }
             else
             {
-                _logger.LogDebug("Automatic real-time validation skipped for row {RowIndex}, column {ColumnName} " +
-                    "(ValidationAutomationMode or EnableRealTimeValidation is disabled)", rowIndex, columnName);
+                _logger.LogDebug("Automatic real-time validation skipped for rowId {RowId}, column {ColumnName} " +
+                    "(ValidationAutomationMode or EnableRealTimeValidation is disabled)", rowId, columnName);
 
                 // Create a default success validation result when validation is disabled
                 validationResult = new ValidationResult
@@ -187,15 +211,15 @@ internal sealed class CellEditService : ICellEditService
             lock (_sessionLock)
             {
                 if (_currentEditSession != null &&
-                    _currentEditSession.RowIndex == rowIndex &&
+                    _currentEditSession.RowId == rowId &&
                     _currentEditSession.ColumnName == columnName)
                 {
                     _currentEditSession = _currentEditSession with { CurrentValue = newValue };
                 }
             }
 
-            _logger.LogInformation("Cell updated for row {RowIndex}, column {ColumnName}. Valid: {IsValid}",
-                rowIndex, columnName, validationResult.IsValid);
+            _logger.LogInformation("Cell updated for rowId {RowId}, column {ColumnName}. Valid: {IsValid}",
+                rowId, columnName, validationResult.IsValid);
 
             return new EditResult
             {
@@ -207,8 +231,8 @@ internal sealed class CellEditService : ICellEditService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to update cell for row {RowIndex}, column {ColumnName}: {Message}",
-                rowIndex, columnName, ex.Message);
+            _logger.LogError(ex, "Failed to update cell for rowId {RowId}, column {ColumnName}: {Message}",
+                rowId, columnName, ex.Message);
             return EditResult.Failure($"Failed to update cell: {ex.Message}");
         }
     }
@@ -231,8 +255,8 @@ internal sealed class CellEditService : ICellEditService
                 }
             }
 
-            _logger.LogInformation("Committing edit session {SessionId} for row {RowIndex}, column {ColumnName}",
-                session.SessionId, session.RowIndex, session.ColumnName);
+            _logger.LogInformation("Committing edit session {SessionId} for rowId {RowId}, column {ColumnName}",
+                session.SessionId, session.RowId, session.ColumnName);
 
             // End the session
             lock (_sessionLock)
@@ -270,18 +294,18 @@ internal sealed class CellEditService : ICellEditService
                 }
             }
 
-            _logger.LogInformation("Canceling edit session {SessionId} for row {RowIndex}, column {ColumnName}",
-                session.SessionId, session.RowIndex, session.ColumnName);
+            _logger.LogInformation("Canceling edit session {SessionId} for rowId {RowId}, column {ColumnName}",
+                session.SessionId, session.RowId, session.ColumnName);
 
-            // Revert to original value
-            var row = await _rowStore.GetRowAsync(session.RowIndex, cancellationToken);
+            // Revert to original value using stable rowId
+            var row = await _rowStore.GetRowByIdAsync(session.RowId, cancellationToken);
             if (row != null)
             {
                 var revertedRow = new Dictionary<string, object?>(row)
                 {
                     [session.ColumnName] = session.OriginalValue
                 };
-                await _rowStore.UpdateRowAsync(session.RowIndex, revertedRow, cancellationToken);
+                await _rowStore.UpdateRowByIdAsync(session.RowId, revertedRow, cancellationToken);
             }
 
             // End the session
@@ -331,9 +355,11 @@ internal sealed class CellEditService : ICellEditService
     }
 
     /// <summary>
-    /// Gets the current edit position (row and column)
+    /// Gets the current edit position (rowId and column).
+    /// STABLE: Returns rowId which persists across sort/filter/delete operations.
+    /// BREAKING CHANGE v3.0: Returns rowId instead of rowIndex.
     /// </summary>
-    public (int rowIndex, string columnName)? GetCurrentEditPosition()
+    public (string rowId, string columnName)? GetCurrentEditPosition()
     {
         lock (_sessionLock)
         {
@@ -341,7 +367,7 @@ internal sealed class CellEditService : ICellEditService
             {
                 return null;
             }
-            return (_currentEditSession.RowIndex, _currentEditSession.ColumnName);
+            return (_currentEditSession.RowId, _currentEditSession.ColumnName);
         }
     }
 

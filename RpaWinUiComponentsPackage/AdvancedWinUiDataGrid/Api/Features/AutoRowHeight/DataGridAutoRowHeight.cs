@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Mappings;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.AutoRowHeight.Interfaces;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Persistence.Interfaces;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.AutoRowHeight;
 
@@ -12,12 +13,15 @@ internal sealed class DataGridAutoRowHeight : IDataGridAutoRowHeight
 {
     private readonly ILogger<DataGridAutoRowHeight>? _logger;
     private readonly IAutoRowHeightService _autoRowHeightService;
+    private readonly IRowStore _rowStore;
 
     public DataGridAutoRowHeight(
         IAutoRowHeightService autoRowHeightService,
+        IRowStore rowStore,
         ILogger<DataGridAutoRowHeight>? logger = null)
     {
         _autoRowHeightService = autoRowHeightService ?? throw new ArgumentNullException(nameof(autoRowHeightService));
+        _rowStore = rowStore ?? throw new ArgumentNullException(nameof(rowStore));
         _logger = logger;
     }
 
@@ -70,6 +74,43 @@ internal sealed class DataGridAutoRowHeight : IDataGridAutoRowHeight
         catch (Exception ex)
         {
             _logger?.LogError(ex, "AdjustRowHeight failed in AutoRowHeight module");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Adjusts height for a specific row by stable row ID.
+    /// Converts rowId to current rowIndex and delegates to service.
+    /// </summary>
+    public async Task<PublicResult<double>> AdjustRowHeightAsync(string rowId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger?.LogInformation("Adjusting row height for rowId {RowId} via AutoRowHeight module", rowId);
+
+            // Convert rowId to current rowIndex
+            var rowIndex = _rowStore.GetRowIndexById(rowId);
+            if (rowIndex == null)
+            {
+                return new PublicResult<double>
+                {
+                    IsSuccess = false,
+                    ErrorMessage = $"Row {rowId} not found",
+                    Value = 0
+                };
+            }
+
+            var internalResult = await _autoRowHeightService.AdjustRowHeightAsync(rowIndex.Value, cancellationToken);
+            return new PublicResult<double>
+            {
+                IsSuccess = internalResult.IsSuccess,
+                ErrorMessage = internalResult.ErrorMessage,
+                Value = internalResult.Value
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "AdjustRowHeight (by rowId) failed in AutoRowHeight module for rowId {RowId}", rowId);
             throw;
         }
     }

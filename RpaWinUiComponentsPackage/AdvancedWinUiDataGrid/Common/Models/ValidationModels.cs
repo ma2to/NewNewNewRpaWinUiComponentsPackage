@@ -54,9 +54,10 @@ internal sealed record EditSession
     internal Guid SessionId { get; init; } = Guid.NewGuid();
 
     /// <summary>
-    /// Gets the row index being edited
+    /// Gets the stable row ID being edited (from __rowId field).
+    /// STABLE: Persists across sort/filter/delete operations.
     /// </summary>
-    internal int RowIndex { get; init; }
+    internal string RowId { get; init; } = string.Empty;
 
     /// <summary>
     /// Gets the column name being edited

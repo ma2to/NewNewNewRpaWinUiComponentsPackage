@@ -2,6 +2,7 @@ using Microsoft.UI;
 using Microsoft.UI.Xaml.Media;
 using Windows.UI;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
+using Microsoft.Extensions.Logging;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.ViewModels;
 
@@ -15,6 +16,7 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.ViewModels;
 public sealed class CellViewModel : ViewModelBase, IDisposable
 {
     private readonly ThemeManager? _themeManager;
+    private readonly ILogger<CellViewModel>? _logger;
     private object? _value;
     private bool _isSelected;
     private bool _isSearchFound;
@@ -38,9 +40,11 @@ public sealed class CellViewModel : ViewModelBase, IDisposable
     /// Without a theme manager, default colors (gray border, white background, black text) are used.
     /// </summary>
     /// <param name="themeManager">Optional theme manager for consistent coloring across the grid</param>
-    public CellViewModel(ThemeManager? themeManager = null)
+    /// <param name="logger">Optional logger for diagnostics</param>
+    public CellViewModel(ThemeManager? themeManager = null, ILogger<CellViewModel>? logger = null)
     {
         _themeManager = themeManager;
+        _logger = logger;
         if (_themeManager != null)
         {
             // Use theme colors as defaults
@@ -125,6 +129,8 @@ public sealed class CellViewModel : ViewModelBase, IDisposable
         {
             if (SetProperty(ref _isValidationError, value))
             {
+                _logger?.LogTrace("CellViewModel[{Row},{Col}] '{ColumnName}': IsValidationError changed to {Value}",
+                    RowIndex, ColumnIndex, ColumnName, value);
                 UpdateCellAppearance();
             }
         }
@@ -149,11 +155,24 @@ public sealed class CellViewModel : ViewModelBase, IDisposable
     /// <summary>
     /// Gets or sets whether this cell is currently being edited.
     /// When true, the cell shows an editable text box instead of read-only text.
+    /// SENIOR FIX: Preserves IsSelected state when exiting edit mode (keeps selection on edited cell).
     /// </summary>
     public bool IsEditing
     {
         get => _isEditing;
-        set => SetProperty(ref _isEditing, value);
+        set
+        {
+            if (SetProperty(ref _isEditing, value))
+            {
+                // SENIOR FIX: Preserve IsSelected state when exiting edit mode
+                // User wants cell to remain selected after confirming/canceling edit
+                if (!value && _isSelected)  // Exiting edit mode && was selected
+                {
+                    // Force update appearance to show selection border
+                    UpdateCellAppearance();
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -289,24 +308,38 @@ public sealed class CellViewModel : ViewModelBase, IDisposable
     /// </summary>
     private void UpdateCellAppearance()
     {
+        _logger?.LogTrace("CellViewModel[{Row},{Col}] UpdateCellAppearance: IsValidationError={IsValidationError}, IsSelected={IsSelected}, IsSearchFound={IsSearchFound}",
+            RowIndex, ColumnIndex, IsValidationError, IsSelected, IsSearchFound);
+
         // SPECIAL CASE: Validation error + Selection combined
         // User requirement: Show selection background (blue) with validation error border and text (red)
         // This allows distinguishing both states simultaneously
         if (IsValidationError && IsSelected)
         {
-            BorderBrush = _themeManager?.ValidationErrorBorder ?? Features.Optimization.BrushPool.GetBrush(Colors.Red);
+            var errorBorder = _themeManager?.ValidationErrorBorder ?? Features.Optimization.BrushPool.GetBrush(Colors.Red);
+            BorderBrush = errorBorder;
             BackgroundBrush = _themeManager?.MultiSelectionBackground ?? Features.Optimization.BrushPool.GetBrush(Color.FromArgb(30, 0, 120, 215)); // Selection blue
             ForegroundBrush = _themeManager?.ValidationErrorForeground ?? Features.Optimization.BrushPool.GetBrush(Colors.Red);
             BorderThickness = 2.0;
+
+            _logger?.LogTrace("Applied ValidationError+Selected style: BorderColor={BorderColor}, BorderThickness={BorderThickness}",
+                errorBorder.Color, BorderThickness);
             return;
         }
 
         if (IsValidationError)
         {
-            BorderBrush = _themeManager?.ValidationErrorBorder ?? Features.Optimization.BrushPool.GetBrush(Colors.Red);
-            BackgroundBrush = _themeManager?.ValidationErrorBackground ?? Features.Optimization.BrushPool.GetBrush(Color.FromArgb(20, 255, 0, 0));
+            var errorBorder = _themeManager?.ValidationErrorBorder ?? Features.Optimization.BrushPool.GetBrush(Colors.Red);
+            var errorBackground = _themeManager?.ValidationErrorBackground ?? Features.Optimization.BrushPool.GetBrush(Color.FromArgb(20, 255, 0, 0));
+            BorderBrush = errorBorder;
+            BackgroundBrush = errorBackground;
             ForegroundBrush = _themeManager?.ValidationErrorForeground ?? Features.Optimization.BrushPool.GetBrush(Colors.Black);
             BorderThickness = 2.0;
+
+            _logger?.LogInformation("APPLIED VALIDATION ERROR STYLE: RowId={RowId}, ColumnName={ColumnName}, " +
+                                  "BorderColor={BorderColor}, BackgroundColor={BackgroundColor}, BorderThickness={BorderThickness}, " +
+                                  "ValidationMessage={ValidationMessage}",
+                RowId, ColumnName, errorBorder.Color, errorBackground.Color, BorderThickness, ValidationMessage);
         }
         else if (IsValidationSuccess)
         {
@@ -334,10 +367,29 @@ public sealed class CellViewModel : ViewModelBase, IDisposable
         }
         else
         {
-            // Default state
+            // Default state - apply Zebra Row colors if enabled
             BorderBrush = _themeManager?.CellBorder ?? Features.Optimization.BrushPool.GetBrush(Colors.Gray);
-            BackgroundBrush = _themeManager?.CellDefaultBackground ?? Features.Optimization.BrushPool.GetBrush(Colors.White);
-            ForegroundBrush = _themeManager?.CellDefaultForeground ?? Features.Optimization.BrushPool.GetBrush(Colors.Black);
+
+            // FÁZA 6: Zebra Rows support (configurable alternate row colors)
+            // Priority: Validation > Selected > SearchFound > Zebra > Default
+            if (_themeManager?.Options?.EnableZebraRows == true)
+            {
+                // Apply zebra row colors based on row index (even/odd)
+                bool isEvenRow = (RowIndex % 2 == 0);
+                BackgroundBrush = isEvenRow
+                    ? _themeManager.ZebraRowEvenBackground
+                    : _themeManager.ZebraRowOddBackground;
+                ForegroundBrush = isEvenRow
+                    ? _themeManager.ZebraRowEvenForeground
+                    : _themeManager.ZebraRowOddForeground;
+            }
+            else
+            {
+                // Default colors (no zebra rows)
+                BackgroundBrush = _themeManager?.CellDefaultBackground ?? Features.Optimization.BrushPool.GetBrush(Colors.White);
+                ForegroundBrush = _themeManager?.CellDefaultForeground ?? Features.Optimization.BrushPool.GetBrush(Colors.Black);
+            }
+
             BorderThickness = 1.0;
         }
     }

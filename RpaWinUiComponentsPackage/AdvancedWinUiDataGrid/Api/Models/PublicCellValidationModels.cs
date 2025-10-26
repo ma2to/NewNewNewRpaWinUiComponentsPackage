@@ -2,7 +2,7 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
 
 /// <summary>
 /// Public validation result for row data validation.
-/// Used by AddRowWithDialogAsync and ValidateRowDataAsync API methods.
+/// Used by ValidateRowDataAsync API method.
 /// </summary>
 public record PublicValidationResult
 {

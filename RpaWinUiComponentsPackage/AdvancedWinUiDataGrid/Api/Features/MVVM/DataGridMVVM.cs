@@ -155,10 +155,18 @@ internal sealed class DataGridMVVM : IDataGridMVVM
             // Use internal adapter to create internal view model
             var internalViewModel = _gridViewModelAdapter.AdaptToRowViewModel(rowData, rowIndex);
 
+            // Extract RowId from row data (stable identifier)
+            string? rowId = null;
+            if (rowData.TryGetValue("__rowId", out var rowIdValue))
+            {
+                rowId = rowIdValue?.ToString();
+            }
+
             // Transform to public view model
             return new PublicRowViewModel
             {
                 Index = internalViewModel.Index,
+                RowId = rowId,  // BREAKING CHANGE v3.0: Include stable RowId
                 IsSelected = internalViewModel.IsSelected,
                 IsValid = internalViewModel.IsValid,
                 ValidationErrors = internalViewModel.ValidationErrors != null

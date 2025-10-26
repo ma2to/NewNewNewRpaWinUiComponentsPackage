@@ -4,17 +4,19 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Editing;
 /// <summary>
 /// Public interface for DataGrid editing operations.
 /// Provides cell editing functionality with validation and change tracking.
+/// BREAKING CHANGE v3.0: All methods now use rowId instead of rowIndex for stable row identification.
 /// </summary>
 public interface IDataGridEditing
 {
     /// <summary>
-    /// Begins editing a cell.
+    /// Begins editing a cell by stable row ID.
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
     /// </summary>
-    /// <param name="rowIndex">Row index</param>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
     /// <param name="columnName">Column name</param>
     /// <param name="cancellationToken">Cancellation token for operation</param>
     /// <returns>Result of the operation</returns>
-    Task<PublicResult> BeginEditAsync(int rowIndex, string columnName, CancellationToken cancellationToken = default);
+    Task<PublicResult> BeginEditAsync(string rowId, string columnName, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Commits the current cell edit.
@@ -32,14 +34,15 @@ public interface IDataGridEditing
     Task<PublicResult> CancelEditAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Updates a cell value directly (without begin/commit).
+    /// Updates a cell value directly by stable row ID (without begin/commit).
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
     /// </summary>
-    /// <param name="rowIndex">Row index</param>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
     /// <param name="columnName">Column name</param>
     /// <param name="newValue">New value</param>
     /// <param name="cancellationToken">Cancellation token for operation</param>
     /// <returns>Result of the operation</returns>
-    Task<PublicResult> UpdateCellAsync(int rowIndex, string columnName, object? newValue, CancellationToken cancellationToken = default);
+    Task<PublicResult> UpdateCellAsync(string rowId, string columnName, object? newValue, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Checks if a cell is currently being edited.

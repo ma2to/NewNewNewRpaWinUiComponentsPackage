@@ -22,12 +22,23 @@ public interface IDataGridAutoRowHeight
     Task<PublicResult> DisableAutoRowHeightAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Adjusts height for a specific row.
+    /// Adjusts height for a specific row by index.
+    /// WARNING: rowIndex is unstable - changes on sort/filter/delete. Use AdjustRowHeightAsync(string rowId) instead.
     /// </summary>
     /// <param name="rowIndex">Row index to adjust</param>
     /// <param name="cancellationToken">Cancellation token for operation</param>
     /// <returns>Result with calculated height</returns>
+    [Obsolete("Use AdjustRowHeightAsync(string rowId) instead. rowIndex is unstable and changes on sort/filter/delete operations.", false)]
     Task<PublicResult<double>> AdjustRowHeightAsync(int rowIndex, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adjusts height for a specific row by stable row ID.
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
+    /// </summary>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
+    /// <param name="cancellationToken">Cancellation token for operation</param>
+    /// <returns>Result with calculated height</returns>
+    Task<PublicResult<double>> AdjustRowHeightAsync(string rowId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Adjusts height for all rows.

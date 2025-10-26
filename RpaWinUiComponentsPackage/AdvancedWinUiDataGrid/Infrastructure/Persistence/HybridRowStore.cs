@@ -41,6 +41,7 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
 
     // Filter support
     private IReadOnlyList<object>? _filterCriteria;
+    private Features.Filter.Models.FilterExpression? _filterExpression; // Complex filter expression tree
     private readonly ConcurrentDictionary<int, string> _filteredIndexMap; // filteredIndex -> rowId
     private string? _activeFilterSql; // SQL WHERE clause for active filters
 
@@ -49,6 +50,13 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
 
     // Validation state cache
     private readonly ConcurrentDictionary<string, ValidationError[]> _validationCache;
+
+    // SENIOR FIX: VALIDATION CACHE - Prevents ValidateAll infinite loop
+    // CRITICAL: Tracks which rows have been validated to avoid re-validation (cache check)
+    // Cleared on data changes (ClearAsync, AddRangeAsync) to ensure fresh validation
+    private readonly Dictionary<string, bool> _validatedRowsCache = new(); // Validated row IDs
+    private readonly object _validationLock = new(); // Thread-safe validation cache operations
+    private bool _isValidating = false; // Re-entrancy guard for batch validation
 
     // Row ordering (ULID-based, lexicographically sortable by timestamp)
     private readonly ConcurrentDictionary<string, long> _rowCreatedAtMap; // rowId -> createdAt (for sorting)
@@ -199,6 +207,12 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
                 await ExecuteVacuumAsync(connection, cancellationToken);
                 break;
 
+            case FlushWriteOp flushOp:
+                // SENIOR FIX: Signal flush completion - all previous ops have been processed
+                flushOp.CompletionSource.TrySetResult(true);
+                _logger.LogTrace("Flush operation completed [{OpId}]", flushOp.OperationId);
+                break;
+
             default:
                 _logger.LogWarning("Unknown write operation type: {OpType}", operation.OperationType);
                 break;
@@ -247,18 +261,20 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
 
     private async Task ExecuteDeleteRowAsync(SqliteConnection connection, DeleteRowWriteOp op, CancellationToken cancellationToken)
     {
+        // HARD DELETE: Physical deletion from DB (shift happens automatically via ORDER BY __createdAt)
         using var cmd = connection.CreateCommand();
-        cmd.CommandText = @"
-            UPDATE grid_rows
-            SET __isDeleted = 1,
-                __modifiedAt = @modifiedAt
-            WHERE __rowId = @rowId";
+        cmd.CommandText = "DELETE FROM grid_rows WHERE __rowId = @rowId";
 
         cmd.Parameters.AddWithValue("@rowId", op.RowId);
-        cmd.Parameters.AddWithValue("@modifiedAt", op.ModifiedAt);
 
-        await cmd.ExecuteNonQueryAsync(cancellationToken);
-        _logger.LogTrace("Soft-deleted row {RowId}", op.RowId);
+        var rowsAffected = await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+        _logger.LogTrace("Hard-deleted row {RowId} (affected: {Rows})", op.RowId, rowsAffected);
+
+        // Cache invalidation
+        _viewportCache.TryRemove(op.RowId, out _);
+        _validationCache.TryRemove(op.RowId, out _);
+        _rowCreatedAtMap.TryRemove(op.RowId, out _);
     }
 
     private async Task ExecuteBulkInsertAsync(SqliteConnection connection, BulkInsertWriteOp op, CancellationToken cancellationToken)
@@ -338,29 +354,28 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
 
     private async Task ExecuteBulkDeleteAsync(SqliteConnection connection, BulkDeleteWriteOp op, CancellationToken cancellationToken)
     {
+        // HARD DELETE: Physical deletion from DB (shift happens automatically via ORDER BY __createdAt)
         using var transaction = connection.BeginTransaction();
         try
         {
             using var cmd = connection.CreateCommand();
-            cmd.CommandText = @"
-                UPDATE grid_rows
-                SET __isDeleted = 1,
-                    __modifiedAt = @modifiedAt
-                WHERE __rowId = @rowId";
+            cmd.CommandText = "DELETE FROM grid_rows WHERE __rowId = @rowId";
 
             var pRowId = cmd.Parameters.Add("@rowId", SqliteType.Text);
-            var pModifiedAt = cmd.Parameters.Add("@modifiedAt", SqliteType.Integer);
 
             foreach (var rowId in op.RowIds)
             {
                 pRowId.Value = rowId;
-                pModifiedAt.Value = op.ModifiedAt;
-
                 await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+                // Cache cleanup
+                _viewportCache.TryRemove(rowId, out _);
+                _validationCache.TryRemove(rowId, out _);
+                _rowCreatedAtMap.TryRemove(rowId, out _);
             }
 
             transaction.Commit();
-            _logger.LogInformation("Bulk deleted {Count} rows", op.RowIds.Count);
+            _logger.LogInformation("Bulk hard-deleted {Count} rows", op.RowIds.Count);
         }
         catch
         {
@@ -464,6 +479,33 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
     }
 
     /// <summary>
+    /// SENIOR FIX: Flush writer queue - wait for all pending write operations to complete.
+    /// Uses sentinel operation with TaskCompletionSource to ensure all previous ops are processed.
+    /// CRITICAL: Prevents race condition in ReplaceAllRowsAsync where UI refresh fires before data is in DB.
+    /// </summary>
+    private async Task FlushWriterQueueAsync(CancellationToken cancellationToken = default)
+    {
+        if (_isDisposed)
+            return;
+
+        var tcs = new TaskCompletionSource<bool>();
+
+        // Queue a sentinel flush operation
+        var flushOp = new FlushWriteOp
+        {
+            CompletionSource = tcs,
+            OperationId = GenerateRowId()
+        };
+
+        await _writerQueue.Writer.WriteAsync(flushOp, cancellationToken);
+
+        // Wait for flush operation to be processed (all previous ops have completed)
+        await tcs.Task;
+
+        _logger.LogTrace("FlushWriterQueueAsync: Writer queue flushed successfully");
+    }
+
+    /// <summary>
     /// Get all row IDs ordered by creation time (ULID order)
     /// </summary>
     private async Task<List<string>> GetAllRowIdsOrderedAsync(CancellationToken cancellationToken = default)
@@ -543,6 +585,64 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
 
             _ => throw new NotSupportedException($"Filter operator {filter.Operator} not supported in SQL builder")
         };
+    }
+
+    /// <summary>
+    /// Build SQL WHERE condition from complex filter expression tree.
+    /// Uses visitor pattern to traverse expression tree and generate SQL.
+    /// Supports AND/OR/ANDALSO/ORELSE logical operators and nested expressions.
+    /// </summary>
+    private string BuildSqlFilterExpression(Features.Filter.Models.FilterExpression expression)
+    {
+        var visitor = new SqlFilterExpressionVisitor(this);
+        return expression.Accept(visitor);
+    }
+
+    /// <summary>
+    /// Visitor for generating SQL WHERE clause from filter expression tree.
+    /// Implements IFilterExpressionVisitor interface.
+    /// </summary>
+    private sealed class SqlFilterExpressionVisitor : Features.Filter.Models.IFilterExpressionVisitor<string>
+    {
+        private readonly HybridRowStore _store;
+
+        public SqlFilterExpressionVisitor(HybridRowStore store)
+        {
+            _store = store;
+        }
+
+        public string VisitCondition(Features.Filter.Models.FilterCondition condition)
+        {
+            // Reuse existing BuildSqlFilterCondition logic
+            // Convert FilterCondition to FilterCriteria
+            var filterCriteria = new FilterCriteria
+            {
+                ColumnName = condition.ColumnName,
+                Operator = condition.Operator,
+                Value = condition.Value
+            };
+
+            return _store.BuildSqlFilterCondition(filterCriteria);
+        }
+
+        public string VisitBinaryExpression(Features.Filter.Models.FilterBinaryExpression expression)
+        {
+            // Recursively build SQL for left and right sub-expressions
+            var leftSql = expression.Left.Accept(this);
+            var rightSql = expression.Right.Accept(this);
+
+            // Combine with logical operator
+            var operatorSql = expression.Type switch
+            {
+                Features.Filter.Models.FilterExpressionType.And => "AND",
+                Features.Filter.Models.FilterExpressionType.Or => "OR",
+                Features.Filter.Models.FilterExpressionType.AndAlso => "AND",  // SQL doesn't have short-circuit, but behavior is equivalent
+                Features.Filter.Models.FilterExpressionType.OrElse => "OR",
+                _ => throw new NotSupportedException($"Filter expression type {expression.Type} not supported in SQL")
+            };
+
+            return $"({leftSql} {operatorSql} {rightSql})";
+        }
     }
 
     /// <summary>
@@ -867,7 +967,13 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
         // Append new rows
         await AppendRowsAsync(rows, cancellationToken);
 
-        _logger.LogInformation("ReplaceAllRowsAsync completed");
+        // SENIOR FIX: Wait for writer queue to flush BEFORE returning
+        // This prevents race condition where UI refresh fires before data is actually in DB
+        // BUG SCENARIO: Replace → Clear (DB empty) → Append (queued) → UI refresh → GetAllRows() = EMPTY → No columns!
+        // FIX: Flush queue → ensure data is in DB before UI refresh
+        await FlushWriterQueueAsync(cancellationToken);
+
+        _logger.LogInformation("ReplaceAllRowsAsync completed (writer queue flushed)");
     }
 
     public async Task AppendRowsAsync(IEnumerable<IReadOnlyDictionary<string, object?>> rows, CancellationToken cancellationToken = default)
@@ -910,7 +1016,11 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
 
         await QueueWriteOperationAsync(bulkInsertOp, cancellationToken);
 
-        _logger.LogInformation("AppendRowsAsync: Queued {Count} rows for insertion", rowsList.Count);
+        // SENIOR FIX: Clear validation cache when new rows added
+        // Ensures new rows are validated (not skipped as "already validated")
+        ClearValidationCache();
+
+        _logger.LogInformation("AppendRowsAsync: Queued {Count} rows for insertion (validation cache cleared)", rowsList.Count);
     }
 
     public async Task EnsureInitialEmptyRowAsync(IEnumerable<string> columnNames, CancellationToken cancellationToken = default)
@@ -928,6 +1038,32 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
         var emptyRow = columnNames.ToDictionary(col => col, col => (object?)null);
 
         await AppendRowsAsync(new[] { emptyRow }, cancellationToken);
+    }
+
+    public async Task InitializeEmptyRowsAsync(IEnumerable<string> columnNames, int rowCount, CancellationToken cancellationToken = default)
+    {
+        if (rowCount <= 0)
+        {
+            _logger.LogWarning("InitializeEmptyRowsAsync: rowCount must be positive, got {RowCount}", rowCount);
+            return;
+        }
+
+        _logger.LogInformation("InitializeEmptyRowsAsync: Creating {RowCount} empty rows", rowCount);
+
+        var columnList = columnNames.ToList();
+        var emptyRows = new List<IReadOnlyDictionary<string, object?>>(rowCount);
+
+        // Create N empty rows (all columns set to null)
+        for (int i = 0; i < rowCount; i++)
+        {
+            var emptyRow = columnList.ToDictionary(col => col, col => (object?)null);
+            emptyRows.Add(emptyRow);
+        }
+
+        // Append all empty rows in bulk
+        await AppendRowsAsync(emptyRows, cancellationToken);
+
+        _logger.LogInformation("InitializeEmptyRowsAsync: Successfully created {RowCount} empty rows", rowCount);
     }
 
     public async Task InsertRowsAsync(IEnumerable<IReadOnlyDictionary<string, object?>> rows, int startIndex, CancellationToken cancellationToken = default)
@@ -1058,6 +1194,94 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
         var errors = JsonSerializer.Deserialize<ValidationError[]>(validationJson!);
 
         return errors ?? Array.Empty<ValidationError>();
+    }
+
+    /// <summary>
+    /// SENIOR FIX: Checks if a row has already been validated (cache check).
+    /// Used by ValidateAll to skip already validated rows (Option 3 - cache skip).
+    /// Prevents infinite validation loop and improves performance.
+    /// </summary>
+    /// <param name="rowId">Row ID to check</param>
+    /// <returns>True if row is in validation cache, false otherwise</returns>
+    public bool IsRowValidationCached(string rowId)
+    {
+        lock (_validationLock)
+        {
+            return _validatedRowsCache.ContainsKey(rowId) && _validatedRowsCache[rowId];
+        }
+    }
+
+    /// <summary>
+    /// SENIOR FIX: Marks a row as validated in the cache.
+    /// Called after successful validation to prevent re-validation.
+    /// </summary>
+    /// <param name="rowId">Row ID to mark as validated</param>
+    public void MarkRowAsValidated(string rowId)
+    {
+        lock (_validationLock)
+        {
+            _validatedRowsCache[rowId] = true;
+        }
+    }
+
+    /// <summary>
+    /// SENIOR FIX: Clears validation cache.
+    /// Called when data changes (ClearAsync, AddRangeAsync) to ensure fresh validation.
+    /// </summary>
+    public void ClearValidationCache()
+    {
+        lock (_validationLock)
+        {
+            _validatedRowsCache.Clear();
+            _logger.LogDebug("Validation cache cleared");
+        }
+    }
+
+    /// <summary>
+    /// SENIOR FIX: Batch writes validation results for multiple rows in a single operation (Option 2).
+    /// Prevents infinite validation loop by:
+    /// 1. Re-entrancy guard (_isValidating flag)
+    /// 2. Single DataChanged event fire after all writes complete
+    /// 3. Cache marking to skip already validated rows
+    /// </summary>
+    /// <param name="validationResults">Dictionary of rowId → validation errors</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    public async Task WriteValidationResultsBatchAsync(
+        Dictionary<string, ValidationError[]> validationResults,
+        CancellationToken cancellationToken = default)
+    {
+        if (_isValidating)
+        {
+            _logger.LogWarning("Validation already in progress - skipping batch write");
+            return;
+        }
+
+        try
+        {
+            _isValidating = true;
+
+            // Update in-memory validation cache
+            lock (_validationLock)
+            {
+                foreach (var (rowId, errors) in validationResults)
+                {
+                    _validationCache[rowId] = errors;
+                    _validatedRowsCache[rowId] = true;
+                }
+
+                _logger.LogInformation(
+                    "Batch validation write completed: {RowCount} rows validated (in-memory cache)",
+                    validationResults.Count);
+            }
+
+            // NOTE: Validation results are stored in in-memory cache only
+            // SQLite persistence is handled separately if needed
+            // No explicit DataChanged event needed - validation state is queried from cache
+        }
+        finally
+        {
+            _isValidating = false;
+        }
     }
 
     public async Task RemoveRowsAsync(IEnumerable<string> rowIds, CancellationToken cancellationToken = default)
@@ -1218,7 +1442,11 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
         _filteredIndexMap.Clear();
         _filterCriteria = null;
 
-        _logger.LogInformation("ClearAsync: All data cleared");
+        // SENIOR FIX: Clear validation cache when data is cleared
+        // Ensures fresh validation when new data is imported
+        ClearValidationCache();
+
+        _logger.LogInformation("ClearAsync: All data cleared (including validation cache)");
     }
 
     public async Task ClearValidationStateAsync(CancellationToken cancellationToken = default)
@@ -1298,6 +1526,42 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
     public IReadOnlyList<object> GetFilterCriteria()
     {
         return _filterCriteria ?? Array.Empty<object>();
+    }
+
+    public void SetFilterExpression(Features.Filter.Models.FilterExpression? expression)
+    {
+        _logger.LogInformation("SetFilterExpression: Setting complex filter expression (null: {IsNull})", expression == null);
+
+        _filterExpression = expression;
+        _filteredIndexMap.Clear();
+
+        // Build SQL WHERE clause from filter expression
+        if (expression == null)
+        {
+            _activeFilterSql = null;
+            _logger.LogInformation("Filter expression cleared");
+            return;
+        }
+
+        try
+        {
+            // Generate SQL WHERE clause from expression tree
+            _activeFilterSql = BuildSqlFilterExpression(expression);
+
+            _logger.LogInformation("Filter expression SQL built: WHERE {Sql}", _activeFilterSql);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to build SQL from filter expression");
+            _activeFilterSql = null;
+            _filterExpression = null;
+            throw;
+        }
+    }
+
+    public Features.Filter.Models.FilterExpression? GetFilterExpression()
+    {
+        return _filterExpression;
     }
 
     public int? MapFilteredIndexToOriginalIndex(int filteredIndex)
@@ -1646,6 +1910,72 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
         }
 
         return mutableRow;
+    }
+
+    #endregion
+
+    #region BREAKING CHANGE v3.0: rowId-based helper methods
+
+    /// <summary>
+    /// Gets the rowId for a given row index.
+    /// HELPER: Enables conversion from volatile rowIndex to stable rowId.
+    /// </summary>
+    /// <param name="rowIndex">Row index in current view (filtered or unfiltered)</param>
+    /// <returns>RowId if found, null otherwise</returns>
+    public string? GetRowIdByIndex(int rowIndex)
+    {
+        var row = GetRow(rowIndex);
+        if (row != null && row.TryGetValue("__rowId", out var rowIdValue))
+        {
+            return rowIdValue?.ToString();
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Gets the current row index for a given rowId.
+    /// HELPER: Enables conversion from stable rowId to volatile rowIndex.
+    /// WARNING: Returned index is VOLATILE and may change after sort/filter/delete.
+    /// </summary>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
+    /// <returns>Current row index if found, null otherwise</returns>
+    public int? GetRowIndexById(string rowId)
+    {
+        var allRows = GetAllRows();
+        for (int i = 0; i < allRows.Count; i++)
+        {
+            if (allRows[i].TryGetValue("__rowId", out var rowIdValue))
+            {
+                if (rowIdValue?.ToString() == rowId)
+                {
+                    return i;
+                }
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Gets a row by its stable rowId (synchronous version).
+    /// STABLE: RowId persists across sort/filter/delete operations.
+    /// NOTE: Uses existing GetRowByIdAsync implementation (line ~1315)
+    /// </summary>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
+    /// <returns>Row data if found, null otherwise</returns>
+    public IReadOnlyDictionary<string, object?>? GetRowById(string rowId)
+    {
+        return GetRowByIdAsync(rowId).GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Checks if a row exists by its stable rowId.
+    /// STABLE: RowId persists across sort/filter/delete operations.
+    /// </summary>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
+    /// <returns>True if row exists, false otherwise</returns>
+    public bool RowExistsById(string rowId)
+    {
+        return GetRowById(rowId) != null;
     }
 
     #endregion

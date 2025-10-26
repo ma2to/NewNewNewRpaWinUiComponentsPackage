@@ -54,6 +54,15 @@ public class AdvancedDataGridOptions
     public bool EnableRealTimeValidation { get; set; } = true;
 
     /// <summary>
+    /// SENIOR FIX: Gets or sets whether validation should stop on first error for each cell.
+    /// When true: Stops validating a cell after the first validation error (but continues with other cells)
+    /// When false (default): Applies ALL validation rules to each cell and collects all errors
+    /// Example: If cell has 3 validation rules and StopOnFirstError=true, stops after first rule fails
+    /// Note: This only affects PER-CELL validation - other cells are still validated
+    /// </summary>
+    public bool ValidationStopOnFirstError { get; set; } = false;
+
+    /// <summary>
     /// Gets or sets the validation automation mode
     /// Automatic (default): Validates automatically on import/paste/edit/row changes
     /// Manual: Validates only via explicit ValidateAllAsync() or similar calls
@@ -266,6 +275,47 @@ public class AdvancedDataGridOptions
     /// </summary>
     public double CheckboxMinHeight { get; set; } = 20.0;
 
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // ZEBRA ROWS CONFIGURATION (FÁZA 6 - Alternate Row Colors)
+    // ═══════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Gets or sets whether zebra rows (alternate row background and foreground colors) are enabled
+    /// When true: even rows use ZebraRowEvenBackgroundColor/ZebraRowEvenForegroundColor,
+    ///            odd rows use ZebraRowOddBackgroundColor/ZebraRowOddForegroundColor
+    /// When false: all rows use default cell colors from theme
+    /// Default: false
+    /// </summary>
+    public bool EnableZebraRows { get; set; } = false;
+
+    /// <summary>
+    /// Gets or sets the background color for even rows (0, 2, 4, ...) when zebra rows are enabled
+    /// Hex format: #RRGGBB or #AARRGGBB
+    /// Default: #FFFFFF (white)
+    /// </summary>
+    public string ZebraRowEvenBackgroundColor { get; set; } = "#FFFFFF";
+
+    /// <summary>
+    /// Gets or sets the background color for odd rows (1, 3, 5, ...) when zebra rows are enabled
+    /// Hex format: #RRGGBB or #AARRGGBB
+    /// Default: #F5F5F5 (light gray)
+    /// </summary>
+    public string ZebraRowOddBackgroundColor { get; set; } = "#F5F5F5";
+
+    /// <summary>
+    /// Gets or sets the foreground (text) color for even rows (0, 2, 4, ...) when zebra rows are enabled
+    /// Hex format: #RRGGBB or #AARRGGBB
+    /// Default: #000000 (black)
+    /// </summary>
+    public string ZebraRowEvenForegroundColor { get; set; } = "#000000";
+
+    /// <summary>
+    /// Gets or sets the foreground (text) color for odd rows (1, 3, 5, ...) when zebra rows are enabled
+    /// Hex format: #RRGGBB or #AARRGGBB
+    /// Default: #000000 (black)
+    /// </summary>
+    public string ZebraRowOddForegroundColor { get; set; } = "#000000";
+
     /// <summary>
     /// Gets or sets the initial column definitions
     /// </summary>
@@ -275,6 +325,54 @@ public class AdvancedDataGridOptions
     /// Gets or sets custom properties for the grid
     /// </summary>
     public Dictionary<string, object?> CustomProperties { get; set; } = new();
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // ADAPTIVE STORAGE CONFIGURATION
+    // ═══════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// ADAPTIVE STORAGE: Automatické prepínanie storage stratégie na základe row count
+    /// TRUE (default): AdaptiveRowStore (automatic InMemory ↔ Hybrid switching)
+    /// FALSE: InMemoryRowStore (static, legacy)
+    /// NOTE: Ignoruje sa ak je nastavený RowStoreFactory (custom factory má prioritu)
+    /// </summary>
+    public bool UseAdaptiveStorage { get; set; } = true;
+
+    /// <summary>
+    /// THRESHOLD: Počet riadkov, od ktorých sa DÁTA prepnú z InMemory na SQLite
+    /// Default: 100,000 rows
+    /// Reasoning:
+    ///   - < 100K: InMemory je rýchlejší (RAM spotreba prijateľná)
+    ///   - >= 100K: SQLite šetrí RAM (50 MB → 10 MB) a rýchlejšie Filter/Sort/Search
+    /// </summary>
+    public int DataStorageThreshold { get; set; } = 100_000;
+
+    /// <summary>
+    /// THRESHOLD: Počet riadkov, od ktorých sa VALIDÁCIE prepnú z InMemory na SQLite
+    /// Default: 1,000,000 rows
+    /// Reasoning:
+    ///   - < 1M: InMemory validácie sú rýchlejšie (Dictionary lookup < 1ms)
+    ///   - >= 1M: SQLite šetrí RAM (630 MB → 50 MB) ale validačný lookup je pomalší (< 3ms)
+    /// NOTE: ValidationService automaticky prepne na WriteValidationResultsAsync() pri >= threshold
+    /// </summary>
+    public int ValidationStorageThreshold { get; set; } = 1_000_000;
+
+    /// <summary>
+    /// DATABASE PATH: Cesta k SQLite databáze pre HybridRowStore
+    /// SMART LOGIC (rovnako ako DatabaseLifecycleManager.ResolveDatabasePath):
+    ///   - null → C:\Temp\AdvancedDataGrid\grid_{GUID}.db (default temp path)
+    ///   - "C:\MyData\" → C:\MyData\grid_{GUID}.db (directory → auto-generate filename)
+    ///   - "C:\MyData\my_grid.db" → C:\MyData\my_grid.db (explicit file path)
+    ///   - "C:\MyData\file.txt" → ERROR (non-.db extension not allowed)
+    /// </summary>
+    public string? DatabasePath { get; set; } = null;
+
+    /// <summary>
+    /// VIEWPORT CACHE SIZE: Max počet riadkov v RAM viewport cache (HybridRowStore)
+    /// Default: 1,000 rows
+    /// Reasoning: UI virtualizácia zobrazuje max 1000 rows, zvyšok je v SQLite
+    /// </summary>
+    public int ViewportCacheSize { get; set; } = 1_000;
 
     /// <summary>
     /// Gets or sets the row store factory function (internal use only)

@@ -29,42 +29,50 @@ public interface IDataGridTheming
     Task<PublicResult> ResetToDefaultThemeAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Sets cell background color.
+    /// Sets cell background color by stable row ID.
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
+    /// BREAKING CHANGE v3.0: Replaces rowIndex-based SetCellBackgroundColorAsync.
     /// </summary>
-    /// <param name="rowIndex">Row index</param>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
     /// <param name="columnName">Column name</param>
     /// <param name="color">Color value (hex format)</param>
     /// <param name="cancellationToken">Cancellation token for operation</param>
     /// <returns>Result of the operation</returns>
-    Task<PublicResult> SetCellBackgroundColorAsync(int rowIndex, string columnName, string color, CancellationToken cancellationToken = default);
+    Task<PublicResult> SetCellBackgroundColorAsync(string rowId, string columnName, string color, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Sets cell foreground color.
+    /// Sets cell foreground color by stable row ID.
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
+    /// BREAKING CHANGE v3.0: Replaces rowIndex-based SetCellForegroundColorAsync.
     /// </summary>
-    /// <param name="rowIndex">Row index</param>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
     /// <param name="columnName">Column name</param>
     /// <param name="color">Color value (hex format)</param>
     /// <param name="cancellationToken">Cancellation token for operation</param>
     /// <returns>Result of the operation</returns>
-    Task<PublicResult> SetCellForegroundColorAsync(int rowIndex, string columnName, string color, CancellationToken cancellationToken = default);
+    Task<PublicResult> SetCellForegroundColorAsync(string rowId, string columnName, string color, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Sets row background color.
+    /// Sets row background color by stable row ID.
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
+    /// BREAKING CHANGE v3.0: Replaces rowIndex-based SetRowBackgroundColorAsync.
     /// </summary>
-    /// <param name="rowIndex">Row index</param>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
     /// <param name="color">Color value (hex format)</param>
     /// <param name="cancellationToken">Cancellation token for operation</param>
     /// <returns>Result of the operation</returns>
-    Task<PublicResult> SetRowBackgroundColorAsync(int rowIndex, string color, CancellationToken cancellationToken = default);
+    Task<PublicResult> SetRowBackgroundColorAsync(string rowId, string color, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Clears custom colors from a cell.
+    /// Clears custom colors from a cell by stable row ID.
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
+    /// BREAKING CHANGE v3.0: Replaces rowIndex-based ClearCellColorsAsync.
     /// </summary>
-    /// <param name="rowIndex">Row index</param>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
     /// <param name="columnName">Column name</param>
     /// <param name="cancellationToken">Cancellation token for operation</param>
     /// <returns>Result of the operation</returns>
-    Task<PublicResult> ClearCellColorsAsync(int rowIndex, string columnName, CancellationToken cancellationToken = default);
+    Task<PublicResult> ClearCellColorsAsync(string rowId, string columnName, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Clears all custom colors from the grid.

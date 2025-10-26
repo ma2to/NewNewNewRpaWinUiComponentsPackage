@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Media;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.ViewModels;
+using Microsoft.Extensions.Logging;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIControls;
 
@@ -49,21 +50,24 @@ public sealed class CellControl : UserControl
     private readonly Grid _rootGrid;
     private readonly TextBlock _displayTextBlock;
     private readonly TextBox _editTextBox;
+    private readonly ILogger<CellControl>? _logger;
     private object? _originalValue; // Store original value before editing for cancel support
 
     /// <summary>
     /// Creates a new cell control bound to the specified view model.
     /// </summary>
     /// <param name="viewModel">The view model that manages this cell's data and state</param>
+    /// <param name="logger">Optional logger for diagnostics</param>
     /// <exception cref="ArgumentNullException">Thrown when viewModel is null</exception>
-    public CellControl(CellViewModel viewModel)
+    public CellControl(CellViewModel viewModel, ILogger<CellControl>? logger = null)
     {
         ViewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
+        _logger = logger;
 
         // Create UI programmatically
         _rootBorder = new Border
         {
-            BorderThickness = new Thickness(1),
+            BorderThickness = new Thickness(1, 1, 8, 1), // FIX: Left=1, Top=1, Right=8 (resize grip width), Bottom=1
             Padding = new Thickness(1), // 1px padding
             HorizontalAlignment = HorizontalAlignment.Stretch
         };
@@ -173,11 +177,12 @@ public sealed class CellControl : UserControl
         var isCtrlPressed = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
             .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
 
-        // Fire selection event with Ctrl state
+        // Fire selection event with Ctrl state and pointer args (for drag selection capture)
         CellSelected?.Invoke(this, new CellSelectionEventArgs
         {
             Cell = ViewModel,
-            IsCtrlPressed = isCtrlPressed
+            IsCtrlPressed = isCtrlPressed,
+            PointerEventArgs = e  // ✅ CRITICAL FIX: Pass pointer args for capture support
         });
 
         // Mark event as handled to prevent bubbling to ScrollViewer
@@ -192,6 +197,29 @@ public sealed class CellControl : UserControl
 
     private void OnCellKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        // ✅ MEDIUM FIX: Enter key starts edit mode when cell is selected but not editing
+        if (e.Key == Windows.System.VirtualKey.Enter && !ViewModel.IsEditing && ViewModel.IsSelected)
+        {
+            // Block editing for special columns and read-only cells
+            if (ViewModel.IsSpecialColumn || ViewModel.IsReadOnly)
+            {
+                e.Handled = true;
+                return;
+            }
+
+            // Start edit mode
+            _originalValue = ViewModel.Value;
+            ViewModel.IsEditing = true;
+            CellEditStarted?.Invoke(this, ViewModel);
+
+            // Focus the edit TextBox
+            _editTextBox.Focus(FocusState.Programmatic);
+            _editTextBox.SelectAll();
+
+            e.Handled = true;
+            return;
+        }
+
         // Tab/Shift+Tab navigation support - allow focus to move naturally
         if (e.Key == Windows.System.VirtualKey.Tab)
         {
@@ -203,6 +231,22 @@ public sealed class CellControl : UserControl
 
     private void OnCellDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
+        // ✅ CRITICAL FIX: Block editing for special columns (Checkbox, RowNumber, ValidationAlerts, DeleteRow, InsertRow)
+        // Special columns have their own controls (SpecialColumnCellControl) and should NOT be editable via CellControl
+        if (ViewModel.IsSpecialColumn)
+        {
+            // Ignore double-click on special columns - they handle their own interactions
+            e.Handled = true;
+            return;
+        }
+
+        // ✅ ADDITIONAL FIX: Block editing for read-only cells
+        if (ViewModel.IsReadOnly)
+        {
+            e.Handled = true;
+            return;
+        }
+
         // Double tap - enter edit mode
         // Store original value before editing to support cancel
         _originalValue = ViewModel.Value;
@@ -220,13 +264,25 @@ public sealed class CellControl : UserControl
         // Exit edit mode when focus lost - CANCEL changes (restore original value)
         if (ViewModel.IsEditing)
         {
+            _logger?.LogTrace("CellControl[{Row},{Col}]: LostFocus - canceling edit, restoring original value",
+                ViewModel.RowIndex, ViewModel.ColumnIndex);
+
             // Restore original value on focus lost (prepnutie do inej bunky = CANCEL)
             if (_originalValue != null || ViewModel.Value != null)
             {
                 ViewModel.Value = _originalValue;
             }
             ViewModel.IsEditing = false;
+            CellEditCompleted?.Invoke(this, ViewModel);
             _originalValue = null; // Clear stored value
+
+            // ✅ CRITICAL FIX: DO NOT restore focus here!
+            // User clicked another cell - let that cell take focus naturally
+            // Only restore focus on explicit Enter/Escape key press (see OnEditTextBoxKeyDown)
+            // ViewModel.IsSelected = true;  // REMOVED - conflicts with new cell selection
+            // _rootBorder.Focus(FocusState.Programmatic);  // REMOVED - conflicts with new cell click
+
+            _logger?.LogTrace("Edit canceled, focus NOT restored (allowing new cell to take focus)");
         }
     }
 
@@ -234,14 +290,47 @@ public sealed class CellControl : UserControl
     {
         if (e.Key == Windows.System.VirtualKey.Enter)
         {
-            // Enter key - commit edit (value already updated via TwoWay binding)
+            // Check if Shift key is pressed
+            var isShiftPressed = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Shift)
+                .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+            if (isShiftPressed)
+            {
+                // Shift+Enter: Insert newline without committing edit
+                _logger?.LogTrace("CellControl[{Row},{Col}]: Shift+Enter pressed - inserting newline",
+                    ViewModel.RowIndex, ViewModel.ColumnIndex);
+
+                // Insert newline at current cursor position
+                var selectionStart = _editTextBox.SelectionStart;
+                var currentText = _editTextBox.Text ?? string.Empty;
+                var newText = currentText.Insert(selectionStart, "\n");
+                _editTextBox.Text = newText;
+                _editTextBox.SelectionStart = selectionStart + 1; // Move cursor after newline
+                e.Handled = true;
+                return;
+            }
+
+            _logger?.LogTrace("CellControl[{Row},{Col}]: Enter pressed - committing edit",
+                ViewModel.RowIndex, ViewModel.ColumnIndex);
+
+            // Enter key (without Shift) - commit edit (value already updated via TwoWay binding)
             ViewModel.IsEditing = false;
             CellEditCompleted?.Invoke(this, ViewModel);
             _originalValue = null; // Clear stored value after commit
             e.Handled = true;
+
+            // ✅ HIGH FIX: Restore selection and focus to cell after Enter
+            // This is OK here because user explicitly confirmed edit with Enter
+            ViewModel.IsSelected = true;
+            _rootBorder.Focus(FocusState.Programmatic);
+
+            _logger?.LogTrace("Edit committed, focus restored to cell");
         }
         else if (e.Key == Windows.System.VirtualKey.Escape)
         {
+            _logger?.LogTrace("CellControl[{Row},{Col}]: Escape pressed - canceling edit",
+                ViewModel.RowIndex, ViewModel.ColumnIndex);
+
             // Escape key - cancel edit and restore original value
             if (_originalValue != null || ViewModel.Value != null)
             {
@@ -250,6 +339,13 @@ public sealed class CellControl : UserControl
             ViewModel.IsEditing = false;
             _originalValue = null; // Clear stored value after cancel
             e.Handled = true;
+
+            // ✅ HIGH FIX: Restore selection and focus to cell after Escape
+            // This is OK here because user explicitly canceled edit with Escape
+            ViewModel.IsSelected = true;
+            _rootBorder.Focus(FocusState.Programmatic);
+
+            _logger?.LogTrace("Edit canceled, focus restored to cell");
         }
     }
 
@@ -348,6 +444,11 @@ public class CellSelectionEventArgs : EventArgs
     /// Gets whether the Ctrl key was pressed during selection (for multi-select).
     /// </summary>
     public bool IsCtrlPressed { get; init; }
+
+    /// <summary>
+    /// Gets the pointer event args for pointer capture support (drag selection).
+    /// </summary>
+    public PointerRoutedEventArgs? PointerEventArgs { get; init; }
 }
 
 /// <summary>

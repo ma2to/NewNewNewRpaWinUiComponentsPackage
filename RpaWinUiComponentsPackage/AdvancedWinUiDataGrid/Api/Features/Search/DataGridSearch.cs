@@ -51,15 +51,21 @@ internal sealed class DataGridSearch : IDataGridSearch
             var internalResult = await _searchService.SearchAsync(searchCommand, cancellationToken);
 
             // Map to public result
+            // BREAKING CHANGE v3.0: Convert RowIndex to RowId for stable identification
             return new PublicSearchResult
             {
                 MatchCount = internalResult.TotalMatchesFound,
                 MatchedRowIndices = internalResult.Results.Select(r => r.RowIndex).Distinct().ToList(),
-                MatchedCells = internalResult.Results.Select(r => new PublicCellPosition
+                MatchedCells = internalResult.Results.Select(r =>
                 {
-                    RowIndex = r.RowIndex,
-                    ColumnName = r.ColumnName,
-                    CellValue = r.Value
+                    // Convert RowIndex to RowId using IRowStore helper method
+                    var rowId = _rowStore.GetRowIdByIndex(r.RowIndex);
+                    return new PublicCellPosition
+                    {
+                        RowId = rowId ?? string.Empty,
+                        ColumnName = r.ColumnName,
+                        CellValue = r.Value
+                    };
                 }).ToList(),
                 SearchText = searchText,
                 CaseSensitive = caseSensitive,

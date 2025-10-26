@@ -2,6 +2,7 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
 
 /// <summary>
 /// Public search result containing matched rows and cells
+/// BREAKING CHANGE v3.0: Added MatchedRowIds for stable row identification
 /// </summary>
 public sealed class PublicSearchResult
 {
@@ -11,9 +12,16 @@ public sealed class PublicSearchResult
     public int MatchCount { get; init; }
 
     /// <summary>
-    /// Row indices containing matches
+    /// Row indices containing matches (UNSTABLE - changes on sort/filter/delete)
+    /// WARNING: Prefer using MatchedRowIds for stability
     /// </summary>
     public IReadOnlyList<int> MatchedRowIndices { get; init; } = Array.Empty<int>();
+
+    /// <summary>
+    /// Stable row identifiers containing matches (from __rowId field)
+    /// STABLE: Persists across sort/filter/delete operations
+    /// </summary>
+    public IReadOnlyList<string> MatchedRowIds { get; init; } = Array.Empty<string>();
 
     /// <summary>
     /// Matched cell positions (row index, column name)
@@ -48,13 +56,16 @@ public sealed class PublicSearchResult
 
 /// <summary>
 /// Public cell position identifier
+/// BREAKING CHANGE v3.0: Uses RowId instead of RowIndex for stable identification
 /// </summary>
 public sealed class PublicCellPosition
 {
     /// <summary>
-    /// Row index
+    /// Stable row identifier (from __rowId field)
+    /// STABLE: Persists across sort/filter/delete operations
+    /// BREAKING CHANGE v3.0: Replaces RowIndex
     /// </summary>
-    public int RowIndex { get; init; }
+    public string RowId { get; init; } = string.Empty;
 
     /// <summary>
     /// Column name

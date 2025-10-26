@@ -85,9 +85,20 @@ internal sealed class ColorService : IColorService
             {
                 var shouldRemove = command.Mode switch
                 {
-                    ColorMode.Cell => kvp.Value.RowIndex == command.RowIndex && kvp.Value.ColumnIndex == command.ColumnIndex,
-                    ColorMode.Row => kvp.Value.RowIndex == command.RowIndex,
-                    ColorMode.Column => kvp.Value.ColumnName == command.ColumnName,
+                    // Prefer stable RowId matching over volatile RowIndex
+                    ColorMode.Cell when !string.IsNullOrEmpty(command.RowId) =>
+                        kvp.Value.RowId == command.RowId && kvp.Value.ColumnName == command.ColumnName,
+                    ColorMode.Cell =>
+                        kvp.Value.RowIndex == command.RowIndex && kvp.Value.ColumnIndex == command.ColumnIndex,
+
+                    ColorMode.Row when !string.IsNullOrEmpty(command.RowId) =>
+                        kvp.Value.RowId == command.RowId,
+                    ColorMode.Row =>
+                        kvp.Value.RowIndex == command.RowIndex,
+
+                    ColorMode.Column =>
+                        kvp.Value.ColumnName == command.ColumnName,
+
                     _ => false
                 };
 
@@ -134,9 +145,20 @@ internal sealed class ColorService : IColorService
     {
         return config.Mode switch
         {
-            ColorMode.Cell => $"cell_{config.RowIndex}_{config.ColumnIndex}",
-            ColorMode.Row => $"row_{config.RowIndex}",
-            ColorMode.Column => $"column_{config.ColumnName}",
+            // Prefer stable RowId over volatile RowIndex
+            ColorMode.Cell when !string.IsNullOrEmpty(config.RowId) =>
+                $"cell_{config.RowId}_{config.ColumnName}",
+            ColorMode.Cell =>
+                $"cell_{config.RowIndex}_{config.ColumnIndex}",
+
+            ColorMode.Row when !string.IsNullOrEmpty(config.RowId) =>
+                $"row_{config.RowId}",
+            ColorMode.Row =>
+                $"row_{config.RowIndex}",
+
+            ColorMode.Column =>
+                $"column_{config.ColumnName}",
+
             _ => Guid.NewGuid().ToString()
         };
     }
@@ -274,5 +296,27 @@ internal sealed class ColorService : IColorService
             _elementStateColors.Clear();
             _logger.LogInformation("Cleared all element state colors");
         }, cancellationToken);
+    }
+
+    // NEW: Stable rowId-based API methods
+    public async Task SetCellBackgroundColorAsync(string rowId, string columnName, string color, CancellationToken cancellationToken = default)
+    {
+        await SetElementStatePropertyColorAsync($"Cell_{rowId}_{columnName}", "Normal", "BackgroundColor", color, cancellationToken);
+    }
+
+    public async Task SetCellForegroundColorAsync(string rowId, string columnName, string color, CancellationToken cancellationToken = default)
+    {
+        await SetElementStatePropertyColorAsync($"Cell_{rowId}_{columnName}", "Normal", "TextColor", color, cancellationToken);
+    }
+
+    public async Task SetRowBackgroundColorAsync(string rowId, string color, CancellationToken cancellationToken = default)
+    {
+        await SetElementStatePropertyColorAsync($"Row_{rowId}", "Normal", "BackgroundColor", color, cancellationToken);
+    }
+
+    public async Task ClearCellColorsAsync(string rowId, string columnName, CancellationToken cancellationToken = default)
+    {
+        await ClearElementStatePropertyColorAsync($"Cell_{rowId}_{columnName}", "Normal", "BackgroundColor", cancellationToken);
+        await ClearElementStatePropertyColorAsync($"Cell_{rowId}_{columnName}", "Normal", "TextColor", cancellationToken);
     }
 }

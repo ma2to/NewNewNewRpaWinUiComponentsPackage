@@ -2,13 +2,22 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid;
 
 /// <summary>
 /// Public UI-friendly row view model for MVVM binding
+/// BREAKING CHANGE v3.0: Added RowId for stable row identification
 /// </summary>
 public sealed class PublicRowViewModel
 {
     /// <summary>
-    /// Row index in the grid
+    /// Row index in the grid (UNSTABLE - changes on sort/filter/delete)
+    /// WARNING: Prefer using RowId for stable identification
     /// </summary>
     public int Index { get; init; }
+
+    /// <summary>
+    /// Stable row identifier (from __rowId field)
+    /// STABLE: Persists across sort/filter/delete operations
+    /// Use this for tracking specific rows across operations
+    /// </summary>
+    public string? RowId { get; init; }
 
     /// <summary>
     /// Whether this row is selected

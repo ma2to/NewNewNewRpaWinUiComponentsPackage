@@ -22,14 +22,36 @@ public interface IDataGridRows
     /// <returns>Result with count of added rows</returns>
     Task<PublicResult<int>> AddRowsAsync(IEnumerable<IReadOnlyDictionary<string, object?>> rowsData, CancellationToken cancellationToken = default);
 
+    // /// <summary>
+    // /// Inserts a row at a specific index.
+    // /// WARNING: rowIndex is unstable - changes on sort/filter/delete. Use InsertRowBeforeId or InsertRowAfterId instead.
+    // /// </summary>
+    // /// <param name="rowIndex">Index to insert at</param>
+    // /// <param name="rowData">Row data as dictionary</param>
+    // /// <param name="cancellationToken">Cancellation token for operation</param>
+    // /// <returns>Result of the operation</returns>
+    // [Obsolete("Use InsertRowBeforeIdAsync or InsertRowAfterIdAsync instead. rowIndex is unstable and changes on sort/filter/delete operations.", false)]
+    // Task<PublicResult> InsertRowAsync(int rowIndex, IReadOnlyDictionary<string, object?> rowData, CancellationToken cancellationToken = default);
+
     /// <summary>
-    /// Inserts a row at a specific index.
+    /// Inserts a row before a specific row by stable row ID.
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
     /// </summary>
-    /// <param name="rowIndex">Index to insert at</param>
-    /// <param name="rowData">Row data as dictionary</param>
+    /// <param name="referenceRowId">Stable row identifier to insert before</param>
+    /// <param name="rowData">Row data as dictionary (null creates empty row)</param>
     /// <param name="cancellationToken">Cancellation token for operation</param>
     /// <returns>Result of the operation</returns>
-    Task<PublicResult> InsertRowAsync(int rowIndex, IReadOnlyDictionary<string, object?> rowData, CancellationToken cancellationToken = default);
+    Task<PublicResult> InsertRowBeforeIdAsync(string referenceRowId, IReadOnlyDictionary<string, object?>? rowData, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Inserts a row after a specific row by stable row ID.
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
+    /// </summary>
+    /// <param name="referenceRowId">Stable row identifier to insert after</param>
+    /// <param name="rowData">Row data as dictionary (null creates empty row)</param>
+    /// <param name="cancellationToken">Cancellation token for operation</param>
+    /// <returns>Result of the operation</returns>
+    Task<PublicResult> InsertRowAfterIdAsync(string referenceRowId, IReadOnlyDictionary<string, object?>? rowData, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Updates a row by its unique identifier.
@@ -63,12 +85,22 @@ public interface IDataGridRows
     /// <returns>Result of the operation</returns>
     Task<PublicResult> ClearAllRowsAsync(CancellationToken cancellationToken = default);
 
+    // /// <summary>
+    // /// Gets row data at a specific index.
+    // /// WARNING: rowIndex is unstable - changes on sort/filter/delete. Use GetRow(string rowId) instead.
+    // /// </summary>
+    // /// <param name="rowIndex">Row index</param>
+    // /// <returns>Row data as dictionary or null if not found</returns>
+    // [Obsolete("Use GetRow(string rowId) instead. rowIndex is unstable and changes on sort/filter/delete operations.", false)]
+    // IReadOnlyDictionary<string, object?>? GetRow(int rowIndex);
+
     /// <summary>
-    /// Gets row data at a specific index.
+    /// Gets row data by stable row ID.
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
     /// </summary>
-    /// <param name="rowIndex">Row index</param>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
     /// <returns>Row data as dictionary or null if not found</returns>
-    IReadOnlyDictionary<string, object?>? GetRow(int rowIndex);
+    IReadOnlyDictionary<string, object?>? GetRow(string rowId);
 
     /// <summary>
     /// Gets all row data.
@@ -82,20 +114,41 @@ public interface IDataGridRows
     /// <returns>Total number of rows</returns>
     int GetRowCount();
 
-    /// <summary>
-    /// Checks if a row exists at index.
-    /// </summary>
-    /// <param name="rowIndex">Row index to check</param>
-    /// <returns>True if row exists</returns>
-    bool RowExists(int rowIndex);
+    // /// <summary>
+    // /// Checks if a row exists at index.
+    // /// WARNING: rowIndex is unstable - changes on sort/filter/delete. Use RowExists(string rowId) instead.
+    // /// </summary>
+    // /// <param name="rowIndex">Row index to check</param>
+    // /// <returns>True if row exists</returns>
+    // [Obsolete("Use RowExists(string rowId) instead. rowIndex is unstable and changes on sort/filter/delete operations.", false)]
+    // bool RowExists(int rowIndex);
 
     /// <summary>
-    /// Duplicates a row at a specific index.
+    /// Checks if a row exists by stable row ID.
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
     /// </summary>
-    /// <param name="rowIndex">Row index to duplicate</param>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
+    /// <returns>True if row exists</returns>
+    bool RowExists(string rowId);
+
+    // /// <summary>
+    // /// Duplicates a row at a specific index.
+    // /// WARNING: rowIndex is unstable - changes on sort/filter/delete. Use DuplicateRowAsync(string rowId) instead.
+    // /// </summary>
+    // /// <param name="rowIndex">Row index to duplicate</param>
+    // /// <param name="cancellationToken">Cancellation token for operation</param>
+    // /// <returns>Result with index of new row</returns>
+    // [Obsolete("Use DuplicateRowAsync(string rowId) instead. rowIndex is unstable and changes on sort/filter/delete operations.", false)]
+    // Task<PublicResult<int>> DuplicateRowAsync(int rowIndex, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Duplicates a row by stable row ID.
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
+    /// </summary>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
     /// <param name="cancellationToken">Cancellation token for operation</param>
-    /// <returns>Result with index of new row</returns>
-    Task<PublicResult<int>> DuplicateRowAsync(int rowIndex, CancellationToken cancellationToken = default);
+    /// <returns>Result with rowId of new row</returns>
+    Task<PublicResult<string>> DuplicateRowAsync(string rowId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets the unique row ID for a row at the specified index.
@@ -126,33 +179,6 @@ public interface IDataGridRows
     /// </summary>
     /// <returns>Array of row IDs (empty array if no selection)</returns>
     string[] GetSelectedRowIds();
-
-    /// <summary>
-    /// Opens modal dialog for adding new row (Interactive and Headless+ManualUI modes only).
-    /// User fills in column values, real-time validation runs, then confirms or cancels.
-    /// New row added to end of dataset on confirmation.
-    /// </summary>
-    /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>Result with row ID of added row (null if cancelled)</returns>
-    /// <exception cref="InvalidOperationException">If called in Pure Headless mode</exception>
-    /// <remarks>
-    /// - Interactive Mode: Automatic UI update after add
-    /// - Headless+ManualUI Mode: Requires manual RefreshUIAsync() after add
-    /// - Pure Headless Mode: Throws exception - use AddRowAsync() instead
-    /// </remarks>
-    Task<PublicResult<string?>> AddRowWithDialogAsync(
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Opens modal dialog for adding new row with pre-filled default values.
-    /// Same as AddRowWithDialogAsync but textboxes are pre-populated.
-    /// </summary>
-    /// <param name="defaultValues">Dictionary of column names to default values</param>
-    /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>Result with row ID of added row (null if cancelled)</returns>
-    Task<PublicResult<string?>> AddRowWithDialogAsync(
-        IReadOnlyDictionary<string, object?> defaultValues,
-        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Validate row data without adding to grid.

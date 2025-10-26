@@ -26,7 +26,8 @@ internal sealed class ImportService : IImportService
     private readonly Infrastructure.Persistence.Interfaces.IRowStore _rowStore;
     private readonly AdvancedDataGridOptions _options;
     private readonly UIAdapters.WinUI.UiNotificationService? _uiNotificationService;
-    private readonly Features.SmartAddDelete.Interfaces.ISmartOperationService _smartOperationService;
+    // REMOVED: SmartOperationService - no longer needed with new data-shifting architecture
+    // private readonly Features.SmartAddDelete.Interfaces.ISmartOperationService _smartOperationService;
 
     /// <summary>
     /// ImportService constructor
@@ -39,7 +40,6 @@ internal sealed class ImportService : IImportService
         IValidationService validationService,
         Infrastructure.Persistence.Interfaces.IRowStore rowStore,
         AdvancedDataGridOptions options,
-        Features.SmartAddDelete.Interfaces.ISmartOperationService smartOperationService,
         IOperationLogger<ImportService>? operationLogger = null,
         UIAdapters.WinUI.UiNotificationService? uiNotificationService = null)
     {
@@ -48,7 +48,8 @@ internal sealed class ImportService : IImportService
         _validationService = validationService ?? throw new ArgumentNullException(nameof(validationService));
         _rowStore = rowStore ?? throw new ArgumentNullException(nameof(rowStore));
         _options = options ?? throw new ArgumentNullException(nameof(options));
-        _smartOperationService = smartOperationService ?? throw new ArgumentNullException(nameof(smartOperationService));
+        // REMOVED: SmartOperationService assignment
+        // _smartOperationService = smartOperationService ?? throw new ArgumentNullException(nameof(smartOperationService));
         _uiNotificationService = uiNotificationService; // Optional - null in Headless mode
 
         // If operation logger is not provided, use null pattern (no logging)
@@ -118,8 +119,10 @@ internal sealed class ImportService : IImportService
 
             _logger.LogInformation("Data successfully stored for operation {OperationId}", operationId);
 
-            // CRITICAL FIX: Enforce 2-step cleanup after import (remove ALL empty rows, ensure last empty)
-            // Uses SmartOperationService for consistent cleanup logic across all features
+            // DISABLED: SmartOperations auto-cleanup after import (no longer needed)
+            // Previously enforced 2-step cleanup: (1) remove empty rows, (2) add last empty row
+            // This is now disabled - application manages empty rows manually if needed
+            /*
             _logger.LogInformation("Starting 2-step cleanup after import for operation {OperationId}", operationId);
             var cleanupConfig = new Core.ValueObjects.RowManagementConfiguration
             {
@@ -128,6 +131,7 @@ internal sealed class ImportService : IImportService
                 EnableSmartDelete = true
             };
             await _smartOperationService.EnsureMinRowsAndLastEmptyAsync(cleanupConfig, templateRow: null, cancellationToken);
+            */
 
             // CRITICAL: Fire UI refresh event after successful import (Interactive mode only)
             // This triggers InternalUIUpdateHandler to reload ViewModel from IRowStore

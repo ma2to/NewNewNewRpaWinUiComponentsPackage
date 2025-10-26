@@ -6,6 +6,7 @@ using Windows.UI;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.ViewModels;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIControls.Converters;
+using Microsoft.Extensions.Logging;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIControls;
 
@@ -16,6 +17,7 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIControls;
 internal sealed class SpecialColumnCellControl : UserControl
 {
     private readonly CellViewModel _viewModel;
+    private readonly ILogger<SpecialColumnCellControl>? _logger;
 
     // DEBOUNCE FIX: Prevent rapid-fire delete clicks
     private DateTime _lastDeleteClick = DateTime.MinValue;
@@ -40,14 +42,28 @@ internal sealed class SpecialColumnCellControl : UserControl
     /// </summary>
     public event EventHandler<InsertRowRequestedEventArgs>? OnInsertRowRequested;
 
-    public SpecialColumnCellControl(CellViewModel viewModel)
+    public SpecialColumnCellControl(CellViewModel viewModel, ILogger<SpecialColumnCellControl>? logger = null)
     {
         _viewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
+        _logger = logger;
+
+        _logger?.LogTrace("SpecialColumnCellControl created for type {SpecialType}, RowIndex={RowIndex}, ColumnName={ColumnName}",
+            _viewModel.SpecialType, _viewModel.RowIndex, _viewModel.ColumnName);
+
         BuildControl();
+
+        _logger?.LogTrace("SpecialColumnCellControl BuildControl completed, Content type={ContentType}",
+            Content?.GetType().Name ?? "null");
     }
 
     private void BuildControl()
     {
+        _logger?.LogInformation("BUILD CONTROL: SpecialType={SpecialType}, RowIndex={RowIndex}, OldContent={OldContentType}",
+            _viewModel.SpecialType, _viewModel.RowIndex, Content?.GetType().Name ?? "null");
+
+        // CRITICAL: Force clear old content before creating new (prevents UI virtualization recycling issues)
+        Content = null;
+
         Content = _viewModel.SpecialType switch
         {
             SpecialColumnType.RowNumber => CreateRowNumberControl(),
@@ -57,6 +73,9 @@ internal sealed class SpecialColumnCellControl : UserControl
             SpecialColumnType.InsertRow => CreateInsertRowControl(),
             _ => new TextBlock { Text = "?", HorizontalAlignment = HorizontalAlignment.Center }
         };
+
+        _logger?.LogInformation("BUILD CONTROL DONE: Created {ContentType} for {SpecialType}",
+            Content?.GetType().Name ?? "null", _viewModel.SpecialType);
     }
 
     #region RowNumber Column
@@ -82,7 +101,7 @@ internal sealed class SpecialColumnCellControl : UserControl
             Child = textBlock,
             Background = new SolidColorBrush(Color.FromArgb(20, 128, 128, 128)), // Light gray bg
             BorderBrush = _viewModel.Theme?.CellBorder ?? new SolidColorBrush(Colors.LightGray),
-            BorderThickness = new Thickness(0, 0, 1, 1),
+            BorderThickness = new Thickness(1, 1, 8, 1), // FIX: Left=1, Top=1, Right=8 (resize grip width), Bottom=1
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             Padding = new Thickness(1)
@@ -150,7 +169,7 @@ internal sealed class SpecialColumnCellControl : UserControl
             Child = checkbox,
             Background = _viewModel.Theme?.CellDefaultBackground ?? new SolidColorBrush(Colors.White),
             BorderBrush = _viewModel.Theme?.CellBorder ?? new SolidColorBrush(Colors.LightGray),
-            BorderThickness = new Thickness(0, 0, 1, 1),
+            BorderThickness = new Thickness(1, 1, 8, 1), // FIX: Left=1, Top=1, Right=8 (resize grip width), Bottom=1
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             Padding = new Thickness(1)
@@ -201,7 +220,7 @@ internal sealed class SpecialColumnCellControl : UserControl
         {
             Child = textBlock,
             BorderBrush = _viewModel.Theme?.CellBorder ?? new SolidColorBrush(Colors.LightGray),
-            BorderThickness = new Thickness(0, 0, 1, 1),
+            BorderThickness = new Thickness(1, 1, 8, 1), // FIX: Left=1, Top=1, Right=8 (resize grip width), Bottom=1
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             Padding = new Thickness(1)
@@ -270,7 +289,7 @@ internal sealed class SpecialColumnCellControl : UserControl
             Child = button,
             Background = _viewModel.Theme?.CellDefaultBackground ?? new SolidColorBrush(Colors.White),
             BorderBrush = _viewModel.Theme?.CellBorder ?? new SolidColorBrush(Colors.LightGray),
-            BorderThickness = new Thickness(0, 0, 1, 1),
+            BorderThickness = new Thickness(1, 1, 8, 1), // FIX: Left=1, Top=1, Right=8 (resize grip width), Bottom=1
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             Padding = new Thickness(1)
@@ -320,7 +339,7 @@ internal sealed class SpecialColumnCellControl : UserControl
             Child = button,
             Background = _viewModel.Theme?.CellDefaultBackground ?? new SolidColorBrush(Colors.White),
             BorderBrush = _viewModel.Theme?.CellBorder ?? new SolidColorBrush(Colors.LightGray),
-            BorderThickness = new Thickness(0, 0, 1, 1),
+            BorderThickness = new Thickness(1, 1, 8, 1), // FIX: Left=1, Top=1, Right=8 (resize grip width), Bottom=1
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             Padding = new Thickness(1)

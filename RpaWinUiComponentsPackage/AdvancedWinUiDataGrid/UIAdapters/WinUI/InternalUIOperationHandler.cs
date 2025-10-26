@@ -51,7 +51,7 @@ internal sealed class InternalUIOperationHandler : IDisposable
 
     /// <summary>
     /// Handles delete row requests from UI control.
-    /// Automatically calls facade.SmartOperations.SmartDeleteRowByIdAsync with default config.
+    /// NEW ARCHITECTURE: Uses facade.Rows.RemoveRowsAsync for data-shifting deletion.
     /// </summary>
     private async void OnDeleteRowRequested(object? sender, DeleteRowRequestedEventArgs args)
     {
@@ -65,33 +65,24 @@ internal sealed class InternalUIOperationHandler : IDisposable
         {
             _logger.LogInformation("Auto-handling delete request for row {RowIndex}, rowId {RowId}", args.RowIndex, args.RowId);
 
-            // Use default smart operations config (always keep last empty)
-            var config = PublicSmartOperationsConfig.Create(
-                enableSmartDelete: true,
-                enableAutoExpand: true,
-                alwaysKeepLastEmpty: true
-            );
-
+            // NEW ARCHITECTURE: Direct row deletion with automatic data shifting
             // CRITICAL: Use rowId-based delete to avoid index shifting bugs
-            PublicSmartOperationResult result;
             if (!string.IsNullOrEmpty(args.RowId))
             {
-                result = await _facade.SmartOperations.SmartDeleteRowByIdAsync(args.RowId, config);
-            }
-            else
-            {
-                _logger.LogWarning("RowId is null, falling back to index-based delete");
-                result = await _facade.SmartOperations.SmartDeleteRowAsync(args.RowIndex, config);
-            }
+                var result = await _facade.Rows.RemoveRowsAsync(new[] { args.RowId });
 
-            if (result.IsSuccess)
-            {
-                _logger.LogInformation("Auto-delete successful: {RowCount} rows, {PhysicalDeletes} physical, {ContentClears} cleared",
-                    result.FinalRowCount, result.Statistics.RowsPhysicallyDeleted, result.Statistics.RowsContentCleared);
+                if (result.IsSuccess)
+                {
+                    _logger.LogInformation("Auto-delete successful: {RowsDeleted} rows deleted", result.Data);
+                }
+                else
+                {
+                    _logger.LogError("Auto-delete failed: {Error}", result.ErrorMessage);
+                }
             }
             else
             {
-                _logger.LogError("Auto-delete failed: {Error}", result.ErrorMessage);
+                _logger.LogWarning("RowId is null - cannot perform delete (rowId required in new architecture)");
             }
         }
         catch (Exception ex)
@@ -102,7 +93,7 @@ internal sealed class InternalUIOperationHandler : IDisposable
 
     /// <summary>
     /// Handles insert row requests from UI control.
-    /// Automatically calls facade.SmartOperations.InsertRowAfterAsync with the row index.
+    /// NEW ARCHITECTURE: Uses facade.Rows.InsertRowAsync to insert empty row at position.
     /// </summary>
     private async void OnInsertRowRequested(object? sender, InsertRowRequestedEventArgs args)
     {
@@ -117,17 +108,25 @@ internal sealed class InternalUIOperationHandler : IDisposable
             _logger.LogInformation("Auto-handling insert row request for row {RowIndex}, rowId {RowId}", args.RowIndex, args.RowId);
             _logger.LogDebug("Insert row request triggered from UI button click");
 
-            var result = await _facade.SmartOperations.InsertRowAfterAsync(args.RowIndex);
-
-            if (result.IsSuccess)
+            // MIGRATED: Use stable rowId instead of volatile rowIndex
+            // Insert empty row after specified row by stable rowId
+            if (!string.IsNullOrEmpty(args.RowId))
             {
-                _logger.LogInformation("Auto-insert successful: final row count {FinalRowCount}, empty rows created {EmptyRowsCreated}",
-                    result.FinalRowCount, result.Statistics.EmptyRowsCreated);
-                _logger.LogDebug("Auto-insert operation completed successfully");
+                var result = await _facade.Rows.InsertRowAfterIdAsync(args.RowId, null); // null = empty row
+
+                if (result.IsSuccess)
+                {
+                    _logger.LogInformation("Auto-insert successful: inserted after rowId {RowId}", args.RowId);
+                    _logger.LogDebug("Auto-insert operation completed successfully");
+                }
+                else
+                {
+                    _logger.LogError("Auto-insert failed: {Error}", result.ErrorMessage);
+                }
             }
             else
             {
-                _logger.LogError("Auto-insert failed: {Error}", result.ErrorMessage);
+                _logger.LogWarning("Insert row request has no RowId, cannot insert");
             }
         }
         catch (Exception ex)
@@ -196,9 +195,10 @@ internal sealed class InternalUIOperationHandler : IDisposable
                         }
                     }
 
-                    // Use Editing API to update cell value in backend storage with CURRENT row index
+                    // BREAKING CHANGE v3.0: Use rowId instead of rowIndex (stable across sort/filter/delete)
+                    // Use Editing API to update cell value in backend storage with stable rowId
                     var updateResult = await _facade.Editing.UpdateCellAsync(
-                        currentRowIndex,
+                        cell.RowId,
                         cell.ColumnName,
                         cell.Value,
                         CancellationToken.None
@@ -250,18 +250,12 @@ internal sealed class InternalUIOperationHandler : IDisposable
             // Last row has data → Trigger auto-expand to add new empty row
             _logger.LogInformation("Last row now has data - triggering auto-expand...");
 
-            var config = PublicSmartOperationsConfig.Create(
-                enableSmartDelete: true,
-                enableAutoExpand: true,
-                alwaysKeepLastEmpty: true
-            );
-
-            var result = await _facade.SmartOperations.AutoExpandEmptyRowAsync(config);
+            // NEW ARCHITECTURE: Add empty row at end using Rows.AddRowAsync
+            var result = await _facade.Rows.AddRowAsync(null); // null = empty row
 
             if (result.IsSuccess)
             {
-                _logger.LogInformation("Auto-expand successful: {EmptyRowsCreated} empty rows created, final count {FinalRowCount}",
-                    result.Statistics.EmptyRowsCreated, result.FinalRowCount);
+                _logger.LogInformation("Auto-expand successful: added empty row at end");
             }
             else
             {

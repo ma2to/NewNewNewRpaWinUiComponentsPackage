@@ -90,28 +90,120 @@ internal sealed class DataGridRows : IDataGridRows
         }
     }
 
-    public async Task<PublicResult> InsertRowAsync(int rowIndex, IReadOnlyDictionary<string, object?> rowData, CancellationToken cancellationToken = default)
+    // public async Task<PublicResult> InsertRowAsync(int rowIndex, IReadOnlyDictionary<string, object?> rowData, CancellationToken cancellationToken = default)
+    // {
+    //     try
+    //     {
+    //         // CRITICAL: Validate that __rowId is not used as a column name (reserved for internal use)
+    //         ValidateNoReservedColumnNames(rowData);
+    //
+    //         _logger?.LogInformation("Inserting row at index {RowIndex} via Rows module", rowIndex);
+    //         await _rowStore.InsertRowAsync(rowIndex, rowData, cancellationToken);
+    //
+    //         // Trigger automatic UI refresh in Interactive mode
+    //         await TriggerUIRefreshIfNeededAsync("InsertRow", 1);
+    //
+    //         return new PublicResult
+    //         {
+    //             IsSuccess = true,
+    //             Message = "Row inserted successfully"
+    //         };
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         _logger?.LogError(ex, "InsertRow failed in Rows module");
+    //         throw;
+    //     }
+    // }
+
+    /// <summary>
+    /// Inserts a row before a specific row by stable row ID.
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
+    /// </summary>
+    public async Task<PublicResult> InsertRowBeforeIdAsync(string referenceRowId, IReadOnlyDictionary<string, object?>? rowData, CancellationToken cancellationToken = default)
     {
         try
         {
-            // CRITICAL: Validate that __rowId is not used as a column name (reserved for internal use)
-            ValidateNoReservedColumnNames(rowData);
+            // Validate row data if provided
+            if (rowData != null)
+            {
+                ValidateNoReservedColumnNames(rowData);
+            }
 
-            _logger?.LogInformation("Inserting row at index {RowIndex} via Rows module", rowIndex);
-            await _rowStore.InsertRowAsync(rowIndex, rowData, cancellationToken);
+            _logger?.LogInformation("Inserting row before rowId {ReferenceRowId} via Rows module", referenceRowId);
+
+            // Find the current index of the reference row
+            var referenceIndex = _rowStore.GetRowIndexById(referenceRowId);
+            if (referenceIndex == null)
+            {
+                return new PublicResult
+                {
+                    IsSuccess = false,
+                    Message = $"Reference row {referenceRowId} not found"
+                };
+            }
+
+            // Insert at the reference index (before the reference row)
+            await _rowStore.InsertRowAsync(referenceIndex.Value, rowData ?? new Dictionary<string, object?>(), cancellationToken);
 
             // Trigger automatic UI refresh in Interactive mode
-            await TriggerUIRefreshIfNeededAsync("InsertRow", 1);
+            await TriggerUIRefreshIfNeededAsync("InsertRowBeforeId", 1);
 
             return new PublicResult
             {
                 IsSuccess = true,
-                Message = "Row inserted successfully"
+                Message = "Row inserted before reference row successfully"
             };
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "InsertRow failed in Rows module");
+            _logger?.LogError(ex, "InsertRowBeforeId failed in Rows module for referenceRowId {ReferenceRowId}", referenceRowId);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Inserts a row after a specific row by stable row ID.
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
+    /// </summary>
+    public async Task<PublicResult> InsertRowAfterIdAsync(string referenceRowId, IReadOnlyDictionary<string, object?>? rowData, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // Validate row data if provided
+            if (rowData != null)
+            {
+                ValidateNoReservedColumnNames(rowData);
+            }
+
+            _logger?.LogInformation("Inserting row after rowId {ReferenceRowId} via Rows module", referenceRowId);
+
+            // Find the current index of the reference row
+            var referenceIndex = _rowStore.GetRowIndexById(referenceRowId);
+            if (referenceIndex == null)
+            {
+                return new PublicResult
+                {
+                    IsSuccess = false,
+                    Message = $"Reference row {referenceRowId} not found"
+                };
+            }
+
+            // Insert after the reference index
+            await _rowStore.InsertRowAsync(referenceIndex.Value + 1, rowData ?? new Dictionary<string, object?>(), cancellationToken);
+
+            // Trigger automatic UI refresh in Interactive mode
+            await TriggerUIRefreshIfNeededAsync("InsertRowAfterId", 1);
+
+            return new PublicResult
+            {
+                IsSuccess = true,
+                Message = "Row inserted after reference row successfully"
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "InsertRowAfterId failed in Rows module for referenceRowId {ReferenceRowId}", referenceRowId);
             throw;
         }
     }
@@ -235,15 +327,32 @@ internal sealed class DataGridRows : IDataGridRows
         }
     }
 
-    public IReadOnlyDictionary<string, object?>? GetRow(int rowIndex)
+    // public IReadOnlyDictionary<string, object?>? GetRow(int rowIndex)
+    // {
+    //     try
+    //     {
+    //         return _rowStore.GetRow(rowIndex);
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         _logger?.LogError(ex, "GetRow failed in Rows module for row {RowIndex}", rowIndex);
+    //         throw;
+    //     }
+    // }
+
+    /// <summary>
+    /// Gets row data by stable row ID.
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
+    /// </summary>
+    public IReadOnlyDictionary<string, object?>? GetRow(string rowId)
     {
         try
         {
-            return _rowStore.GetRow(rowIndex);
+            return _rowStore.GetRowById(rowId);
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "GetRow failed in Rows module for row {RowIndex}", rowIndex);
+            _logger?.LogError(ex, "GetRow failed in Rows module for rowId {RowId}", rowId);
             throw;
         }
     }
@@ -274,50 +383,110 @@ internal sealed class DataGridRows : IDataGridRows
         }
     }
 
-    public bool RowExists(int rowIndex)
+    // public bool RowExists(int rowIndex)
+    // {
+    //     try
+    //     {
+    //         return _rowStore.RowExists(rowIndex);
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         _logger?.LogError(ex, "RowExists check failed in Rows module for row {RowIndex}", rowIndex);
+    //         throw;
+    //     }
+    // }
+
+    /// <summary>
+    /// Checks if a row exists by stable row ID.
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
+    /// </summary>
+    public bool RowExists(string rowId)
     {
         try
         {
-            return _rowStore.RowExists(rowIndex);
+            return _rowStore.RowExistsById(rowId);
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "RowExists check failed in Rows module for row {RowIndex}", rowIndex);
+            _logger?.LogError(ex, "RowExists check failed in Rows module for rowId {RowId}", rowId);
             throw;
         }
     }
 
-    public async Task<PublicResult<int>> DuplicateRowAsync(int rowIndex, CancellationToken cancellationToken = default)
+    // public async Task<PublicResult<int>> DuplicateRowAsync(int rowIndex, CancellationToken cancellationToken = default)
+    // {
+    //     try
+    //     {
+    //         _logger?.LogInformation("Duplicating row {RowIndex} via Rows module", rowIndex);
+    //         var rowData = _rowStore.GetRow(rowIndex);
+    //         if (rowData == null)
+    //         {
+    //             return new PublicResult<int>
+    //             {
+    //                 IsSuccess = false,
+    //                 Message = $"Row {rowIndex} not found",
+    //                 Data = -1
+    //             };
+    //         }
+    //
+    //         var newRowIndex = await _rowStore.AddRowAsync(rowData, cancellationToken);
+    //
+    //         // Trigger automatic UI refresh in Interactive mode
+    //         await TriggerUIRefreshIfNeededAsync("DuplicateRow", 1);
+    //
+    //         return new PublicResult<int>
+    //         {
+    //             IsSuccess = true,
+    //             Message = "Row duplicated successfully",
+    //             Data = newRowIndex
+    //         };
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         _logger?.LogError(ex, "DuplicateRow failed in Rows module");
+    //         throw;
+    //     }
+    // }
+
+    /// <summary>
+    /// Duplicates a row by stable row ID.
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
+    /// </summary>
+    public async Task<PublicResult<string>> DuplicateRowAsync(string rowId, CancellationToken cancellationToken = default)
     {
         try
         {
-            _logger?.LogInformation("Duplicating row {RowIndex} via Rows module", rowIndex);
-            var rowData = _rowStore.GetRow(rowIndex);
+            _logger?.LogInformation("Duplicating row {RowId} via Rows module", rowId);
+            var rowData = _rowStore.GetRowById(rowId);
             if (rowData == null)
             {
-                return new PublicResult<int>
+                return new PublicResult<string>
                 {
                     IsSuccess = false,
-                    Message = $"Row {rowIndex} not found",
-                    Data = -1
+                    Message = $"Row {rowId} not found",
+                    Data = string.Empty
                 };
             }
 
+            // Add the duplicated row
             var newRowIndex = await _rowStore.AddRowAsync(rowData, cancellationToken);
+
+            // Get the rowId of the newly created row
+            var newRowId = _rowStore.GetRowIdByIndex(newRowIndex);
 
             // Trigger automatic UI refresh in Interactive mode
             await TriggerUIRefreshIfNeededAsync("DuplicateRow", 1);
 
-            return new PublicResult<int>
+            return new PublicResult<string>
             {
                 IsSuccess = true,
                 Message = "Row duplicated successfully",
-                Data = newRowIndex
+                Data = newRowId ?? string.Empty
             };
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "DuplicateRow failed in Rows module");
+            _logger?.LogError(ex, "DuplicateRow failed in Rows module for rowId {RowId}", rowId);
             throw;
         }
     }
@@ -415,84 +584,6 @@ internal sealed class DataGridRows : IDataGridRows
         {
             _logger?.LogError(ex, "GetSelectedRowIds failed");
             return Array.Empty<string>();
-        }
-    }
-
-    /// <summary>
-    /// Opens modal dialog for adding new row.
-    /// </summary>
-    public async Task<PublicResult<string?>> AddRowWithDialogAsync(CancellationToken cancellationToken = default)
-    {
-        return await AddRowWithDialogAsync(defaultValues: null, cancellationToken);
-    }
-
-    /// <summary>
-    /// Opens modal dialog for adding new row with pre-filled default values.
-    /// </summary>
-    public async Task<PublicResult<string?>> AddRowWithDialogAsync(
-        IReadOnlyDictionary<string, object?>? defaultValues,
-        CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            // Check operation mode - Pure Headless mode does not support UI dialogs
-            if (_options.OperationMode == PublicDataGridOperationMode.Headless)
-            {
-                var errorMsg = "AddRowWithDialogAsync is not supported in Pure Headless mode. Use AddRowAsync() instead.";
-                _logger?.LogError(errorMsg);
-                return PublicResult<string?>.Failure(errorMsg);
-            }
-
-            _logger?.LogInformation("Opening Add Row modal dialog");
-
-            // Get column names from row store
-            var sampleRow = _rowStore.GetAllRows().FirstOrDefault();
-            var columnNames = sampleRow?.Keys.Where(k => !k.StartsWith("__")).ToArray() ?? Array.Empty<string>();
-
-            if (columnNames.Length == 0)
-            {
-                var errorMsg = "No columns available - cannot open Add Row dialog";
-                _logger?.LogWarning(errorMsg);
-                return PublicResult<string?>.Failure(errorMsg);
-            }
-
-            // Create and show dialog
-            var dialog = new UIControls.Dialogs.AddRowModalDialog(
-                facade: null!, // TODO: Need to inject IAdvancedDataGridFacade
-                columnNames: columnNames,
-                defaultValues: defaultValues,
-                logger: null);
-
-            var result = await dialog.ShowAsync();
-
-            // User cancelled
-            if (result != ContentDialogResult.Primary)
-            {
-                _logger?.LogInformation("Add Row dialog cancelled by user");
-                return PublicResult<string?>.Success(null); // null = cancelled
-            }
-
-            // Get row data from dialog
-            var rowData = await dialog.GetRowDataAsync();
-
-            // Add row to store
-            var rowIndex = await _rowStore.AddRowAsync(rowData, cancellationToken);
-
-            // Get row ID from the added row
-            var addedRow = _rowStore.GetRow(rowIndex);
-            var rowId = addedRow?.TryGetValue("__rowId", out var id) == true ? id?.ToString() : null;
-
-            // Trigger automatic UI refresh in Interactive mode
-            await TriggerUIRefreshIfNeededAsync("AddRowWithDialog", 1);
-
-            _logger?.LogInformation("Row added via dialog with ID: {RowId}", rowId);
-
-            return PublicResult<string?>.Success(rowId);
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "AddRowWithDialogAsync failed");
-            return PublicResult<string?>.Failure($"Failed to add row with dialog: {ex.Message}");
         }
     }
 

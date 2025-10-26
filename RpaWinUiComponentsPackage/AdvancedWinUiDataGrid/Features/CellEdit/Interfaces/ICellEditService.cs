@@ -5,27 +5,30 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.CellEdit.Inte
 /// <summary>
 /// Service interface for cell editing operations with real-time validation
 /// Implements Scoped lifetime per DI_DECISIONS.md - per-operation state isolation
+/// BREAKING CHANGE v3.0: All methods now use rowId instead of rowIndex for stable row identification.
 /// </summary>
 internal interface ICellEditService
 {
     /// <summary>
-    /// Begins an edit session for a specific cell
+    /// Begins an edit session for a specific cell by stable row ID.
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
     /// </summary>
-    /// <param name="rowIndex">Row index to edit</param>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
     /// <param name="columnName">Column name to edit</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Edit result with session information</returns>
-    Task<EditResult> BeginEditAsync(int rowIndex, string columnName, CancellationToken cancellationToken = default);
+    Task<EditResult> BeginEditAsync(string rowId, string columnName, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Updates the value of a cell being edited (with real-time validation)
+    /// Updates the value of a cell being edited by stable row ID (with real-time validation).
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
     /// </summary>
-    /// <param name="rowIndex">Row index</param>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
     /// <param name="columnName">Column name</param>
     /// <param name="newValue">New value for the cell</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Edit result with validation information</returns>
-    Task<EditResult> UpdateCellAsync(int rowIndex, string columnName, object? newValue, CancellationToken cancellationToken = default);
+    Task<EditResult> UpdateCellAsync(string rowId, string columnName, object? newValue, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Commits the current edit session
@@ -59,9 +62,10 @@ internal interface ICellEditService
     bool IsEditing();
 
     /// <summary>
-    /// Gets the current edit position (row and column)
+    /// Gets the current edit position (rowId and column)
+    /// STABLE: Returns rowId which persists across sort/filter/delete operations.
     /// </summary>
-    (int rowIndex, string columnName)? GetCurrentEditPosition();
+    (string rowId, string columnName)? GetCurrentEditPosition();
 
     /// <summary>
     /// Sets whether editing is enabled globally

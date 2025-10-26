@@ -29,7 +29,10 @@ internal enum WriteOperationType
     UpdateValidationState,
 
     /// <summary>Vacuum database (optimize storage)</summary>
-    Vacuum
+    Vacuum,
+
+    /// <summary>Flush writer queue (wait for all pending ops)</summary>
+    Flush
 }
 
 /// <summary>
@@ -186,4 +189,17 @@ internal sealed class UpdateValidationStateWriteOp : WriteOperation
 internal sealed class VacuumWriteOp : WriteOperation
 {
     public override WriteOperationType OperationType => WriteOperationType.Vacuum;
+}
+
+/// <summary>
+/// SENIOR FIX: Flush writer queue operation - wait for all pending operations to complete.
+/// Uses TaskCompletionSource to signal completion after all previous ops are processed.
+/// CRITICAL: Prevents race condition in ReplaceAllRowsAsync.
+/// </summary>
+internal sealed class FlushWriteOp : WriteOperation
+{
+    public override WriteOperationType OperationType => WriteOperationType.Flush;
+
+    /// <summary>TaskCompletionSource to signal flush completion</summary>
+    public required TaskCompletionSource<bool> CompletionSource { get; init; }
 }

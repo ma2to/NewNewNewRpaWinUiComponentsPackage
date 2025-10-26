@@ -21,18 +21,18 @@ internal sealed class DataGridEditing : IDataGridEditing
         _logger = logger;
     }
 
-    public async Task<PublicResult> BeginEditAsync(int rowIndex, string columnName, CancellationToken cancellationToken = default)
+    public async Task<PublicResult> BeginEditAsync(string rowId, string columnName, CancellationToken cancellationToken = default)
     {
         try
         {
-            _logger?.LogInformation("Beginning edit for cell [{RowIndex}, {ColumnName}] via Editing module", rowIndex, columnName);
+            _logger?.LogInformation("Beginning edit for cell [RowId={RowId}, Column={ColumnName}] via Editing module", rowId, columnName);
 
-            var internalResult = await _cellEditService.BeginEditAsync(rowIndex, columnName, cancellationToken);
+            var internalResult = await _cellEditService.BeginEditAsync(rowId, columnName, cancellationToken);
             return internalResult.ToPublic();
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "BeginEdit failed in Editing module");
+            _logger?.LogError(ex, "BeginEdit failed in Editing module for rowId={RowId}", rowId);
             throw;
         }
     }
@@ -71,18 +71,18 @@ internal sealed class DataGridEditing : IDataGridEditing
         }
     }
 
-    public async Task<PublicResult> UpdateCellAsync(int rowIndex, string columnName, object? newValue, CancellationToken cancellationToken = default)
+    public async Task<PublicResult> UpdateCellAsync(string rowId, string columnName, object? newValue, CancellationToken cancellationToken = default)
     {
         try
         {
-            _logger?.LogInformation("Updating cell [{RowIndex}, {ColumnName}] via Editing module", rowIndex, columnName);
+            _logger?.LogInformation("Updating cell [RowId={RowId}, Column={ColumnName}] via Editing module", rowId, columnName);
 
-            var internalResult = await _cellEditService.UpdateCellAsync(rowIndex, columnName, newValue, cancellationToken);
+            var internalResult = await _cellEditService.UpdateCellAsync(rowId, columnName, newValue, cancellationToken);
             return internalResult.ToPublic();
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "UpdateCell failed in Editing module");
+            _logger?.LogError(ex, "UpdateCell failed in Editing module for rowId={RowId}", rowId);
             throw;
         }
     }
@@ -108,9 +108,10 @@ internal sealed class DataGridEditing : IDataGridEditing
             if (internalPosition == null)
                 return null;
 
+            // BREAKING CHANGE v3.0: PublicCellPosition now uses RowId instead of RowIndex
             return new PublicCellPosition
             {
-                RowIndex = internalPosition.Value.rowIndex,
+                RowId = internalPosition.Value.rowId,
                 ColumnName = internalPosition.Value.columnName
             };
         }

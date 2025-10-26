@@ -28,32 +28,69 @@ public interface IDataGridBatch
     Task<PublicResult<int>> BatchUpdateCellsAsync(IEnumerable<PublicCellUpdate> cellUpdates, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Updates a column value for multiple rows.
+    /// Updates a column value for multiple rows by indices.
+    /// WARNING: rowIndices are unstable - change on sort/filter/delete. Use BatchUpdateColumnAsync(IEnumerable<string> rowIds, ...) instead.
     /// </summary>
     /// <param name="rowIndices">Row indices to update</param>
     /// <param name="columnName">Column name to update</param>
     /// <param name="newValue">New value to set</param>
     /// <param name="cancellationToken">Cancellation token for operation</param>
     /// <returns>Result with count of updated cells</returns>
+    [Obsolete("Use BatchUpdateColumnAsync(IEnumerable<string> rowIds, ...) instead. rowIndices are unstable and change on sort/filter/delete operations.", false)]
     Task<PublicResult<int>> BatchUpdateColumnAsync(IEnumerable<int> rowIndices, string columnName, object? newValue, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Deletes multiple rows in a single operation.
+    /// Updates a column value for multiple rows by stable row IDs.
+    /// STABLE: Uses rowIds which persist across sort/filter/delete operations.
+    /// </summary>
+    /// <param name="rowIds">Stable row identifiers (from __rowId field)</param>
+    /// <param name="columnName">Column name to update</param>
+    /// <param name="newValue">New value to set</param>
+    /// <param name="cancellationToken">Cancellation token for operation</param>
+    /// <returns>Result with count of updated cells</returns>
+    Task<PublicResult<int>> BatchUpdateColumnAsync(IEnumerable<string> rowIds, string columnName, object? newValue, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes multiple rows in a single operation by indices.
+    /// WARNING: rowIndices are unstable - change on sort/filter/delete. Use BatchDeleteRowsAsync(IEnumerable<string> rowIds) instead.
     /// </summary>
     /// <param name="rowIndices">Row indices to delete</param>
     /// <param name="cancellationToken">Cancellation token for operation</param>
     /// <returns>Result with count of deleted rows</returns>
+    [Obsolete("Use BatchDeleteRowsAsync(IEnumerable<string> rowIds) instead. rowIndices are unstable and change on sort/filter/delete operations.", false)]
     Task<PublicResult<int>> BatchDeleteRowsAsync(IEnumerable<int> rowIndices, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Applies a transformation function to multiple cells.
+    /// Deletes multiple rows in a single operation by stable row IDs.
+    /// STABLE: Uses rowIds which persist across sort/filter/delete operations.
+    /// </summary>
+    /// <param name="rowIds">Stable row identifiers (from __rowId field)</param>
+    /// <param name="cancellationToken">Cancellation token for operation</param>
+    /// <returns>Result with count of deleted rows</returns>
+    Task<PublicResult<int>> BatchDeleteRowsAsync(IEnumerable<string> rowIds, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Applies a transformation function to multiple cells by row indices.
+    /// WARNING: rowIndices are unstable - change on sort/filter/delete. Use BatchTransformAsync(IEnumerable<string> rowIds, ...) instead.
     /// </summary>
     /// <param name="rowIndices">Row indices to transform</param>
     /// <param name="columnName">Column name to transform</param>
     /// <param name="transformFunc">Transformation function</param>
     /// <param name="cancellationToken">Cancellation token for operation</param>
     /// <returns>Result with count of transformed cells</returns>
+    [Obsolete("Use BatchTransformAsync(IEnumerable<string> rowIds, ...) instead. rowIndices are unstable and change on sort/filter/delete operations.", false)]
     Task<PublicResult<int>> BatchTransformAsync(IEnumerable<int> rowIndices, string columnName, Func<object?, object?> transformFunc, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Applies a transformation function to multiple cells by stable row IDs.
+    /// STABLE: Uses rowIds which persist across sort/filter/delete operations.
+    /// </summary>
+    /// <param name="rowIds">Stable row identifiers (from __rowId field)</param>
+    /// <param name="columnName">Column name to transform</param>
+    /// <param name="transformFunc">Transformation function</param>
+    /// <param name="cancellationToken">Cancellation token for operation</param>
+    /// <returns>Result with count of transformed cells</returns>
+    Task<PublicResult<int>> BatchTransformAsync(IEnumerable<string> rowIds, string columnName, Func<object?, object?> transformFunc, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Checks if currently in batch update mode.

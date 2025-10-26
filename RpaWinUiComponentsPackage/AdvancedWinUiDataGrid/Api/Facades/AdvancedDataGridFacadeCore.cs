@@ -44,7 +44,8 @@ public sealed partial class AdvancedDataGridFacade : IAdvancedDataGridFacade
     private readonly AutoRowHeight.IDataGridAutoRowHeight _autoRowHeight;
     private readonly Shortcuts.IDataGridShortcuts _shortcuts;
     private readonly MVVM.IDataGridMVVM _mvvm;
-    private readonly SmartOperations.IDataGridSmartOperations _smartOperations;
+    // REMOVED: SmartOperations - replaced by RowManagement feature
+    // private readonly SmartOperations.IDataGridSmartOperations _smartOperations;
     private readonly Environments.IEnvironmentConfiguration _environment;
     private readonly IDataGridColors _colors;
     private readonly IDataGridTheme _theme;
@@ -141,10 +142,9 @@ public sealed partial class AdvancedDataGridFacade : IAdvancedDataGridFacade
     /// </summary>
     public MVVM.IDataGridMVVM MVVM => _mvvm;
 
-    /// <summary>
-    /// Smart row management operations (add/delete with minimum rows)
-    /// </summary>
-    public SmartOperations.IDataGridSmartOperations SmartOperations => _smartOperations;
+    // REMOVED: SmartOperations - replaced by RowManagement feature
+    // Use Rows.RemoveRowsAsync(rowIds) for deletion with automatic data shifting
+    // public SmartOperations.IDataGridSmartOperations SmartOperations => _smartOperations;
 
     /// <summary>
     /// Environment configuration management (application-level settings)
@@ -227,7 +227,8 @@ public sealed partial class AdvancedDataGridFacade : IAdvancedDataGridFacade
         _autoRowHeight = serviceProvider.GetRequiredService<AutoRowHeight.IDataGridAutoRowHeight>();
         _shortcuts = serviceProvider.GetRequiredService<Shortcuts.IDataGridShortcuts>();
         _mvvm = serviceProvider.GetRequiredService<MVVM.IDataGridMVVM>();
-        _smartOperations = serviceProvider.GetRequiredService<SmartOperations.IDataGridSmartOperations>();
+        // REMOVED: SmartOperations - replaced by RowManagement feature
+        // _smartOperations = serviceProvider.GetRequiredService<SmartOperations.IDataGridSmartOperations>();
         _environment = serviceProvider.GetRequiredService<Environments.IEnvironmentConfiguration>();
         _colors = serviceProvider.GetRequiredService<IDataGridColors>();
         _theme = serviceProvider.GetRequiredService<IDataGridTheme>();

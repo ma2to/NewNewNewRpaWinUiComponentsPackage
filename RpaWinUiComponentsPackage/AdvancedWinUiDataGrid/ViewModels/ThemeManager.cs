@@ -147,6 +147,46 @@ public sealed class ThemeManager : ViewModelBase
     public SolidColorBrush SelectedRowBackground => ParseColor(_currentTheme.RowColors.SelectedBackground);
     public SolidColorBrush SelectedRowForeground => ParseColor(_currentTheme.RowColors.SelectedForeground);
 
+    // Zebra Row colors (FÁZA 6 - configurable from Options)
+    // These colors are used when Options.EnableZebraRows == true
+    // Otherwise, CellDefaultBackground/CellDefaultForeground are used
+
+    /// <summary>
+    /// Gets the background color for even rows (0, 2, 4, ...) when zebra rows are enabled
+    /// Returns configured color from Options if EnableZebraRows is true, otherwise returns default cell background
+    /// </summary>
+    public SolidColorBrush ZebraRowEvenBackground =>
+        Options?.EnableZebraRows == true
+            ? ParseColor(Options.ZebraRowEvenBackgroundColor)
+            : CellDefaultBackground;
+
+    /// <summary>
+    /// Gets the background color for odd rows (1, 3, 5, ...) when zebra rows are enabled
+    /// Returns configured color from Options if EnableZebraRows is true, otherwise returns default cell background
+    /// </summary>
+    public SolidColorBrush ZebraRowOddBackground =>
+        Options?.EnableZebraRows == true
+            ? ParseColor(Options.ZebraRowOddBackgroundColor)
+            : CellDefaultBackground;
+
+    /// <summary>
+    /// Gets the foreground (text) color for even rows (0, 2, 4, ...) when zebra rows are enabled
+    /// Returns configured color from Options if EnableZebraRows is true, otherwise returns default cell foreground
+    /// </summary>
+    public SolidColorBrush ZebraRowEvenForeground =>
+        Options?.EnableZebraRows == true
+            ? ParseColor(Options.ZebraRowEvenForegroundColor)
+            : CellDefaultForeground;
+
+    /// <summary>
+    /// Gets the foreground (text) color for odd rows (1, 3, 5, ...) when zebra rows are enabled
+    /// Returns configured color from Options if EnableZebraRows is true, otherwise returns default cell foreground
+    /// </summary>
+    public SolidColorBrush ZebraRowOddForeground =>
+        Options?.EnableZebraRows == true
+            ? ParseColor(Options.ZebraRowOddForegroundColor)
+            : CellDefaultForeground;
+
     /// <summary>
     /// Parses hex color string to SolidColorBrush using BrushPool for deduplication.
     /// Supports formats: #RGB, #RRGGBB, #AARRGGBB

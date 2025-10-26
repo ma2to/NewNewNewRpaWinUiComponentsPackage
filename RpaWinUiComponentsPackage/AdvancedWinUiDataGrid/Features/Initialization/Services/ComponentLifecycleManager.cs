@@ -325,13 +325,16 @@ internal sealed class ComponentLifecycleManager : IComponentLifecycleManager
     {
         _logger.LogInformation("Initializing core components");
 
-        // CRITICAL: Initialize grid with one empty row if store is empty
-        // This ensures the grid always has at least one empty row on startup
+        // CRITICAL: Initialize grid with N empty rows based on page size
+        // This pre-allocates rows for the first page (improves UX and performance)
         var rowStore = _serviceProvider.GetService<Infrastructure.Persistence.Interfaces.IRowStore>();
         var options = _serviceProvider.GetService<AdvancedDataGridOptions>();
 
         if (rowStore != null && options != null)
         {
+            // Use default page size of 100 rows for initialization
+            var pageSize = 100;
+
             // Get column names from InitialColumns in AdvancedDataGridOptions
             var columnNames = options.InitialColumns?
                 .Select(c => c.Name)
@@ -340,12 +343,15 @@ internal sealed class ComponentLifecycleManager : IComponentLifecycleManager
 
             if (columnNames.Any())
             {
-                _logger.LogInformation("Ensuring initial empty row with {ColumnCount} columns", columnNames.Count);
-                await rowStore.EnsureInitialEmptyRowAsync(columnNames, cancellationToken);
+                _logger.LogInformation("Initializing {PageSize} empty rows with {ColumnCount} predefined columns", pageSize, columnNames.Count);
+                await rowStore.InitializeEmptyRowsAsync(columnNames, pageSize, cancellationToken);
             }
             else
             {
-                _logger.LogWarning("No columns configured - skipping initial empty row creation");
+                // No columns configured yet - create empty rows with empty column list
+                // Columns will be auto-detected on first import operation
+                _logger.LogInformation("No InitialColumns configured - creating {PageSize} empty rows (columns will be detected on first import)", pageSize);
+                await rowStore.InitializeEmptyRowsAsync(Enumerable.Empty<string>(), pageSize, cancellationToken);
             }
         }
 
