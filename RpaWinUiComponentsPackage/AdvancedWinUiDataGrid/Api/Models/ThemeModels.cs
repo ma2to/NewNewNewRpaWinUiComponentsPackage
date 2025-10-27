@@ -39,6 +39,16 @@ public sealed class PublicGridTheme
     /// Border colors
     /// </summary>
     public PublicBorderColors BorderColors { get; init; } = new();
+
+    /// <summary>
+    /// Special column colors (RowNumber, Checkbox, DeleteRow, InsertRow, ValidationAlerts)
+    /// </summary>
+    public PublicSpecialColumnColors SpecialColumnColors { get; init; } = new();
+
+    /// <summary>
+    /// UI control colors (ResizeGrip, Menus, Dialogs, Placeholders)
+    /// </summary>
+    public PublicUIControlColors UIControlColors { get; init; } = new();
 }
 
 /// <summary>
@@ -275,4 +285,146 @@ public sealed class PublicBorderColors
     /// Focused cell border color
     /// </summary>
     public string FocusedCellBorder { get; init; } = "#0078D4";
+}
+
+/// <summary>
+/// Special column color configuration
+/// </summary>
+public sealed class PublicSpecialColumnColors
+{
+    /// <summary>
+    /// RowNumber column background color
+    /// </summary>
+    public string RowNumberBackground { get; init; } = "#14808080"; // Light gray with alpha
+
+    /// <summary>
+    /// RowNumber column foreground color
+    /// </summary>
+    public string RowNumberForeground { get; init; } = "#808080"; // Gray
+
+    /// <summary>
+    /// Checkbox border color
+    /// </summary>
+    public string CheckboxBorder { get; init; } = "#A9A9A9"; // DarkGray
+
+    /// <summary>
+    /// Checkbox background color
+    /// </summary>
+    public string CheckboxBackground { get; init; } = "#FFFFFF"; // White
+
+    /// <summary>
+    /// Checkbox foreground (checkmark) color
+    /// </summary>
+    public string CheckboxForeground { get; init; } = "#000000"; // Black
+
+    /// <summary>
+    /// DeleteRow button background color
+    /// </summary>
+    public string DeleteRowBackground { get; init; } = "#00000000"; // Transparent
+
+    /// <summary>
+    /// DeleteRow button foreground color
+    /// </summary>
+    public string DeleteRowForeground { get; init; } = "#8B0000"; // DarkRed
+
+    /// <summary>
+    /// DeleteRow button hover background color
+    /// </summary>
+    public string DeleteRowHoverBackground { get; init; } = "#FFEBEE"; // Light red
+
+    /// <summary>
+    /// InsertRow button background color
+    /// </summary>
+    public string InsertRowBackground { get; init; } = "#C8E6C8"; // Light green (200, 230, 200)
+
+    /// <summary>
+    /// InsertRow button foreground color
+    /// </summary>
+    public string InsertRowForeground { get; init; } = "#006400"; // DarkGreen
+
+    /// <summary>
+    /// InsertRow button border color
+    /// </summary>
+    public string InsertRowBorder { get; init; } = "#008000"; // Green
+
+    /// <summary>
+    /// InsertRow button hover background color
+    /// </summary>
+    public string InsertRowHoverBackground { get; init; } = "#96DC96"; // Darker green (150, 220, 150)
+
+    /// <summary>
+    /// InsertRow button hover foreground color
+    /// </summary>
+    public string InsertRowHoverForeground { get; init; } = "#FFFFFF"; // White
+
+    /// <summary>
+    /// ValidationAlerts background when has alert
+    /// </summary>
+    public string ValidationAlertsErrorBackground { get; init; } = "#1EFF0000"; // Red with alpha (30, 255, 0, 0)
+
+    /// <summary>
+    /// ValidationAlerts foreground when has alert
+    /// </summary>
+    public string ValidationAlertsErrorForeground { get; init; } = "#FF0000"; // Red
+}
+
+/// <summary>
+/// UI control color configuration (ResizeGrip, Menus, Dialogs, Containers)
+/// </summary>
+public sealed class PublicUIControlColors
+{
+    /// <summary>
+    /// Resize grip default background color
+    /// </summary>
+    public string ResizeGripBackground { get; init; } = "#B3A9A9A9"; // DarkGray with opacity 0.7
+
+    /// <summary>
+    /// Resize grip hover background color
+    /// </summary>
+    public string ResizeGripHoverBackground { get; init; } = "#E60000FF"; // Blue with opacity 0.9
+
+    /// <summary>
+    /// Resize preview line color
+    /// </summary>
+    public string ResizePreviewLine { get; init; } = "#0000FF"; // Blue
+
+    /// <summary>
+    /// Context menu destructive action foreground (Delete)
+    /// </summary>
+    public string MenuDestructiveActionForeground { get; init; } = "#FF0000"; // Red
+
+    /// <summary>
+    /// Dialog error message foreground
+    /// </summary>
+    public string DialogErrorForeground { get; init; } = "#FF0000"; // Red
+
+    /// <summary>
+    /// Loading placeholder foreground
+    /// </summary>
+    public string PlaceholderForeground { get; init; } = "#FF0000"; // Red
+
+    /// <summary>
+    /// Loading placeholder background
+    /// </summary>
+    public string PlaceholderBackground { get; init; } = "#FFFFE0"; // LightYellow
+
+    /// <summary>
+    /// Search panel container border
+    /// </summary>
+    public string SearchPanelBorder { get; init; } = "#D3D3D3"; // LightGray
+
+    /// <summary>
+    /// Filter row container border
+    /// </summary>
+    public string FilterRowBorder { get; init; } = "#D3D3D3"; // LightGray
+
+    /// <summary>
+    /// Headers row container border
+    /// </summary>
+    public string HeadersRowBorder { get; init; } = "#808080"; // Gray
+
+    /// <summary>
+    /// Pagination panel container border
+    /// </summary>
+    public string PaginationPanelBorder { get; init; } = "#D3D3D3"; // LightGray
 }

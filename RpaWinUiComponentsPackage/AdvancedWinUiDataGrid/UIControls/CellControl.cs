@@ -67,7 +67,7 @@ public sealed class CellControl : UserControl
         // Create UI programmatically
         _rootBorder = new Border
         {
-            BorderThickness = new Thickness(1, 1, 8, 1), // FIX: Left=1, Top=1, Right=8 (resize grip width), Bottom=1
+            BorderThickness = new Thickness(1, 1, 12, 1), // FIX: Left=1, Top=1, Right=12 (resize grip width), Bottom=1
             Padding = new Thickness(1), // 1px padding
             HorizontalAlignment = HorizontalAlignment.Stretch
         };

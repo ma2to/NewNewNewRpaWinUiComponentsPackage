@@ -187,40 +187,96 @@ public sealed class HeadersRowView : UserControl
             var borderColor = ParseHexColor(options.CheckboxBorderColor, Colors.DimGray);
             var backgroundColor = ParseHexColor(options.CheckboxBackgroundColor, Colors.White);
 
-            var headerCheckbox = new CheckBox
+            // ✅ PROFESSIONAL SOLUTION: Direct Grid-based checkbox implementation for header
+            // WinUI 3 doesn't support FrameworkElementFactory (that's WPF), so we build it directly
+            var headerCheckboxGrid = new Grid
             {
-                IsThreeState = true, // null = indeterminate, true = all selected, false = none selected
-                IsChecked = null, // Start with indeterminate
+                Width = 16,
+                Height = 16,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            // Checkbox box border
+            var headerCheckboxBorder = new Border
+            {
+                Width = 16,
+                Height = 16,
+                BorderThickness = new Thickness(2),
+                BorderBrush = new SolidColorBrush(borderColor),
+                Background = new SolidColorBrush(backgroundColor),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            // Checkmark icon (for checked state)
+            var headerCheckmarkIcon = new FontIcon
+            {
+                Glyph = "\uE73E", // Checkmark glyph
+                FontSize = 10,
+                Foreground = new SolidColorBrush(borderColor),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
-                MinWidth = options.CheckboxMinWidth,
-                MinHeight = options.CheckboxMinHeight,
-                BorderBrush = new SolidColorBrush(borderColor),
-                BorderThickness = new Thickness(options.CheckboxBorderThickness),
-                Background = new SolidColorBrush(backgroundColor),
-                Foreground = new SolidColorBrush(borderColor) // VISIBILITY FIX: Make unchecked checkbox visible in header
+                Visibility = Visibility.Collapsed // Hidden by default
             };
 
-            // Event: header checkbox changed
-            headerCheckbox.Checked += (s, e) =>
+            // Indeterminate rectangle (for indeterminate state)
+            var headerIndeterminateRect = new Microsoft.UI.Xaml.Shapes.Rectangle
             {
-                // Select all rows
-                _viewModel.SelectAllRows();
+                Width = 8,
+                Height = 8,
+                Fill = new SolidColorBrush(borderColor),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Visibility = Visibility.Visible // Visible by default (indeterminate state)
             };
 
-            headerCheckbox.Unchecked += (s, e) =>
+            headerCheckboxBorder.Child = new Grid
             {
-                // Deselect all rows
-                _viewModel.DeselectAllRows();
+                Children =
+                {
+                    headerCheckmarkIcon,
+                    headerIndeterminateRect
+                }
             };
 
-            headerCheckbox.Indeterminate += (s, e) =>
+            headerCheckboxGrid.Children.Add(headerCheckboxBorder);
+
+            // Track checkbox state (three-state: null, true, false)
+            bool? headerCheckboxState = null;
+
+            // Make it interactive - handle Tapped event
+            headerCheckboxGrid.IsTapEnabled = true;
+            headerCheckboxGrid.Tapped += (s, e) =>
             {
-                // User clicked indeterminate state - treat as "select all"
-                _viewModel.SelectAllRows();
+                // Cycle through states: null (indeterminate) → true (checked) → false (unchecked) → true...
+                // Note: Starting from indeterminate, first click goes to checked
+                if (headerCheckboxState == null)
+                {
+                    headerCheckboxState = true;
+                    headerCheckmarkIcon.Visibility = Visibility.Visible;
+                    headerIndeterminateRect.Visibility = Visibility.Collapsed;
+                    _viewModel.SelectAllRows();
+                }
+                else if (headerCheckboxState == true)
+                {
+                    headerCheckboxState = false;
+                    headerCheckmarkIcon.Visibility = Visibility.Collapsed;
+                    headerIndeterminateRect.Visibility = Visibility.Collapsed;
+                    _viewModel.DeselectAllRows();
+                }
+                else
+                {
+                    headerCheckboxState = true;
+                    headerCheckmarkIcon.Visibility = Visibility.Visible;
+                    headerIndeterminateRect.Visibility = Visibility.Collapsed;
+                    _viewModel.SelectAllRows();
+                }
+
+                e.Handled = true;
             };
 
-            border.Child = headerCheckbox;
+            border.Child = headerCheckboxGrid;
         }
         else
         {
@@ -252,9 +308,10 @@ public sealed class HeadersRowView : UserControl
         }
 
         // Custom resize grip control (Column 1) with resize cursor support
-        // Set static logger for ResizeGripControl (shared across all instances)
+        // Set static logger and theme for ResizeGripControl (shared across all instances)
         var resizeLogger = _loggerFactory?.CreateLogger<ResizeGripControl>();
         ResizeGripControl.SetLogger(resizeLogger);
+        ResizeGripControl.SetThemeManager(_viewModel.Theme);
 
         var resizeGrip = new ResizeGripControl
         {
@@ -314,11 +371,11 @@ public sealed class HeadersRowView : UserControl
                     _logger?.LogTrace("Pointer captured successfully for resize");
                 }
 
-                // Create visual preview line
+                // Create visual preview line (SENIOR ARCHITECTURE: Use theme color)
                 _resizePreviewLine = new Border
                 {
                     Width = 2,
-                    Background = new SolidColorBrush(Colors.Blue),
+                    Background = _viewModel.Theme?.ResizePreviewLine ?? new SolidColorBrush(Colors.Blue),
                     Opacity = 0.6,
                     HorizontalAlignment = HorizontalAlignment.Left,
                     VerticalAlignment = VerticalAlignment.Stretch
@@ -493,6 +550,7 @@ public sealed class HeadersRowView : UserControl
             return fallback;
         }
     }
+
 
     /// <summary>
     /// SENIOR UPDATE: Header click now shows flyout with Sort + Filter options instead of direct sort cycling

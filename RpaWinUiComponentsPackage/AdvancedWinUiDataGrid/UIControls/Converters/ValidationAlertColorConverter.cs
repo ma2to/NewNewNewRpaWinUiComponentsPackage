@@ -24,7 +24,7 @@ internal sealed class ValidationAlertForegroundConverter : IValueConverter
     {
         if (value is bool hasAlert && hasAlert)
         {
-            return new SolidColorBrush(Colors.Red);
+            return _themeManager?.ValidationAlertsErrorForeground ?? new SolidColorBrush(Colors.Red);
         }
 
         return _themeManager?.CellDefaultForeground ?? new SolidColorBrush(Colors.Black);
@@ -53,8 +53,7 @@ internal sealed class ValidationAlertBackgroundConverter : IValueConverter
     {
         if (value is bool hasAlert && hasAlert)
         {
-            // Light red background for validation errors
-            return new SolidColorBrush(Color.FromArgb(30, 255, 0, 0));
+            return _themeManager?.ValidationAlertsErrorBackground ?? new SolidColorBrush(Color.FromArgb(30, 255, 0, 0));
         }
 
         return _themeManager?.CellDefaultBackground ?? new SolidColorBrush(Colors.White);

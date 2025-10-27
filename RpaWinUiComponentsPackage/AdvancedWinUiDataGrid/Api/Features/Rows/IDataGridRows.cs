@@ -54,6 +54,18 @@ public interface IDataGridRows
     Task<PublicResult> InsertRowAfterIdAsync(string referenceRowId, IReadOnlyDictionary<string, object?>? rowData, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Inserts an empty row after a specific row by stable row ID.
+    /// Convenience method for Interactive mode where empty rows are inserted via UI button.
+    /// STABLE: Uses rowId which persists across sort/filter/delete operations.
+    /// PUBLIC API: Can be called from application code for manual empty row insertion.
+    /// This method creates an empty row with all column values set to null.
+    /// </summary>
+    /// <param name="referenceRowId">Stable row identifier to insert after</param>
+    /// <param name="cancellationToken">Cancellation token for operation</param>
+    /// <returns>Result of the operation</returns>
+    Task<PublicResult> InsertEmptyRowAfterAsync(string referenceRowId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Updates a row by its unique identifier.
     /// </summary>
     /// <param name="rowId">Unique stable row identifier</param>
@@ -190,4 +202,27 @@ public interface IDataGridRows
     Task<PublicValidationResult> ValidateRowDataAsync(
         IReadOnlyDictionary<string, object?> rowData,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// PROFESSIONAL SOLUTION: Virtuálne vloží prázdny riadok na pozíciu (posunie data smerom nadol v rámci page).
+    /// NEZMENÍ celkový počet riadkov - posledný riadok page sa prepisuje prázdnymi hodnotami.
+    /// USE CASE: Fixed page size grids where insert should shift data down without changing row count.
+    /// VIRTUAL OPERATION: Does not physically add row to dataset, only shifts existing data.
+    /// </summary>
+    /// <param name="referenceRowId">Stable row identifier to insert after</param>
+    /// <param name="cancellationToken">Cancellation token for operation</param>
+    /// <returns>Result of the operation</returns>
+    Task<PublicResult> VirtualInsertEmptyRowAfterAsync(string referenceRowId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// PROFESSIONAL SOLUTION: Virtuálne zmaže riadok na pozícii (posunie data smerom nahor v rámci page).
+    /// NEZMENÍ celkový počet riadkov - dáta sa posunú nahor a posledný riadok ostane prázdny.
+    /// USE CASE: Fixed page size grids where delete should shift data up without changing row count.
+    /// VIRTUAL OPERATION: Does not physically remove row from dataset, only shifts existing data.
+    /// EFFECT: Row data is completely deleted (all subsequent rows shift up), last row becomes empty.
+    /// </summary>
+    /// <param name="rowId">Stable row identifier to delete</param>
+    /// <param name="cancellationToken">Cancellation token for operation</param>
+    /// <returns>Result of the operation</returns>
+    Task<PublicResult> VirtualDeleteRowAsync(string rowId, CancellationToken cancellationToken = default);
 }

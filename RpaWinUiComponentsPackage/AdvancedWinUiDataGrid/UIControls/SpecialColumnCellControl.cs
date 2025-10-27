@@ -91,7 +91,7 @@ internal sealed class SpecialColumnCellControl : UserControl
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
             Padding = new Thickness(1),
-            Foreground = new SolidColorBrush(Colors.Gray),
+            Foreground = _viewModel.Theme?.RowNumberForeground ?? Features.Optimization.BrushPool.GetBrush(Colors.Gray),
             FontSize = 12,
             IsTextSelectionEnabled = false
         };
@@ -99,9 +99,9 @@ internal sealed class SpecialColumnCellControl : UserControl
         var border = new Border
         {
             Child = textBlock,
-            Background = new SolidColorBrush(Color.FromArgb(20, 128, 128, 128)), // Light gray bg
-            BorderBrush = _viewModel.Theme?.CellBorder ?? new SolidColorBrush(Colors.LightGray),
-            BorderThickness = new Thickness(1, 1, 8, 1), // FIX: Left=1, Top=1, Right=8 (resize grip width), Bottom=1
+            Background = _viewModel.Theme?.RowNumberBackground ?? Features.Optimization.BrushPool.GetBrush(Color.FromArgb(20, 128, 128, 128)),
+            BorderBrush = _viewModel.Theme?.CellBorder ?? Features.Optimization.BrushPool.GetBrush(Colors.LightGray),
+            BorderThickness = new Thickness(1, 1, 12, 1), // FIX: Left=1, Top=1, Right=12 (resize grip width), Bottom=1
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             Padding = new Thickness(1)
@@ -117,7 +117,7 @@ internal sealed class SpecialColumnCellControl : UserControl
     /// <summary>
     /// Creates checkbox for row selection (fires OnRowSelectionChanged event)
     /// CRITICAL FIX: Uses TwoWay binding to keep checkbox synchronized with ViewModel
-    /// VISIBILITY FIX: Sets Foreground to make unchecked checkbox visible
+    /// PROFESSIONAL SOLUTION: Custom ControlTemplate for complete visibility control
     /// </summary>
     private UIElement CreateCheckboxControl()
     {
@@ -128,52 +128,82 @@ internal sealed class SpecialColumnCellControl : UserControl
         var borderColor = ParseHexColor(options.CheckboxBorderColor, Colors.DimGray);
         var backgroundColor = ParseHexColor(options.CheckboxBackgroundColor, Colors.White);
 
-        var checkbox = new CheckBox
+        // ✅ PROFESSIONAL SOLUTION: Direct Grid-based checkbox implementation
+        // WinUI 3 doesn't support FrameworkElementFactory (that's WPF), so we build it directly
+        var checkboxGrid = new Grid
         {
+            Width = 16,
+            Height = 16,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        // Checkbox box border
+        var checkboxBorder = new Border
+        {
+            Width = 16,
+            Height = 16,
+            BorderThickness = new Thickness(2),
+            BorderBrush = new SolidColorBrush(borderColor),
+            Background = new SolidColorBrush(backgroundColor),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        // Checkmark icon (hidden by default)
+        var checkmarkIcon = new FontIcon
+        {
+            Glyph = "\uE73E", // Checkmark glyph
+            FontSize = 10,
+            Foreground = new SolidColorBrush(borderColor),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
-            MinWidth = options.CheckboxMinWidth,
-            MinHeight = options.CheckboxMinHeight,
-            BorderBrush = new SolidColorBrush(borderColor),
-            BorderThickness = new Thickness(options.CheckboxBorderThickness),
-            Background = new SolidColorBrush(backgroundColor),
-            Foreground = new SolidColorBrush(borderColor), // VISIBILITY FIX: Make unchecked box visible
-            Padding = new Thickness(0),
-            Visibility = Visibility.Visible
+            Visibility = _viewModel.IsRowSelected ? Visibility.Visible : Visibility.Collapsed
         };
 
-        // CRITICAL FIX: Use TwoWay binding instead of event handlers
-        // This ensures checkbox stays synchronized when ViewModel changes (e.g., from header SelectAll)
-        var binding = new Microsoft.UI.Xaml.Data.Binding
-        {
-            Source = _viewModel,
-            Path = new PropertyPath(nameof(CellViewModel.IsRowSelected)),
-            Mode = Microsoft.UI.Xaml.Data.BindingMode.TwoWay,
-            UpdateSourceTrigger = Microsoft.UI.Xaml.Data.UpdateSourceTrigger.PropertyChanged
-        };
-        checkbox.SetBinding(CheckBox.IsCheckedProperty, binding);
+        checkboxBorder.Child = checkmarkIcon;
+        checkboxGrid.Children.Add(checkboxBorder);
 
-        // Keep event handlers for notification to parent components
-        checkbox.Checked += (s, e) =>
+        // Make it interactive - handle Tapped event
+        checkboxGrid.IsTapEnabled = true;
+        checkboxGrid.Tapped += (s, e) =>
         {
-            OnRowSelectionChanged?.Invoke(_viewModel.RowIndex, true);
+            // Toggle selection
+            _viewModel.IsRowSelected = !_viewModel.IsRowSelected;
+
+            // Update visual state
+            checkmarkIcon.Visibility = _viewModel.IsRowSelected ? Visibility.Visible : Visibility.Collapsed;
+
+            // Fire events
+            OnRowSelectionChanged?.Invoke(_viewModel.RowIndex, _viewModel.IsRowSelected);
+
+            e.Handled = true;
         };
 
-        checkbox.Unchecked += (s, e) =>
+        // Subscribe to ViewModel property changes to update visual state
+        _viewModel.PropertyChanged += (s, e) =>
         {
-            OnRowSelectionChanged?.Invoke(_viewModel.RowIndex, false);
+            if (e.PropertyName == nameof(CellViewModel.IsRowSelected))
+            {
+                checkmarkIcon.Visibility = _viewModel.IsRowSelected ? Visibility.Visible : Visibility.Collapsed;
+            }
         };
 
         var border = new Border
         {
-            Child = checkbox,
+            Child = checkboxGrid,
             Background = _viewModel.Theme?.CellDefaultBackground ?? new SolidColorBrush(Colors.White),
             BorderBrush = _viewModel.Theme?.CellBorder ?? new SolidColorBrush(Colors.LightGray),
-            BorderThickness = new Thickness(1, 1, 8, 1), // FIX: Left=1, Top=1, Right=8 (resize grip width), Bottom=1
+            BorderThickness = new Thickness(1), // ✅ FIX: Uniformný border 1px (nie 12px vpravo - checkbox column nie je resizable)
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
-            Padding = new Thickness(1)
+            // ✅ FIX: Increased padding from 2px to 6px to properly center 16px checkbox in row
+            // QUALITY: Checkbox 16px + Border padding 12px (6+6) + Border thickness 2px (1+1) = 30px total (fits in ~32px row)
+            Padding = new Thickness(6)
         };
+
+        _logger?.LogInformation("Checkbox created for RowIndex={RowIndex}, Size={Width}x{Height}",
+            _viewModel.RowIndex, checkboxGrid.Width, checkboxGrid.Height);
 
         return border;
     }
@@ -220,7 +250,7 @@ internal sealed class SpecialColumnCellControl : UserControl
         {
             Child = textBlock,
             BorderBrush = _viewModel.Theme?.CellBorder ?? new SolidColorBrush(Colors.LightGray),
-            BorderThickness = new Thickness(1, 1, 8, 1), // FIX: Left=1, Top=1, Right=8 (resize grip width), Bottom=1
+            BorderThickness = new Thickness(1, 1, 12, 1), // FIX: Left=1, Top=1, Right=12 (resize grip width), Bottom=1
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             Padding = new Thickness(1)
@@ -259,15 +289,21 @@ internal sealed class SpecialColumnCellControl : UserControl
     /// </summary>
     private UIElement CreateDeleteRowControl()
     {
+        // CRITICAL FIX: Use SymbolIcon instead of emoji for better rendering
+        var icon = new SymbolIcon(Symbol.Delete)
+        {
+            Foreground = _viewModel.Theme?.DeleteRowForeground ?? Features.Optimization.BrushPool.GetBrush(Colors.DarkRed)
+        };
+
         var button = new Button
         {
-            Content = "🗑", // Trash icon
-            FontSize = 14,
+            Content = icon,
             Padding = new Thickness(4),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
             MinWidth = 0,
-            MinHeight = 0
+            MinHeight = 0,
+            Background = _viewModel.Theme?.DeleteRowBackground ?? Features.Optimization.BrushPool.GetBrush(Colors.Transparent)
         };
 
         // Event: delete button clicked
@@ -289,11 +325,14 @@ internal sealed class SpecialColumnCellControl : UserControl
             Child = button,
             Background = _viewModel.Theme?.CellDefaultBackground ?? new SolidColorBrush(Colors.White),
             BorderBrush = _viewModel.Theme?.CellBorder ?? new SolidColorBrush(Colors.LightGray),
-            BorderThickness = new Thickness(1, 1, 8, 1), // FIX: Left=1, Top=1, Right=8 (resize grip width), Bottom=1
+            BorderThickness = new Thickness(1, 1, 12, 1), // FIX: Left=1, Top=1, Right=12 (resize grip width), Bottom=1
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             Padding = new Thickness(1)
         };
+
+        _logger?.LogInformation("DeleteRow button created for RowIndex={RowIndex} with SymbolIcon (Symbol.Delete)",
+            _viewModel.RowIndex);
 
         return border;
     }
@@ -316,9 +355,24 @@ internal sealed class SpecialColumnCellControl : UserControl
             Padding = new Thickness(4),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
-            MinWidth = 0,
-            MinHeight = 0
+            MinWidth = 24,
+            MinHeight = 24,
+            Background = _viewModel.Theme?.InsertRowBackground ?? Features.Optimization.BrushPool.GetBrush(Color.FromArgb(255, 200, 230, 200)),
+            Foreground = _viewModel.Theme?.InsertRowForeground ?? Features.Optimization.BrushPool.GetBrush(Colors.DarkGreen),
+            BorderBrush = _viewModel.Theme?.InsertRowBorder ?? Features.Optimization.BrushPool.GetBrush(Colors.Green),
+            BorderThickness = new Thickness(1),
+            // ✅ FIX: Disable built-in visual state transitions pre Hover (zabráni collision)
+            UseSystemFocusVisuals = false
         };
+
+        // ✅ FIX: Použiť ResourceDictionary pre hover colors (WinUI-friendly approach)
+        // Namiesto PointerEntered/Exited handlers, definujeme custom VisualState resources
+        var hoverBg = _viewModel.Theme?.InsertRowHoverBackground ?? Features.Optimization.BrushPool.GetBrush(Color.FromArgb(255, 150, 220, 150));
+        var hoverFg = _viewModel.Theme?.InsertRowHoverForeground ?? Features.Optimization.BrushPool.GetBrush(Colors.White);
+
+        // Použiť ControlTemplate resource keys pre custom VisualStates
+        button.Resources["ButtonBackgroundPointerOver"] = hoverBg;
+        button.Resources["ButtonForegroundPointerOver"] = hoverFg;
 
         // Event: insert button clicked
         // DEBOUNCE FIX: Prevent rapid-fire insert clicks
@@ -331,6 +385,10 @@ internal sealed class SpecialColumnCellControl : UserControl
             }
             _lastInsertClick = now;
 
+            // ✅ DEBUGGING: Log RowId to diagnose insert position issues
+            _logger?.LogInformation("INSERT BUTTON CLICKED: RowIndex={RowIndex}, RowId={RowId}, ColumnName={ColumnName}",
+                _viewModel.RowIndex, _viewModel.RowId ?? "(NULL)", _viewModel.ColumnName);
+
             OnInsertRowRequested?.Invoke(this, new InsertRowRequestedEventArgs(_viewModel.RowIndex, _viewModel.RowId));
         };
 
@@ -339,7 +397,7 @@ internal sealed class SpecialColumnCellControl : UserControl
             Child = button,
             Background = _viewModel.Theme?.CellDefaultBackground ?? new SolidColorBrush(Colors.White),
             BorderBrush = _viewModel.Theme?.CellBorder ?? new SolidColorBrush(Colors.LightGray),
-            BorderThickness = new Thickness(1, 1, 8, 1), // FIX: Left=1, Top=1, Right=8 (resize grip width), Bottom=1
+            BorderThickness = new Thickness(1), // ✅ FIX: Rovnaký prístup ako Checkbox (uniformný border, nie 12px vpravo)
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             Padding = new Thickness(1)

@@ -73,11 +73,12 @@ internal sealed class DataGridElementFactory : IElementFactory
 
             _logger.LogTrace("GetElement called for index {Index}", index);
 
-            // Get ViewModel from ViewportManager
+            // Get ViewModel from ViewportManager (always returns canonical ViewModel from Rows collection)
             var rowViewModel = _viewportManager.GetRowViewModel(index);
             if (rowViewModel == null)
             {
-                _logger.LogWarning("No ViewModel found for index {Index}, returning empty placeholder", index);
+                _logger.LogError("CRITICAL: No ViewModel found for index {Index} - this should NEVER happen with canonical ViewModels! " +
+                    "Returning placeholder. Check if Rows collection is populated correctly.", index);
                 return CreatePlaceholderElement();
             }
 
@@ -323,18 +324,24 @@ internal sealed class DataGridElementFactory : IElementFactory
 
     /// <summary>
     /// Creates placeholder element for loading/error states.
+    /// ARCHITECTURE NOTE: With canonical ViewModels, this should NEVER be called during normal scrolling.
+    /// If you see "Loading..." placeholders, it indicates a bug in ViewportManager or Rows collection.
     /// </summary>
     private UIElement CreatePlaceholderElement()
     {
+        _logger.LogWarning("Creating 'Loading...' placeholder - this indicates ViewModel not found in Rows collection!");
+
+        // SENIOR ARCHITECTURE: Use theme colors if available
         return new Border
         {
-            Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.LightGray),
+            Background = _viewModel?.Theme?.PlaceholderBackground ?? new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.LightYellow),
             Height = 30,
             Child = new TextBlock
             {
-                Text = "Loading...",
+                Text = "⚠ Loading... (data missing)",
                 HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
+                VerticalAlignment = VerticalAlignment.Center,
+                Foreground = _viewModel?.Theme?.PlaceholderForeground ?? new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Red)
             }
         };
     }

@@ -33,6 +33,12 @@ public sealed class DataGridCellsView : UserControl, IDisposable
     private readonly ILogger<DataGridCellsView> _logger;
     private readonly RowContextMenu _rowContextMenu; // SENIOR IMPLEMENTATION: Excel-like row context menu
 
+    /// <summary>
+    /// CRITICAL FIX: Public access to ViewportManager for validation updates.
+    /// Allows InternalUIUpdateHandler to refresh viewport cache after validation.
+    /// </summary>
+    public ViewportManager ViewportManager => _viewportManager;
+
     private readonly ScrollViewer _scrollViewer;
     private readonly ItemsRepeater _itemsRepeater;
 
@@ -135,9 +141,10 @@ public sealed class DataGridCellsView : UserControl, IDisposable
         // Create ScrollViewer for scrollable area
         _scrollViewer = new ScrollViewer
         {
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, 
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,   
-            Content = _itemsRepeater
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Content = _itemsRepeater,
+            ManipulationMode = ManipulationModes.None // CRITICAL FIX: Disable gesture handling to allow pointer events
         };
 
         // SENIOR FIX: Handle pointer released for drag selection end
@@ -164,8 +171,43 @@ public sealed class DataGridCellsView : UserControl, IDisposable
         // Initialize viewport with row count
         _viewportManager.TotalRowCount = _viewModel.Rows.Count;
 
+        // CRITICAL FIX: Initialize viewport cache on first load
+        // This fixes the bug where DataGridCellsView is created AFTER Rows.AddRange()
+        // was already called, so OnRowsCollectionChanged never fired during initial load.
+        // Without this, GetRowViewModel() returns NULL → "Loading..." placeholders shown.
+        this.Loaded += OnFirstLoaded;
+
         _logger.LogInformation("DataGridCellsView created with virtualization (rows: {RowCount})",
             _viewModel.Rows.Count);
+    }
+
+    /// <summary>
+    /// CRITICAL FIX: Initialize viewport cache on first load.
+    /// Called once when control is first loaded into visual tree.
+    /// </summary>
+    private async void OnFirstLoaded(object sender, RoutedEventArgs e)
+    {
+        // Unsubscribe immediately - only need this once
+        this.Loaded -= OnFirstLoaded;
+
+        try
+        {
+            // Pre-load first 50 rows into viewport cache
+            // This prevents "Loading..." placeholders on initial render
+            var rowsToLoad = Math.Min(50, _viewModel.Rows.Count);
+            if (rowsToLoad > 0)
+            {
+                // Set ItemsSource BEFORE loading viewport (required for ItemsRepeater)
+                _itemsRepeater.ItemsSource = Enumerable.Range(0, _viewModel.Rows.Count).ToList();
+
+                await _viewportManager.UpdateViewportAsync(0, rowsToLoad - 1);
+                _logger.LogInformation("Initial viewport cache loaded: {Count} rows", rowsToLoad);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to initialize viewport cache on first load: {Message}", ex.Message);
+        }
     }
 
     private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
@@ -282,6 +324,10 @@ public sealed class DataGridCellsView : UserControl, IDisposable
     private void HandleRowSelectionChanged(int rowIndex, bool isSelected)
     {
         RowSelectionChanged?.Invoke(this, (rowIndex, isSelected));
+
+        // ✅ FIX: Update header checkbox state after individual row selection change
+        // QUALITY: Ensures header checkbox reflects partial selection (indeterminate state)
+        _viewModel.UpdateCheckboxHeaderStatePublic();
     }
 
     private void HandleDeleteRowRequested(object? sender, DeleteRowRequestedEventArgs args)
@@ -346,6 +392,9 @@ public sealed class DataGridCellsView : UserControl, IDisposable
     {
         if (_pressedCell == null)
             return;
+
+        _logger.LogTrace("PointerMoved: _pressedCell=[{Row},{Col}], _isDragging={IsDragging}",
+            _pressedCell.RowIndex, _pressedCell.ColumnIndex, _isDragging);
 
         // Get pointer position relative to ScrollViewer
         var point = e.GetCurrentPoint(_scrollViewer).Position;
@@ -460,8 +509,8 @@ public sealed class DataGridCellsView : UserControl, IDisposable
         _logger.LogInformation("Showing Row Context Menu for {Count} selected rows (indices: {Indices})",
             selectedRows.Count, string.Join(", ", selectedIndices));
 
-        // Create and show context menu
-        var contextMenu = _rowContextMenu.CreateRowContextMenu(selectedIndices, selectedIds);
+        // Create and show context menu (SENIOR ARCHITECTURE: Pass theme)
+        var contextMenu = _rowContextMenu.CreateRowContextMenu(selectedIndices, selectedIds, _viewModel.Theme);
         contextMenu.ShowAt(_itemsRepeater, e.GetPosition(_itemsRepeater));
 
         e.Handled = true;

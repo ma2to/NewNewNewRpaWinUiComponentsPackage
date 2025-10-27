@@ -18,6 +18,7 @@ public sealed class DataGridViewModel : ViewModelBase
     private readonly ILogger<DataGridViewModel>? _logger;
     private readonly ILoggerFactory? _loggerFactory;
     private readonly Microsoft.UI.Dispatching.DispatcherQueue? _dispatcherQueue;
+    private readonly Features.Pagination.Interfaces.IPageManager? _pageManager;
     private bool _isSearchPanelVisible = true;
     private bool _isFilterRowVisible = true;
 
@@ -77,13 +78,31 @@ public sealed class DataGridViewModel : ViewModelBase
         ILogger<DataGridViewModel>? logger = null,
         ILoggerFactory? loggerFactory = null,
         Microsoft.UI.Dispatching.DispatcherQueue? dispatcherQueue = null,
-        ThemeManager? themeManager = null)
+        ThemeManager? themeManager = null,
+        Features.Pagination.Interfaces.IPageManager? pageManager = null)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
         _dispatcherQueue = dispatcherQueue;
+        _pageManager = pageManager;
         Theme = themeManager ?? new ThemeManager(logger: null); // Fallback to default if not provided
-        _logger?.LogInformation("DataGridViewModel created");
+
+        // Wire up PageManager to PaginationPanelViewModel if provided
+        if (_pageManager != null)
+        {
+            // Sync PageManager changes to PaginationPanel
+            _pageManager.PageChanged += OnPageManagerPageChanged;
+            _pageManager.PageSizeChanged += OnPageManagerPageSizeChanged;
+
+            // Sync PaginationPanel changes to PageManager
+            PaginationPanel.PageChanged += OnPaginationPanelPageChanged;
+
+            _logger?.LogInformation("DataGridViewModel created with PageManager integration");
+        }
+        else
+        {
+            _logger?.LogInformation("DataGridViewModel created without PageManager");
+        }
     }
 
     /// <summary>
@@ -275,7 +294,23 @@ public sealed class DataGridViewModel : ViewModelBase
             // NO FILTER for ValidationAlerts
         }
 
-        // 5. DELETE ROW COLUMN (if enabled)
+        // 5. INSERT ROW COLUMN (if enabled) - Add row button
+        if (options?.EnableInsertRowColumn == true)
+        {
+            var insertHeader = CreateSpecialColumnHeader(
+                name: "insertRow",
+                displayName: "➕",
+                specialType: SpecialColumnType.InsertRow,
+                width: 60,
+                isResizable: false,
+                displayOrder: displayOrder++
+            );
+            ColumnHeaders.Add(insertHeader);
+            _logger?.LogInformation("Added InsertRow special column");
+            // NO FILTER for InsertRow
+        }
+
+        // 6. DELETE ROW COLUMN (if enabled)
         if (options?.EnableDeleteRowColumn == true)
         {
             var deleteHeader = CreateSpecialColumnHeader(
@@ -936,6 +971,9 @@ public sealed class DataGridViewModel : ViewModelBase
 
             _logger?.LogInformation("Cell selected at [{Row}, {Col}]", cell.RowIndex, cell.ColumnIndex);
         }
+
+        // ARCHITECTURE CHANGE: No need to refresh viewport - uses canonical ViewModels
+        // Selection changes are automatically visible in viewport
     }
 
     /// <summary>
@@ -1081,6 +1119,10 @@ public sealed class DataGridViewModel : ViewModelBase
         }
 
         _logger?.LogInformation("All rows selected");
+
+        // ✅ FIX: Update header checkbox state after selection change
+        // QUALITY: Ensures header checkbox reflects actual row selection state
+        UpdateCheckboxHeaderStatePublic();
     }
 
     /// <summary>
@@ -1102,6 +1144,62 @@ public sealed class DataGridViewModel : ViewModelBase
         }
 
         _logger?.LogInformation("All rows deselected");
+
+        // ✅ FIX: Update header checkbox state after selection change
+        // QUALITY: Ensures header checkbox reflects actual row selection state
+        UpdateCheckboxHeaderStatePublic();
+    }
+
+    /// <summary>
+    /// Updates checkbox column header state based on current row selection.
+    /// Called automatically after any row selection change (SelectAll, DeselectAll, or individual row click).
+    /// QUALITY: Implements indeterminate state (some checked), checked (all checked), unchecked (none checked).
+    /// PUBLIC: Exposed for DataGridCellsView to call after individual row checkbox click.
+    /// </summary>
+    public void UpdateCheckboxHeaderStatePublic()
+    {
+        try
+        {
+            // Find checkbox column header
+            var checkboxHeader = ColumnHeaders.FirstOrDefault(h => h.SpecialType == Common.SpecialColumnType.Checkbox);
+            if (checkboxHeader == null)
+            {
+                return; // No checkbox column, skip
+            }
+
+            // Calculate selection state
+            var selectedCount = Rows.Count(r => r.IsSelected);
+            var totalCount = Rows.Count;
+
+            bool? newState;
+            if (selectedCount == 0)
+            {
+                // No rows selected → Unchecked (☐)
+                newState = false;
+            }
+            else if (selectedCount == totalCount)
+            {
+                // All rows selected → Checked (✓)
+                newState = true;
+            }
+            else
+            {
+                // Some rows selected → Indeterminate (■)
+                newState = null;
+            }
+
+            // Update header checkbox state (binding will update UI automatically)
+            if (checkboxHeader.IsCheckboxHeaderChecked != newState)
+            {
+                checkboxHeader.IsCheckboxHeaderChecked = newState;
+                _logger?.LogDebug("Updated header checkbox state: {SelectedCount}/{TotalCount} rows selected → {State}",
+                    selectedCount, totalCount, newState?.ToString() ?? "Indeterminate");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Failed to update checkbox header state");
+        }
     }
 
     #endregion
@@ -1187,14 +1285,40 @@ public sealed class DataGridViewModel : ViewModelBase
                     // CRITICAL FIX: Format with column names for clarity
                     // Format: "ColumnName: msg1; ColumnName: msg2; ..."
                     // User requirement: Show column name to identify which field has validation error
-                    alertsCell.ValidationAlertMessage = string.Join("; ",
+                    var message = string.Join("; ",
                         allRowErrors.Select(e => $"{e.ColumnName}: {e.Message}"));
-                    _logger?.LogDebug("Updated ValidationAlerts column for row {RowIndex}: {Alerts}",
-                        row.RowIndex, alertsCell.ValidationAlertMessage);
+
+                    // CRITICAL: Update on UI thread to ensure PropertyChanged propagates correctly
+                    if (_dispatcherQueue != null)
+                    {
+                        _dispatcherQueue.TryEnqueue(() =>
+                        {
+                            alertsCell.ValidationAlertMessage = message;
+                            _logger?.LogDebug("Updated ValidationAlerts column for row {RowIndex}: {Alerts}",
+                                row.RowIndex, alertsCell.ValidationAlertMessage);
+                        });
+                    }
+                    else
+                    {
+                        alertsCell.ValidationAlertMessage = message;
+                        _logger?.LogDebug("Updated ValidationAlerts column for row {RowIndex}: {Alerts}",
+                            row.RowIndex, alertsCell.ValidationAlertMessage);
+                    }
                 }
                 else
                 {
-                    alertsCell.ValidationAlertMessage = null;
+                    // CRITICAL: Clear on UI thread to ensure PropertyChanged propagates correctly
+                    if (_dispatcherQueue != null)
+                    {
+                        _dispatcherQueue.TryEnqueue(() =>
+                        {
+                            alertsCell.ValidationAlertMessage = null;
+                        });
+                    }
+                    else
+                    {
+                        alertsCell.ValidationAlertMessage = null;
+                    }
                 }
             }
         }
@@ -1202,10 +1326,21 @@ public sealed class DataGridViewModel : ViewModelBase
         _logger?.LogInformation("Applied {AppliedCount} validation errors to {TotalCells} cells",
             appliedCount, Rows.Sum(r => r.Cells.Count));
 
-        // CRITICAL FIX: Force UI refresh by invalidating viewport cache
+        // CRITICAL FIX: Force UI refresh by invalidating viewport cache on UI thread
         // This ensures validation error borders appear immediately in virtualized ItemsRepeater
-        ViewportManager?.InvalidateCache();
-        _logger?.LogTrace("ViewportManager cache invalidated to force UI refresh for validation errors");
+        if (_dispatcherQueue != null)
+        {
+            _dispatcherQueue.TryEnqueue(() =>
+            {
+                ViewportManager?.InvalidateCache();
+                _logger?.LogTrace("ViewportManager cache invalidated to force UI refresh for validation errors");
+            });
+        }
+        else
+        {
+            ViewportManager?.InvalidateCache();
+            _logger?.LogTrace("ViewportManager cache invalidated to force UI refresh for validation errors");
+        }
     }
 
     /// <summary>
@@ -1369,6 +1504,64 @@ public sealed class DataGridViewModel : ViewModelBase
             rowIndex,
             row.RowId,
             "Below"));
+    }
+
+    #endregion
+
+    #region PageManager Integration
+
+    /// <summary>
+    /// CRITICAL: Exposes PageManager instance for external components (ViewportManager, UI)
+    /// </summary>
+    public Features.Pagination.Interfaces.IPageManager? PageManager => _pageManager;
+
+    /// <summary>
+    /// Event fired when page data needs to be reloaded from IRowStore
+    /// UI components should subscribe to this and fetch the new page data range
+    /// </summary>
+    public event EventHandler<(long startIndex, int count)>? PageDataReloadRequested;
+
+    private void OnPageManagerPageChanged(object? sender, Features.Pagination.Interfaces.PageChangedEventArgs e)
+    {
+        _logger?.LogInformation("PageManager page changed: {OldPage} → {NewPage}, StartIndex={StartIndex}, Count={Count}",
+            e.OldPage, e.NewPage, e.StartIndex, e.Count);
+
+        // Sync to PaginationPanel (convert 0-based to 1-based)
+        PaginationPanel.CurrentPage = e.NewPage + 1;
+
+        // Request data reload for new page
+        PageDataReloadRequested?.Invoke(this, (e.StartIndex, e.Count));
+    }
+
+    private void OnPageManagerPageSizeChanged(object? sender, int newPageSize)
+    {
+        _logger?.LogInformation("PageManager page size changed: {NewPageSize}", newPageSize);
+
+        // Sync to PaginationPanel
+        PaginationPanel.PageSize = newPageSize;
+    }
+
+    private void OnPaginationPanelPageChanged(object? sender, int newPage)
+    {
+        _logger?.LogTrace("PaginationPanel page changed: {NewPage}", newPage);
+
+        // Sync to PageManager (convert 1-based to 0-based)
+        _pageManager?.GoToPage(newPage - 1);
+    }
+
+    /// <summary>
+    /// Updates total row count and syncs it to both PageManager and PaginationPanel
+    /// Call this after data changes (insert, delete, import, filter)
+    /// </summary>
+    public void UpdateTotalRowCount(long totalRows)
+    {
+        _logger?.LogDebug("Updating total row count: {TotalRows}", totalRows);
+
+        // Update PageManager (recalculates total pages)
+        _pageManager?.SetTotalDataRows(totalRows);
+
+        // Update PaginationPanel
+        PaginationPanel.TotalRowCount = totalRows;
     }
 
     #endregion

@@ -44,7 +44,7 @@ public sealed partial class MainWindow : Window
             var loggerFactory = App.LoggerFactory ?? LoggerFactory.Create(builder =>
             {
                 builder.AddConsole();
-                builder.SetMinimumLevel(LogLevel.Debug);
+                builder.SetMinimumLevel(LogLevel.Trace);
             });
 
             AddLogMessage("Using App's LoggerFactory for component logging to file");

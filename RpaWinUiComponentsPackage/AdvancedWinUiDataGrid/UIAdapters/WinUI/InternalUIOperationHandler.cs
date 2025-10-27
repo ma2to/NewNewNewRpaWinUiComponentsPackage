@@ -51,7 +51,7 @@ internal sealed class InternalUIOperationHandler : IDisposable
 
     /// <summary>
     /// Handles delete row requests from UI control.
-    /// NEW ARCHITECTURE: Uses facade.Rows.RemoveRowsAsync for data-shifting deletion.
+    /// PROFESSIONAL SOLUTION: Uses virtual delete to shift data up without changing row count.
     /// </summary>
     private async void OnDeleteRowRequested(object? sender, DeleteRowRequestedEventArgs args)
     {
@@ -63,37 +63,38 @@ internal sealed class InternalUIOperationHandler : IDisposable
 
         try
         {
-            _logger.LogInformation("Auto-handling delete request for row {RowIndex}, rowId {RowId}", args.RowIndex, args.RowId);
+            _logger.LogInformation("AUTO-DELETE (VIRTUAL): Delete request for row {RowIndex}, rowId {RowId}", args.RowIndex, args.RowId);
 
-            // NEW ARCHITECTURE: Direct row deletion with automatic data shifting
-            // CRITICAL: Use rowId-based delete to avoid index shifting bugs
             if (!string.IsNullOrEmpty(args.RowId))
             {
-                var result = await _facade.Rows.RemoveRowsAsync(new[] { args.RowId });
+                // ✅ PROFESSIONAL SOLUTION: Use virtual delete instead of physical delete
+                // EFEKT: Dáta riadku sa úplne zmažú (posunú všetky nasledujúce riadky nahor), posledný riadok ostane prázdny
+                var result = await _facade.Rows.VirtualDeleteRowAsync(args.RowId);
 
                 if (result.IsSuccess)
                 {
-                    _logger.LogInformation("Auto-delete successful: {RowsDeleted} rows deleted", result.Data);
+                    _logger.LogInformation("AUTO-DELETE (VIRTUAL): Row data completely deleted (shifted up): {RowId}", args.RowId);
                 }
                 else
                 {
-                    _logger.LogError("Auto-delete failed: {Error}", result.ErrorMessage);
+                    _logger.LogError("AUTO-DELETE (VIRTUAL): Delete failed: {Error}", result.ErrorMessage);
                 }
             }
             else
             {
-                _logger.LogWarning("RowId is null - cannot perform delete (rowId required in new architecture)");
+                _logger.LogWarning("RowId is null - cannot perform virtual delete");
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Exception during auto-delete handling");
+            _logger.LogError(ex, "Exception during virtual delete handling");
         }
     }
 
     /// <summary>
-    /// Handles insert row requests from UI control.
-    /// NEW ARCHITECTURE: Uses facade.Rows.InsertRowAsync to insert empty row at position.
+    /// Handles insert row requests from UI control (InsertRow special column button).
+    /// PROFESSIONAL SOLUTION: Uses virtual insert to shift data down without changing row count.
+    /// CRITICAL: Only active in Interactive mode - automatically inserts empty row below clicked row.
     /// </summary>
     private async void OnInsertRowRequested(object? sender, InsertRowRequestedEventArgs args)
     {
@@ -105,34 +106,35 @@ internal sealed class InternalUIOperationHandler : IDisposable
 
         try
         {
-            _logger.LogInformation("Auto-handling insert row request for row {RowIndex}, rowId {RowId}", args.RowIndex, args.RowId);
-            _logger.LogDebug("Insert row request triggered from UI button click");
+            _logger.LogInformation("AUTO-INSERT (VIRTUAL): User clicked InsertRow button at RowIndex={RowIndex}, RowId={RowId}",
+                args.RowIndex, args.RowId ?? "(NULL)");
 
-            // MIGRATED: Use stable rowId instead of volatile rowIndex
-            // Insert empty row after specified row by stable rowId
-            if (!string.IsNullOrEmpty(args.RowId))
+            // ✅ ENHANCED FIX: Better null handling with detailed logging
+            if (string.IsNullOrEmpty(args.RowId))
             {
-                var result = await _facade.Rows.InsertRowAfterIdAsync(args.RowId, null); // null = empty row
+                _logger.LogError("AUTO-INSERT: CRITICAL BUG - RowId is NULL! Cannot insert row. " +
+                    "This indicates CellViewModel.RowId is not set correctly. RowIndex={RowIndex}", args.RowIndex);
+                return;
+            }
 
-                if (result.IsSuccess)
-                {
-                    _logger.LogInformation("Auto-insert successful: inserted after rowId {RowId}", args.RowId);
-                    _logger.LogDebug("Auto-insert operation completed successfully");
-                }
-                else
-                {
-                    _logger.LogError("Auto-insert failed: {Error}", result.ErrorMessage);
-                }
+            // ✅ PROFESSIONAL SOLUTION: Use virtual insert instead of physical insert
+            var result = await _facade.Rows.VirtualInsertEmptyRowAfterAsync(args.RowId, CancellationToken.None);
+
+            if (result.IsSuccess)
+            {
+                _logger.LogInformation("AUTO-INSERT (VIRTUAL): Empty row inserted virtually after rowId {RowId}", args.RowId);
+                // UI refresh handled automatically by InternalUIUpdateHandler
             }
             else
             {
-                _logger.LogWarning("Insert row request has no RowId, cannot insert");
+                _logger.LogError("AUTO-INSERT (VIRTUAL): Insert failed - {ErrorMessage}. RowIndex={RowIndex}, RowId={RowId}",
+                    result.ErrorMessage, args.RowIndex, args.RowId);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Exception during auto-insert handling: row {RowIndex}, rowId {RowId}",
-                args.RowIndex, args.RowId);
+            _logger.LogError(ex, "AUTO-INSERT (VIRTUAL): Exception during virtual insert operation. RowIndex={RowIndex}, RowId={RowId}",
+                args.RowIndex, args.RowId ?? "(NULL)");
         }
     }
 

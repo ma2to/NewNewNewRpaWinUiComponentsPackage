@@ -80,7 +80,7 @@ public partial class App : Application
                 })
                 .AddDebug()             // Debug output
                 .AddProvider(new SimpleFileLoggerProvider(logFilePath))  // FILE LOGGING
-                .SetMinimumLevel(LogLevel.Debug);  // CRITICAL: Ensure Debug level logs are processed
+                .SetMinimumLevel(LogLevel.Trace);  // CRITICAL FIX: Set to Trace to capture all logs including ViewportManager
         });
 
         // Test the logger immediately

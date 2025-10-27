@@ -20,10 +20,16 @@ internal sealed class ResizeGripControl : Control
     private static readonly InputCursor? _resizeCursor;
     private static readonly InputCursor? _arrowCursor;
     private static ILogger<ResizeGripControl>? _logger;
+    private static ViewModels.ThemeManager? _themeManager; // SENIOR ARCHITECTURE: Centralized theme
 
     public static void SetLogger(ILogger<ResizeGripControl>? logger)
     {
         _logger = logger;
+    }
+
+    public static void SetThemeManager(ViewModels.ThemeManager? themeManager)
+    {
+        _themeManager = themeManager;
     }
 
     static ResizeGripControl()
@@ -74,10 +80,10 @@ internal sealed class ResizeGripControl : Control
 
         // Set default appearance
         // CRITICAL: Width must be wide enough for easy grabbing, Background must be non-null for hit testing
-        // FIX: Increased to 8px width for easier grabbing and better visibility
-        this.Width = 8;
-        this.MinWidth = 8;
-        this.Background = new SolidColorBrush(Microsoft.UI.Colors.LightGray) { Opacity = 0.4 };
+        // CRITICAL FIX: Increased to 12px width for easier grabbing and better visibility
+        this.Width = 12;
+        this.MinWidth = 12;
+        this.Background = _themeManager?.ResizeGripBackground ?? new SolidColorBrush(Microsoft.UI.Colors.DarkGray) { Opacity = 0.7 };
         // SENIOR FIX: Removed ManipulationMode - using PointerEvents in HeadersRowView instead
 
         _logger?.LogTrace("ResizeGripControl: Width={Width}, Background={HasBackground}",
@@ -91,23 +97,32 @@ internal sealed class ResizeGripControl : Control
         // Some WinUI 3 versions need cursor set on both Enter and Pressed events
         this.PointerEntered += (s, e) =>
         {
-            _logger?.LogTrace("ResizeGripControl: PointerEntered - cursor hovering over resize grip");
+            _logger?.LogInformation("ResizeGripControl: PointerEntered - cursor hovering over resize grip! Cursor should change to <->");
             if (_resizeCursor != null)
             {
                 this.ProtectedCursor = _resizeCursor;
+                _logger?.LogInformation("ResizeGripControl: Cursor changed to SizeWestEast (<->)");
             }
-            // SENIOR FIX: Increased hover opacity for better visibility (grip is now 4px)
-            this.Background = new SolidColorBrush(Microsoft.UI.Colors.Blue) { Opacity = 0.7 };
-            _logger?.LogTrace("ResizeGripControl: Background changed to Blue (hover state)");
+            else
+            {
+                _logger?.LogWarning("ResizeGripControl: _resizeCursor is NULL, cannot change cursor!");
+            }
+            // SENIOR ARCHITECTURE: Use theme color for hover state
+            this.Background = _themeManager?.ResizeGripHoverBackground ?? new SolidColorBrush(Microsoft.UI.Colors.Blue) { Opacity = 0.9 };
+            _logger?.LogInformation("ResizeGripControl: Background changed to hover state");
         };
+
+        // Store default background for restore
+        var defaultBackground = this.Background;
 
         this.PointerPressed += (s, e) =>
         {
-            _logger?.LogTrace("ResizeGripControl: PointerPressed - user clicked resize grip!");
+            _logger?.LogInformation("ResizeGripControl: PointerPressed - user clicked resize grip! Starting column resize operation");
             // CRITICAL FIX: Reinforce cursor during press to prevent override by parent elements
             if (_resizeCursor != null)
             {
                 this.ProtectedCursor = _resizeCursor;
+                _logger?.LogInformation("ResizeGripControl: Cursor reinforced during press");
             }
         };
 
@@ -119,9 +134,9 @@ internal sealed class ResizeGripControl : Control
             {
                 this.ProtectedCursor = _arrowCursor;
             }
-            // SENIOR FIX: Slightly higher opacity for better default visibility
-            this.Background = new SolidColorBrush(Microsoft.UI.Colors.LightGray) { Opacity = 0.4 };
-            _logger?.LogTrace("ResizeGripControl: Background changed to LightGray (default state)");
+            // SENIOR ARCHITECTURE: Restore theme color
+            this.Background = defaultBackground;
+            _logger?.LogTrace("ResizeGripControl: Background restored to default state");
         };
 
         _logger?.LogTrace("ResizeGripControl: Constructor completed - all event handlers attached");

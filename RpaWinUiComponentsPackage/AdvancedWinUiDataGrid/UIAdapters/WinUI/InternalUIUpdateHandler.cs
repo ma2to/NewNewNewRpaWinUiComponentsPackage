@@ -333,12 +333,17 @@ internal sealed class InternalUIUpdateHandler : IDisposable
                         // Apply to UI ViewModels (red borders, validation alerts)
                         _viewModel.ApplyValidationErrors(errors);
                         _logger.LogInformation("Applied {ErrorCount} validation errors to UI (red borders, alerts)", errors.Count);
+
+                        // ARCHITECTURE CHANGE: No need to refresh viewport - uses canonical ViewModels
+                        // Validation errors applied to canonical ViewModels are automatically visible in viewport
                     }
                     else
                     {
                         // No errors → clear all validation UI
                         _viewModel.ClearValidationErrors();
                         _logger.LogDebug("No validation errors - cleared all validation UI");
+
+                        // ARCHITECTURE CHANGE: No need to refresh viewport - uses canonical ViewModels
                     }
                 }
                 catch (Exception ex)

@@ -452,14 +452,74 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
 
     /// <summary>
     /// Insert rows at position - IRowStore implementation
+    /// CRITICAL FIX: Actually inserts at the specified position by regenerating ULIDs with adjusted timestamps
+    /// to maintain chronological order matching the desired position.
     /// </summary>
     public async Task InsertRowsAsync(
         IEnumerable<IReadOnlyDictionary<string, object?>> rows,
         int startIndex,
         CancellationToken cancellationToken = default)
     {
-        // For in-memory store, insert means add with specific row numbers
-        await AddRangeAsync(rows, cancellationToken);
+        await Task.Run(() =>
+        {
+            lock (_modificationLock)
+            {
+                var rowsList = rows.ToList();
+                if (rowsList.Count == 0)
+                    return;
+
+                // Get current sorted keys to understand chronological order
+                var sortedKeys = GetSortedRowKeys();
+
+                // If inserting at end or beyond, just append normally
+                if (startIndex >= sortedKeys.Count)
+                {
+                    foreach (var row in rowsList)
+                    {
+                        var rowId = GetOrAssignRowId(row);
+                        var rowWithId = new Dictionary<string, object?>(row) { ["__rowId"] = rowId };
+                        _rows[rowId] = rowWithId;
+                    }
+                    InvalidateSortedRowKeysCache();
+                    _logger.LogDebug("Inserted {Count} rows at end (startIndex {StartIndex} >= count {TotalCount})",
+                        rowsList.Count, startIndex, sortedKeys.Count);
+                    return;
+                }
+
+                // Get the ULID timestamp reference for insertion point
+                // We need to insert AFTER the row at (startIndex - 1) and BEFORE row at startIndex
+                string referenceUlidBefore = startIndex > 0 ? sortedKeys[startIndex - 1] : null;
+                string referenceUlidAfter = startIndex < sortedKeys.Count ? sortedKeys[startIndex] : null;
+
+                // Parse timestamps from ULIDs
+                long timestampBefore = referenceUlidBefore != null ? Ulid.Parse(referenceUlidBefore).Time.ToUnixTimeMilliseconds() : 0;
+                long timestampAfter = referenceUlidAfter != null ? Ulid.Parse(referenceUlidAfter).Time.ToUnixTimeMilliseconds() : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + 1000;
+
+                // Generate new ULIDs with timestamps between the two reference points
+                long timestampGap = timestampAfter - timestampBefore;
+                long timestampStep = Math.Max(1, timestampGap / (rowsList.Count + 1));
+
+                for (int i = 0; i < rowsList.Count; i++)
+                {
+                    var row = rowsList[i];
+
+                    // Generate ULID with adjusted timestamp to maintain chronological order
+                    long newTimestamp = timestampBefore + (timestampStep * (i + 1));
+                    var ulid = Ulid.NewUlid(DateTimeOffset.FromUnixTimeMilliseconds(newTimestamp));
+                    var rowId = ulid.ToString();
+
+                    // Create row with assigned ULID
+                    var rowWithId = new Dictionary<string, object?>(row);
+                    rowWithId["__rowId"] = rowId;
+
+                    _rows[rowId] = rowWithId;
+                }
+
+                InvalidateSortedRowKeysCache();
+                _logger.LogDebug("Inserted {Count} rows at position {StartIndex} with timestamp interpolation",
+                    rowsList.Count, startIndex);
+            }
+        }, cancellationToken);
     }
 
     /// <summary>

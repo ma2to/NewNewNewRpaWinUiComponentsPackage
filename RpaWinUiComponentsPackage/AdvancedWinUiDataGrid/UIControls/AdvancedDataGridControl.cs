@@ -67,15 +67,29 @@ public sealed class AdvancedDataGridControl : UserControl
     /// </summary>
     /// <param name="logger">Optional logger for diagnostics and troubleshooting</param>
     /// <param name="loggerFactory">Optional logger factory for creating child component loggers</param>
+    /// <param name="pageManager">Optional page manager for pagination support (enables virtual row management)</param>
     public AdvancedDataGridControl(
         ILogger<AdvancedDataGridControl>? logger = null,
-        ILoggerFactory? loggerFactory = null)
+        ILoggerFactory? loggerFactory = null,
+        Features.Pagination.Interfaces.IPageManager? pageManager = null)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
-        ViewModel = new DataGridViewModel(null, loggerFactory, this.DispatcherQueue);
 
-        _logger?.LogInformation("AdvancedDataGridControl created with new ViewModel");
+        // ✅ CRITICAL FIX: Create PageManager automatically if not provided (interactive mode)
+        // This enables virtual row management by default
+        if (pageManager == null)
+        {
+            var pageManagerLogger = loggerFactory?.CreateLogger<Features.Pagination.Services.PageManager>();
+            pageManager = new Features.Pagination.Services.PageManager(pageManagerLogger!);
+            pageManager.PageSize = 20; // Default page size
+            _logger?.LogInformation("Created PageManager automatically with PageSize=20 for interactive mode");
+        }
+
+        ViewModel = new DataGridViewModel(null, loggerFactory, this.DispatcherQueue, null, pageManager);
+
+        _logger?.LogInformation("AdvancedDataGridControl created with new ViewModel (PageManager: {HasPageManager})",
+            pageManager != null);
 
         // Initialize UI containers
         _rootGrid = new Grid();
@@ -136,27 +150,27 @@ public sealed class AdvancedDataGridControl : UserControl
         _rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // DataCells - takes remaining space
         _rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // PaginationPanel - auto-sized based on content
 
-        // SearchPanel Container (Row 0) - appears at the top
+        // SearchPanel Container (Row 0) - appears at the top (SENIOR ARCHITECTURE: Use theme colors)
         _searchPanelContainer.BorderThickness = new Thickness(0, 0, 0, 1);
-        _searchPanelContainer.BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.LightGray);
+        _searchPanelContainer.BorderBrush = ViewModel.Theme?.SearchPanelBorder ?? new SolidColorBrush(Microsoft.UI.Colors.LightGray);
         Grid.SetRow(_searchPanelContainer, 0);
 
-        // FilterRow Container (Row 1) - appears below search panel
+        // FilterRow Container (Row 1) - appears below search panel (SENIOR ARCHITECTURE: Use theme colors)
         _filterRowContainer.BorderThickness = new Thickness(0, 0, 0, 1);
-        _filterRowContainer.BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.LightGray);
+        _filterRowContainer.BorderBrush = ViewModel.Theme?.FilterRowBorder ?? new SolidColorBrush(Microsoft.UI.Colors.LightGray);
         Grid.SetRow(_filterRowContainer, 1);
 
-        // HeadersRow Container (Row 2) - appears above data cells
+        // HeadersRow Container (Row 2) - appears above data cells (SENIOR ARCHITECTURE: Use theme colors)
         _headersRowContainer.BorderThickness = new Thickness(0, 0, 0, 1);
-        _headersRowContainer.BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Gray);
+        _headersRowContainer.BorderBrush = ViewModel.Theme?.HeadersRowBorder ?? new SolidColorBrush(Microsoft.UI.Colors.Gray);
         Grid.SetRow(_headersRowContainer, 2);
 
         // DataCells Container (Row 3) - scrollable area that takes up remaining vertical space
         Grid.SetRow(_dataCellsContainer, 3);
 
-        // PaginationPanel Container (Row 4) - appears at the bottom
+        // PaginationPanel Container (Row 4) - appears at the bottom (SENIOR ARCHITECTURE: Use theme colors)
         _paginationPanelContainer.BorderThickness = new Thickness(0, 1, 0, 0);
-        _paginationPanelContainer.BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.LightGray);
+        _paginationPanelContainer.BorderBrush = ViewModel.Theme?.PaginationPanelBorder ?? new SolidColorBrush(Microsoft.UI.Colors.LightGray);
         Grid.SetRow(_paginationPanelContainer, 4);
 
         // Add all containers to root grid in order

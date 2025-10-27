@@ -36,10 +36,12 @@ internal sealed class RowContextMenu
     /// </summary>
     /// <param name="selectedRowIndices">Indices of selected rows</param>
     /// <param name="selectedRowIds">IDs of selected rows</param>
+    /// <param name="themeManager">Optional theme manager for colors (SENIOR ARCHITECTURE)</param>
     /// <returns>Configured MenuFlyout</returns>
     public MenuFlyout CreateRowContextMenu(
         IReadOnlyList<int> selectedRowIndices,
-        IReadOnlyList<string> selectedRowIds)
+        IReadOnlyList<string> selectedRowIds,
+        ViewModels.ThemeManager? themeManager = null)
     {
         var menu = new MenuFlyout();
 
@@ -97,7 +99,7 @@ internal sealed class RowContextMenu
                 ? $"Delete {selectedRowIndices.Count} Rows"
                 : "Delete Row",
             Icon = new FontIcon { Glyph = "\uE74D" }, // Delete icon
-            Foreground = new SolidColorBrush(Colors.Red) // Warning color for destructive action
+            Foreground = themeManager?.MenuDestructiveActionForeground ?? new SolidColorBrush(Colors.Red)
         };
         deleteItem.Click += (s, e) =>
         {

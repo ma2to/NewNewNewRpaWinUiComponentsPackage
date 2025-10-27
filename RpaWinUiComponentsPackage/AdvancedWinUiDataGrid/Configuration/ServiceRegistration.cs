@@ -72,6 +72,9 @@ internal static class ServiceRegistration
         // CONFIGURATION FEATURE
         Features.Configuration.Registration.Register(services, options);
 
+        // PAGINATION FEATURE
+        Features.Pagination.Registration.AddPaginationServices(services);
+
         // Facade implementation (internal)
         services.AddScoped<AdvancedDataGridFacade>();
         services.AddScoped<IAdvancedDataGridFacade>(sp => sp.GetRequiredService<AdvancedDataGridFacade>());
@@ -162,7 +165,13 @@ internal static class ServiceRegistration
                     var logger = sp.GetService<ILogger<ViewModels.DataGridViewModel>>();
                     var loggerFactory = sp.GetService<ILoggerFactory>();
                     var themeManager = sp.GetService<ViewModels.ThemeManager>();
-                    return new ViewModels.DataGridViewModel(logger, loggerFactory, dispatcher, themeManager);
+
+                    // ✅ CRITICAL FIX: Inject PageManager for virtual row management and pagination
+                    var pageManager = sp.GetRequiredService<Features.Pagination.Interfaces.IPageManager>();
+                    pageManager.PageSize = 20; // Default page size for interactive mode
+                    logger?.LogInformation("DataGridViewModel created with PageManager (PageSize=20) for virtual row management");
+
+                    return new ViewModels.DataGridViewModel(logger, loggerFactory, dispatcher, themeManager, pageManager);
                 });
 
                 // Register UI control (singleton - one UI control per facade instance)

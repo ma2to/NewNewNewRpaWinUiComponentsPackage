@@ -187,6 +187,36 @@ public sealed class ThemeManager : ViewModelBase
             ? ParseColor(Options.ZebraRowOddForegroundColor)
             : CellDefaultForeground;
 
+    // Special column colors (SENIOR ARCHITECTURE: Centralized theme management)
+    public SolidColorBrush RowNumberBackground => ParseColor(_currentTheme.SpecialColumnColors.RowNumberBackground);
+    public SolidColorBrush RowNumberForeground => ParseColor(_currentTheme.SpecialColumnColors.RowNumberForeground);
+    public SolidColorBrush CheckboxBorder => ParseColor(_currentTheme.SpecialColumnColors.CheckboxBorder);
+    public SolidColorBrush CheckboxBackground => ParseColor(_currentTheme.SpecialColumnColors.CheckboxBackground);
+    public SolidColorBrush CheckboxForeground => ParseColor(_currentTheme.SpecialColumnColors.CheckboxForeground);
+    public SolidColorBrush DeleteRowBackground => ParseColor(_currentTheme.SpecialColumnColors.DeleteRowBackground);
+    public SolidColorBrush DeleteRowForeground => ParseColor(_currentTheme.SpecialColumnColors.DeleteRowForeground);
+    public SolidColorBrush DeleteRowHoverBackground => ParseColor(_currentTheme.SpecialColumnColors.DeleteRowHoverBackground);
+    public SolidColorBrush InsertRowBackground => ParseColor(_currentTheme.SpecialColumnColors.InsertRowBackground);
+    public SolidColorBrush InsertRowForeground => ParseColor(_currentTheme.SpecialColumnColors.InsertRowForeground);
+    public SolidColorBrush InsertRowBorder => ParseColor(_currentTheme.SpecialColumnColors.InsertRowBorder);
+    public SolidColorBrush InsertRowHoverBackground => ParseColor(_currentTheme.SpecialColumnColors.InsertRowHoverBackground);
+    public SolidColorBrush InsertRowHoverForeground => ParseColor(_currentTheme.SpecialColumnColors.InsertRowHoverForeground);
+    public SolidColorBrush ValidationAlertsErrorBackground => ParseColor(_currentTheme.SpecialColumnColors.ValidationAlertsErrorBackground);
+    public SolidColorBrush ValidationAlertsErrorForeground => ParseColor(_currentTheme.SpecialColumnColors.ValidationAlertsErrorForeground);
+
+    // UI control colors (SENIOR ARCHITECTURE: ResizeGrip, Menus, Dialogs, Containers)
+    public SolidColorBrush ResizeGripBackground => ParseColor(_currentTheme.UIControlColors.ResizeGripBackground);
+    public SolidColorBrush ResizeGripHoverBackground => ParseColor(_currentTheme.UIControlColors.ResizeGripHoverBackground);
+    public SolidColorBrush ResizePreviewLine => ParseColor(_currentTheme.UIControlColors.ResizePreviewLine);
+    public SolidColorBrush MenuDestructiveActionForeground => ParseColor(_currentTheme.UIControlColors.MenuDestructiveActionForeground);
+    public SolidColorBrush DialogErrorForeground => ParseColor(_currentTheme.UIControlColors.DialogErrorForeground);
+    public SolidColorBrush PlaceholderForeground => ParseColor(_currentTheme.UIControlColors.PlaceholderForeground);
+    public SolidColorBrush PlaceholderBackground => ParseColor(_currentTheme.UIControlColors.PlaceholderBackground);
+    public SolidColorBrush SearchPanelBorder => ParseColor(_currentTheme.UIControlColors.SearchPanelBorder);
+    public SolidColorBrush FilterRowBorder => ParseColor(_currentTheme.UIControlColors.FilterRowBorder);
+    public SolidColorBrush HeadersRowBorder => ParseColor(_currentTheme.UIControlColors.HeadersRowBorder);
+    public SolidColorBrush PaginationPanelBorder => ParseColor(_currentTheme.UIControlColors.PaginationPanelBorder);
+
     /// <summary>
     /// Parses hex color string to SolidColorBrush using BrushPool for deduplication.
     /// Supports formats: #RGB, #RRGGBB, #AARRGGBB

@@ -19,15 +19,18 @@ public sealed class AddRowModalDialog : ContentDialog
     private readonly IAdvancedDataGridFacade _facade;
     private readonly AddRowDialogViewModel _viewModel;
     private readonly ILogger<AddRowModalDialog> _logger;
+    private readonly ThemeManager? _themeManager; // SENIOR ARCHITECTURE
 
     public AddRowModalDialog(
         IAdvancedDataGridFacade facade,
         IEnumerable<string> columnNames,
         IReadOnlyDictionary<string, object?>? defaultValues = null,
-        ILogger<AddRowModalDialog>? logger = null)
+        ILogger<AddRowModalDialog>? logger = null,
+        ThemeManager? themeManager = null)
     {
         _facade = facade ?? throw new ArgumentNullException(nameof(facade));
         _logger = logger ?? NullLogger<AddRowModalDialog>.Instance;
+        _themeManager = themeManager;
 
         // Create ViewModel
         _viewModel = new AddRowDialogViewModel(columnNames, defaultValues);
@@ -95,10 +98,10 @@ public sealed class AddRowModalDialog : ContentDialog
 
             columnPanel.Children.Add(textBox);
 
-            // Validation error TextBlock
+            // Validation error TextBlock (SENIOR ARCHITECTURE: Use theme color)
             var errorText = new TextBlock
             {
-                Foreground = new SolidColorBrush(Colors.Red),
+                Foreground = _themeManager?.DialogErrorForeground ?? new SolidColorBrush(Colors.Red),
                 FontSize = 12,
                 Margin = new Thickness(0, 2, 0, 0),
                 Visibility = Visibility.Collapsed
