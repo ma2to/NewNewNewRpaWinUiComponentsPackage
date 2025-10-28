@@ -482,6 +482,15 @@ internal sealed class AdaptiveRowStore : IRowStore, IAsyncDisposable
     public bool RowExistsById(string rowId) =>
         _activeStore.RowExistsById(rowId);
 
+    /// <summary>
+    /// PROFESSIONAL QUALITY: Bulk update multiple rows in a single operation.
+    /// Delegates to active store (InMemoryRowStore or HybridRowStore).
+    /// </summary>
+    public Task<int> BulkUpdateRowsAsync(
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, object?>> updates,
+        CancellationToken cancellationToken = default) =>
+        _activeStore.BulkUpdateRowsAsync(updates, cancellationToken);
+
     #endregion
 
     public async ValueTask DisposeAsync()

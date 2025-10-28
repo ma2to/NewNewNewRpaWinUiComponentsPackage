@@ -50,6 +50,13 @@ public sealed class DataGridCellsView : UserControl, IDisposable
     private bool _disposed;
     private bool _isUpdatingViewport; // Prevent re-entrant viewport updates
 
+    // ✅ PROFESSIONAL QUALITY: Scroll optimization fields
+    private DispatcherTimer? _scrollDebounceTimer;
+    private const int SCROLL_DEBOUNCE_MS = 16; // ~60 FPS throttle
+    private const int VIEWPORT_BUFFER_ROWS = 10; // Pre-load rows above/below
+    private int _pendingFirstVisibleIndex = -1;
+    private int _pendingLastVisibleIndex = -1;
+
     /// <summary>
     /// Event fired when user requests to delete a row via delete button.
     /// Contains both rowIndex (for display) and rowId (for stable identification).
@@ -162,6 +169,9 @@ public sealed class DataGridCellsView : UserControl, IDisposable
         // Handle scroll changes to update viewport
         _scrollViewer.ViewChanged += OnScrollViewChanged;
 
+        // ✅ Initialize scroll optimization (debouncing + buffer zone)
+        InitializeScrollOptimization();
+
         // Listen for data changes to invalidate viewport
         _viewModel.Rows.CollectionChanged += OnRowsCollectionChanged;
 
@@ -244,10 +254,82 @@ public sealed class DataGridCellsView : UserControl, IDisposable
     }
 
     /// <summary>
-    /// Handles scroll view changes to update viewport (loads ViewModels for visible rows).
-    /// Debounces rapid scroll events to prevent excessive updates.
+    /// ✅ PROFESSIONAL QUALITY: Initialize scroll optimization (debouncing + buffer).
+    /// Call this in constructor after _scrollViewer setup.
     /// </summary>
-    private async void OnScrollViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
+    private void InitializeScrollOptimization()
+    {
+        _scrollDebounceTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(SCROLL_DEBOUNCE_MS)
+        };
+
+        _scrollDebounceTimer.Tick += (s, e) =>
+        {
+            _scrollDebounceTimer.Stop();
+
+            if (_pendingFirstVisibleIndex >= 0 && _pendingLastVisibleIndex >= 0)
+            {
+                // ✅ PERFORMANCE FIX: Fire-and-forget on background thread (non-blocking)
+                // Prevents UI thread from waiting on viewport update
+                var firstIndex = _pendingFirstVisibleIndex;
+                var lastIndex = _pendingLastVisibleIndex;
+                _pendingFirstVisibleIndex = -1;
+                _pendingLastVisibleIndex = -1;
+
+                // Execute on background thread to avoid blocking UI
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await UpdateVisibleRowsThrottledAsync(firstIndex, lastIndex);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Background viewport update failed: {Message}", ex.Message);
+                    }
+                });
+            }
+        };
+
+        _logger.LogInformation("Scroll optimization initialized: debounce={Debounce}ms, buffer={Buffer} rows",
+            SCROLL_DEBOUNCE_MS, VIEWPORT_BUFFER_ROWS);
+    }
+
+    /// <summary>
+    /// ✅ PROFESSIONAL QUALITY: Debounced scroll handler.
+    /// Throttles 60+ calls/sec → ~60 FPS updates, eliminates stutter.
+    /// </summary>
+    private void OnScrollViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
+    {
+        if (_disposed)
+            return;
+
+        // Calculate visible row range based on scroll position
+        var scrollOffset = _scrollViewer.VerticalOffset;
+        var viewportHeight = _scrollViewer.ViewportHeight;
+
+        // Estimate row height (assuming ~32px per row including margin)
+        const double estimatedRowHeight = 34.0; // 32px row + 2px margin
+
+        var firstVisibleIndex = Math.Max(0, (int)(scrollOffset / estimatedRowHeight));
+        var visibleRowCount = (int)(viewportHeight / estimatedRowHeight) + 1;
+        var lastVisibleIndex = Math.Min(_viewportManager.TotalRowCount - 1,
+            firstVisibleIndex + visibleRowCount);
+
+        // ✅ Queue update (debounce - prevent 60+ calls/second)
+        _pendingFirstVisibleIndex = firstVisibleIndex;
+        _pendingLastVisibleIndex = lastVisibleIndex;
+
+        _scrollDebounceTimer?.Stop();
+        _scrollDebounceTimer?.Start();
+    }
+
+    /// <summary>
+    /// ✅ PROFESSIONAL QUALITY: Throttled viewport update with buffer zone.
+    /// Pre-loads rows above/below visible area to eliminate scroll stutter.
+    /// </summary>
+    private async Task UpdateVisibleRowsThrottledAsync(int firstVisibleIndex, int lastVisibleIndex)
     {
         if (_isUpdatingViewport || _disposed)
             return;
@@ -256,28 +338,20 @@ public sealed class DataGridCellsView : UserControl, IDisposable
         {
             _isUpdatingViewport = true;
 
-            // Calculate visible row range based on scroll position
-            var scrollOffset = _scrollViewer.VerticalOffset;
-            var viewportHeight = _scrollViewer.ViewportHeight;
+            // ✅ Add buffer zone - PRE-LOAD rows above/below viewport
+            var bufferedFirstIndex = Math.Max(0, firstVisibleIndex - VIEWPORT_BUFFER_ROWS);
+            var bufferedLastIndex = Math.Min(_viewportManager.TotalRowCount - 1,
+                lastVisibleIndex + VIEWPORT_BUFFER_ROWS);
 
-            // Estimate row height (assuming ~32px per row including margin)
-            const double estimatedRowHeight = 34.0; // 32px row + 2px margin
+            _logger.LogTrace("Scroll: visible=[{First},{Last}], buffered=[{BufFirst},{BufLast}]",
+                firstVisibleIndex, lastVisibleIndex, bufferedFirstIndex, bufferedLastIndex);
 
-            var firstVisibleIndex = Math.Max(0, (int)(scrollOffset / estimatedRowHeight));
-            var visibleRowCount = (int)(viewportHeight / estimatedRowHeight) + 1;
-            var lastVisibleIndex = Math.Min(_viewportManager.TotalRowCount - 1,
-                firstVisibleIndex + visibleRowCount);
-
-            _logger.LogTrace("Scroll changed: first={First}, last={Last}, offset={Offset}",
-                firstVisibleIndex, lastVisibleIndex, scrollOffset);
-
-            // Update viewport (load POCO + create ViewModels)
-            await _viewportManager.UpdateViewportAsync(firstVisibleIndex, lastVisibleIndex);
-            // ItemsSource already set during initialization - no need to reset on scroll!
+            // Update viewport with buffered range
+            await _viewportManager.UpdateViewportAsync(bufferedFirstIndex, bufferedLastIndex);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "OnScrollViewChanged failed: {Message}", ex.Message);
+            _logger.LogError(ex, "UpdateVisibleRowsThrottledAsync failed: {Message}", ex.Message);
         }
         finally
         {
@@ -618,6 +692,10 @@ public sealed class DataGridCellsView : UserControl, IDisposable
             _scrollViewer.PointerCaptureLost -= OnPointerCaptureLost;
             _scrollViewer.PointerMoved -= OnScrollViewerPointerMoved;
             _scrollViewer.ViewChanged -= OnScrollViewChanged;
+
+            // ✅ Cleanup scroll debounce timer
+            _scrollDebounceTimer?.Stop();
+            _scrollDebounceTimer = null;
         }
 
         // SENIOR IMPLEMENTATION: Unsubscribe from Row Context Menu events

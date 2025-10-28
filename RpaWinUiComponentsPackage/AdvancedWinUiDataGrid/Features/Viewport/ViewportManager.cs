@@ -194,22 +194,31 @@ public sealed class ViewportManager : IDisposable
     }
 
     /// <summary>
-    /// Total row count (for ItemsRepeater).
-    /// VIRTUAL ROW SUPPORT: Returns PageSize if PageManager is active, otherwise physical row count.
-    /// This ensures constant viewport row count regardless of data count.
+    /// Total row count for CURRENT PAGE (for ItemsRepeater).
+    /// PAGINATION ARCHITECTURE:
+    /// - WITH PAGINATION: Returns constant PageSize per page (e.g., 100 rows per page)
+    /// - WITHOUT PAGINATION: Returns physical row count from Rows collection
+    ///
+    /// EXAMPLE with 300 total rows, PageSize=100:
+    /// - Page 1: TotalRowCount = 100 (displays rows 0-99)
+    /// - Page 2: TotalRowCount = 100 (displays rows 100-199)
+    /// - Page 3: TotalRowCount = 100 (displays rows 200-299)
+    ///
+    /// Empty rows are created by GetRowViewModel() for indices beyond actual data.
     /// </summary>
     public int TotalRowCount
     {
         get
         {
-            // VIRTUAL ROW SUPPORT: If PageManager is active, return constant page size
             var pageManager = _sourceViewModel.PageManager;
             if (pageManager != null && pageManager.PageSize > 0)
             {
+                // ✅ PAGINATION MODE: Return constant PageSize for current page
+                // This ensures FIXED row count per page (empty rows fill remainder if needed)
                 return pageManager.PageSize;
             }
 
-            // Fallback to physical row count
+            // ✅ NO PAGINATION: Return physical row count
             return _totalRowCount;
         }
         set

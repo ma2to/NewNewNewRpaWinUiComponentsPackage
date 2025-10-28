@@ -1939,6 +1939,72 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
         return GetRowById(rowId) != null;
     }
 
+    /// <summary>
+    /// PROFESSIONAL QUALITY: Bulk update multiple rows in a single operation.
+    /// NO individual PropertyChanged events - caller triggers single batch notification.
+    /// PERFORMANCE: Eliminates overhead of serial async calls and multiple UI refreshes.
+    /// </summary>
+    public async Task<int> BulkUpdateRowsAsync(
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, object?>> updates,
+        CancellationToken cancellationToken = default)
+    {
+        if (updates == null || updates.Count == 0)
+        {
+            _logger.LogDebug("BulkUpdateRowsAsync: No updates to perform");
+            return 0;
+        }
+
+        return await Task.Run(() =>
+        {
+            var updatedCount = 0;
+
+            lock (_modificationLock)
+            {
+                foreach (var kvp in updates)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    var rowId = kvp.Key;
+                    var rowData = kvp.Value;
+
+                    if (!_rows.ContainsKey(rowId))
+                    {
+                        _logger.LogWarning("BulkUpdateRowsAsync: Row {RowId} not found", rowId);
+                        continue;
+                    }
+
+                    // Ensure __rowId field is set
+                    var updatedRow = new Dictionary<string, object?>(rowData)
+                    {
+                        ["__rowId"] = rowId
+                    };
+
+                    // Update without triggering individual notifications
+                    _rows[rowId] = updatedRow;
+                    updatedCount++;
+                }
+
+                // Clear validation cache for updated rows
+                foreach (var rowId in updates.Keys)
+                {
+                    _validatedRowsCache.Remove(rowId);
+                    _validationErrors.TryRemove(rowId, out _);
+                }
+
+                // Invalidate sorted keys cache
+                if (updatedCount > 0)
+                {
+                    InvalidateSortedRowKeysCache();
+                }
+            }
+
+            _logger.LogInformation("BulkUpdateRowsAsync: Updated {Count} rows in SINGLE BATCH (suppressed {Count} individual PropertyChanged events)",
+                updatedCount, updatedCount);
+            return updatedCount;
+
+        }, cancellationToken);
+    }
+
     #endregion
 
     #endregion

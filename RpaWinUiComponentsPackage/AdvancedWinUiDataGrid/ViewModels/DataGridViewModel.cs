@@ -175,6 +175,28 @@ public sealed class DataGridViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// MEMORY LEAK FIX: Disposes collection of DataGridRowViewModels.
+    /// CRITICAL: Must be called before Rows.Clear() or when removing rows.
+    /// Each DataGridRowViewModel contains ~10 CellViewModels → 1000+ objects for 100 rows.
+    /// </summary>
+    private void DisposeRemovedRows(IEnumerable<DataGridRowViewModel> rowsToDispose)
+    {
+        var disposedCount = 0;
+        foreach (var row in rowsToDispose)
+        {
+            row.Dispose(); // ← Disposes all CellViewModels in row (10+ cells per row)
+            disposedCount++;
+        }
+
+        if (disposedCount > 0)
+        {
+            _logger?.LogInformation("MEMORY: Disposed {Count} DataGridRowViewModels " +
+                "(freed ~{EstimatedCells} CellViewModels)",
+                disposedCount, disposedCount * 10);
+        }
+    }
+
+    /// <summary>
     /// Initializes columns from the provided column names with support for special columns.
     /// Creates headers and filter inputs for each column, and sets up width synchronization.
     /// Special columns (RowNumber, Checkbox, ValidationAlerts, DeleteRow) are added based on options.
@@ -461,6 +483,15 @@ public sealed class DataGridViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Public method to invalidate RowID→Index cache.
+    /// Called by InternalUIUpdateHandler after Virtual Insert/Delete operations.
+    /// </summary>
+    public void InvalidateRowIdCache()
+    {
+        InvalidateCache();
+    }
+
+    /// <summary>
     /// Finds row index by RowID using O(1) cache lookup.
     /// PUBLIC API: Used by wrappers (DataGridRows, DataGridSelection, etc.)
     /// </summary>
@@ -493,7 +524,17 @@ public sealed class DataGridViewModel : ViewModelBase
         var dataList = rowsData.ToList();
         _logger?.LogInformation("Loading {RowCount} rows into grid with special columns support", dataList.Count);
 
-        Rows.Clear();
+        // ✅ MEMORY LEAK FIX: Dispose old ViewModels before clearing collection
+        if (Rows.Any())
+        {
+            var oldRows = Rows.ToList(); // Copy before clear
+            Rows.Clear();
+            DisposeRemovedRows(oldRows); // ← FREE MEMORY
+        }
+        else
+        {
+            Rows.Clear(); // First time, no need to dispose
+        }
 
         // SENIOR FIX: Invalidate ViewportManager cache to prevent "Loading..." bug on reload
         // ViewportManager cache holds ViewModels pointing to old disposed rows
@@ -533,6 +574,9 @@ public sealed class DataGridViewModel : ViewModelBase
                     SpecialType = header.SpecialType,
                     IsReadOnly = header.IsSpecialColumn // Special columns are read-only (except checkbox)
                 };
+
+                // ✅ CRITICAL FIX: Set parent row for checkbox synchronization
+                cellVm.SetParentRow(rowVm);
 
                 // Populate cell value based on column type
                 if (header.SpecialType == SpecialColumnType.RowNumber)

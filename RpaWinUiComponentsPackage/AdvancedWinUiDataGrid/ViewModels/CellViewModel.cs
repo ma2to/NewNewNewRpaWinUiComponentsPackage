@@ -34,6 +34,9 @@ public sealed class CellViewModel : ViewModelBase, IDisposable
     private string? _validationAlertMessage = null;
     private bool _disposed;
 
+    // ✅ CRITICAL FIX: Reference to parent DataGridRowViewModel for checkbox synchronization
+    private DataGridRowViewModel? _parentRow;
+
     /// <summary>
     /// Creates a new cell view model with optional theme support.
     /// When a theme manager is provided, the cell will automatically use theme colors.
@@ -274,11 +277,50 @@ public sealed class CellViewModel : ViewModelBase, IDisposable
 
     /// <summary>
     /// Gets or sets whether the row is selected (for Checkbox special column)
+    /// ✅ CRITICAL FIX: Synchronizes with parent DataGridRowViewModel.IsSelected
+    /// ✅ INFINITE LOOP FIX: Guard condition prevents bidirectional sync loop
     /// </summary>
     public bool IsRowSelected
     {
         get => _isRowSelected;
-        set => SetProperty(ref _isRowSelected, value);
+        set
+        {
+            if (SetProperty(ref _isRowSelected, value))
+            {
+                // ✅ GUARD: Only sync if parent exists AND value differs (prevents infinite loop)
+                // Without this guard: cell.IsRowSelected=true → parent.IsSelected=true
+                // → parent.PropertyChanged → cell.IsRowSelected=true → LOOP
+                if (_parentRow != null && _parentRow.IsSelected != value)
+                {
+                    _parentRow.IsSelected = value;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// ✅ CRITICAL FIX: Sets the parent DataGridRowViewModel for BIDIRECTIONAL checkbox synchronization.
+    /// Must be called when creating cells for a row.
+    /// BIDIRECTIONAL: cell.IsRowSelected ↔ parent.IsSelected (both directions synced)
+    /// </summary>
+    public void SetParentRow(DataGridRowViewModel parentRow)
+    {
+        _parentRow = parentRow;
+
+        // ✅ BIDIRECTIONAL SYNC: Parent → Cell (when parent.IsSelected changes, update cell)
+        // This ensures header checkbox clicks propagate to cell checkboxes
+        _parentRow.PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName == nameof(DataGridRowViewModel.IsSelected))
+            {
+                // Sync cell checkbox visual with row selection
+                if (_isRowSelected != _parentRow.IsSelected)
+                {
+                    _isRowSelected = _parentRow.IsSelected;
+                    OnPropertyChanged(nameof(IsRowSelected));
+                }
+            }
+        };
     }
 
     /// <summary>

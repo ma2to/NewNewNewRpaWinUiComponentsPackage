@@ -6,7 +6,12 @@
       "Bash(Get-ChildItem \"docu_Documentation/20-10-2025/dd/*.md\")",
       "Bash(dotnet build:*)",
       "Bash(Select-String -Pattern \"error|warning CS0618|Build succeeded|Build FAILED\" -Context 0,1)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(Select-String -Pattern \"Build succeeded|Build FAILED|Error\\(s\\)\")",
+      "Bash(Get-ChildItem \"D:\\www\\RB0120APP\\NewRpaWinUiComponentsPackage\\RpaWinUiComponentsPackage\\TempLog\")",
+      "Bash(Sort-Object LastWriteTime -Descending)",
+      "Bash(Select-Object -First 1)",
+      "Bash(ForEach-Object { $_ullName })"
     ],
     "deny": [],
     "ask": []

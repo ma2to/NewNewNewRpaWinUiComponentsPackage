@@ -243,40 +243,127 @@ public sealed class HeadersRowView : UserControl
             headerCheckboxGrid.Children.Add(headerCheckboxBorder);
 
             // Track checkbox state (three-state: null, true, false)
-            bool? headerCheckboxState = null;
+            bool? headerCheckboxState = false;
 
-            // Make it interactive - handle Tapped event
-            headerCheckboxGrid.IsTapEnabled = true;
-            headerCheckboxGrid.Tapped += (s, e) =>
+            // ✅ PROFESSIONAL QUALITY: Helper method to update header visual state from row state
+            void UpdateHeaderCheckboxState()
             {
-                // Cycle through states: null (indeterminate) → true (checked) → false (unchecked) → true...
-                // Note: Starting from indeterminate, first click goes to checked
-                if (headerCheckboxState == null)
-                {
-                    headerCheckboxState = true;
-                    headerCheckmarkIcon.Visibility = Visibility.Visible;
-                    headerIndeterminateRect.Visibility = Visibility.Collapsed;
-                    _viewModel.SelectAllRows();
-                }
-                else if (headerCheckboxState == true)
+                var allRows = _viewModel.Rows;
+                if (allRows == null || allRows.Count == 0)
                 {
                     headerCheckboxState = false;
                     headerCheckmarkIcon.Visibility = Visibility.Collapsed;
                     headerIndeterminateRect.Visibility = Visibility.Collapsed;
-                    _viewModel.DeselectAllRows();
+                    _logger?.LogTrace("Header checkbox: no rows, state=false");
+                    return;
+                }
+
+                var selectedCount = allRows.Count(r => r.IsSelected);
+                var totalCount = allRows.Count;
+
+                if (selectedCount == 0)
+                {
+                    // Žiadne označené → false (prázdny štvorček)
+                    headerCheckboxState = false;
+                    headerCheckmarkIcon.Visibility = Visibility.Collapsed;
+                    headerIndeterminateRect.Visibility = Visibility.Collapsed;
+                    _logger?.LogTrace("Header checkbox: 0/{Total} selected, state=false", totalCount);
+                }
+                else if (selectedCount == totalCount)
+                {
+                    // Všetky označené → true (fajka)
+                    headerCheckboxState = true;
+                    headerCheckmarkIcon.Visibility = Visibility.Visible;
+                    headerIndeterminateRect.Visibility = Visibility.Collapsed;
+                    _logger?.LogTrace("Header checkbox: {Total}/{Total} selected, state=true", totalCount);
                 }
                 else
                 {
+                    // Niektoré označené → null (vyplnený štvorček)
+                    headerCheckboxState = null;
+                    headerCheckmarkIcon.Visibility = Visibility.Collapsed;
+                    headerIndeterminateRect.Visibility = Visibility.Visible;
+                    _logger?.LogTrace("Header checkbox: {Selected}/{Total} selected, state=indeterminate", selectedCount, totalCount);
+                }
+            }
+
+            // ✅ BIDIRECTIONAL SYNC: Subscribe to row PropertyChanged events
+            void SubscribeToRowPropertyChanged(DataGridRowViewModel row)
+            {
+                row.PropertyChanged += (sender, args) =>
+                {
+                    if (args.PropertyName == nameof(DataGridRowViewModel.IsSelected))
+                    {
+                        _logger?.LogTrace("Row {RowIndex} IsSelected changed, updating header checkbox", row.RowIndex);
+                        UpdateHeaderCheckboxState();
+                    }
+                };
+            }
+
+            // Subscribe to all existing rows
+            foreach (var row in _viewModel.Rows)
+            {
+                SubscribeToRowPropertyChanged(row);
+            }
+
+            // Subscribe to new rows (when collection changes)
+            _viewModel.Rows.CollectionChanged += (s, e) =>
+            {
+                if (e.NewItems != null)
+                {
+                    foreach (DataGridRowViewModel row in e.NewItems)
+                    {
+                        SubscribeToRowPropertyChanged(row);
+                        _logger?.LogTrace("Subscribed to new row {RowIndex}", row.RowIndex);
+                    }
+                }
+
+                // ✅ CRITICAL: Re-subscribe ALL rows after Reset (full reload)
+                // Reset is fired when Rows.Clear() + rebuild happens (e.g., after virtual insert/delete)
+                if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset)
+                {
+                    _logger?.LogTrace("Rows collection reset, re-subscribing to ALL {Count} rows", _viewModel.Rows.Count);
+                    foreach (var row in _viewModel.Rows)
+                    {
+                        SubscribeToRowPropertyChanged(row);
+                    }
+                }
+
+                // Recalculate header state after collection change
+                UpdateHeaderCheckboxState();
+            };
+
+            // Set initial state
+            UpdateHeaderCheckboxState();
+
+            // Make it interactive - handle Tapped event (header → rows)
+            headerCheckboxGrid.IsTapEnabled = true;
+            headerCheckboxGrid.Tapped += (s, e) =>
+            {
+                if (headerCheckboxState == null || headerCheckboxState == false)
+                {
+                    // Indeterminate/Unchecked → Checked (select all)
                     headerCheckboxState = true;
                     headerCheckmarkIcon.Visibility = Visibility.Visible;
                     headerIndeterminateRect.Visibility = Visibility.Collapsed;
                     _viewModel.SelectAllRows();
+                    _logger?.LogInformation("Header checkbox clicked: SELECT ALL");
+                }
+                else
+                {
+                    // Checked → Unchecked (deselect all)
+                    headerCheckboxState = false;
+                    headerCheckmarkIcon.Visibility = Visibility.Collapsed;
+                    headerIndeterminateRect.Visibility = Visibility.Collapsed;
+                    _viewModel.DeselectAllRows();
+                    _logger?.LogInformation("Header checkbox clicked: DESELECT ALL");
                 }
 
                 e.Handled = true;
             };
 
             border.Child = headerCheckboxGrid;
+            _logger?.LogInformation("RowSelect header checkbox created with BIDIRECTIONAL SYNC");
         }
         else
         {

@@ -168,8 +168,10 @@ internal static class ServiceRegistration
 
                     // ✅ CRITICAL FIX: Inject PageManager for virtual row management and pagination
                     var pageManager = sp.GetRequiredService<Features.Pagination.Interfaces.IPageManager>();
-                    pageManager.PageSize = 20; // Default page size for interactive mode
-                    logger?.LogInformation("DataGridViewModel created with PageManager (PageSize=20) for virtual row management");
+
+                    // ✅ READ PageSize from AdvancedDataGridOptions (configurable via public API, default=100)
+                    pageManager.PageSize = options.PageSize;
+                    logger?.LogInformation("DataGridViewModel created with PageManager (PageSize={PageSize}) for virtual row management", options.PageSize);
 
                     return new ViewModels.DataGridViewModel(logger, loggerFactory, dispatcher, themeManager, pageManager);
                 });

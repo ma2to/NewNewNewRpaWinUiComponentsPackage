@@ -374,6 +374,19 @@ public class AdvancedDataGridOptions
     /// </summary>
     public int ViewportCacheSize { get; set; } = 1_000;
 
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // PAGINATION CONFIGURATION
+    // ═══════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// PAGE SIZE: Number of rows displayed per page in pagination mode
+    /// Default: 100 rows per page
+    /// Configurable via public API for custom page sizes
+    /// Example: Set PageSize = 50 for smaller pages, or PageSize = 200 for larger pages
+    /// NOTE: Only active when PageManager is enabled in Interactive mode
+    /// </summary>
+    public int PageSize { get; set; } = 100;
+
     /// <summary>
     /// Gets or sets the row store factory function (internal use only)
     /// </summary>
@@ -484,6 +497,7 @@ public class AdvancedDataGridOptions
             CheckboxBackgroundColor = this.CheckboxBackgroundColor,
             CheckboxMinWidth = this.CheckboxMinWidth,
             CheckboxMinHeight = this.CheckboxMinHeight,
+            PageSize = this.PageSize,
             InitialColumns = new List<PublicColumnDefinition>(this.InitialColumns),
             CustomProperties = new Dictionary<string, object?>(this.CustomProperties),
             RowStoreFactory = this.RowStoreFactory,
