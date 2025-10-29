@@ -65,6 +65,10 @@ public sealed partial class MainWindow : Window
                 LoggerFactory = loggerFactory,     // CRITICAL: Pass logger factory to component
                 DispatcherQueue = this.DispatcherQueue,
 
+                // ✅ SENIOR FIX: PageSize=15 for testing pagination (100 rows → 7 pages)
+                // This makes pagination visible and testable with multi-page navigation
+                PageSize = 15,
+
                 // ✅ FIXED: Enable AutoRowHeight for multiline cell content
                 AutoRowHeightMode = PublicAutoRowHeightMode.Enabled,
                 MinimumRowHeight = 30.0,

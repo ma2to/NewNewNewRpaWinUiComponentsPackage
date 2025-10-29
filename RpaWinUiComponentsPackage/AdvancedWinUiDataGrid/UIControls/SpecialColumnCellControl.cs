@@ -101,7 +101,7 @@ internal sealed class SpecialColumnCellControl : UserControl
             Child = textBlock,
             Background = _viewModel.Theme?.RowNumberBackground ?? Features.Optimization.BrushPool.GetBrush(Color.FromArgb(20, 128, 128, 128)),
             BorderBrush = _viewModel.Theme?.CellBorder ?? Features.Optimization.BrushPool.GetBrush(Colors.LightGray),
-            BorderThickness = new Thickness(1, 1, 12, 1), // FIX: Left=1, Top=1, Right=12 (resize grip width), Bottom=1
+            BorderThickness = new Thickness(1, 1, 0, 1), // ✅ FIX: Right=0 (ResizeGripControl adds 12px spacing between columns)
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             Padding = new Thickness(1)
@@ -194,7 +194,7 @@ internal sealed class SpecialColumnCellControl : UserControl
             Child = checkboxGrid,
             Background = _viewModel.Theme?.CellDefaultBackground ?? new SolidColorBrush(Colors.White),
             BorderBrush = _viewModel.Theme?.CellBorder ?? new SolidColorBrush(Colors.LightGray),
-            BorderThickness = new Thickness(1), // ✅ FIX: Uniformný border 1px (nie 12px vpravo - checkbox column nie je resizable)
+            BorderThickness = new Thickness(1, 1, 0, 1), // ✅ FIX: Right=0 (ResizeGripControl adds 12px spacing between columns)
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             // ✅ FIX: Increased padding from 2px to 6px to properly center 16px checkbox in row
@@ -250,7 +250,7 @@ internal sealed class SpecialColumnCellControl : UserControl
         {
             Child = textBlock,
             BorderBrush = _viewModel.Theme?.CellBorder ?? new SolidColorBrush(Colors.LightGray),
-            BorderThickness = new Thickness(1, 1, 12, 1), // FIX: Left=1, Top=1, Right=12 (resize grip width), Bottom=1
+            BorderThickness = new Thickness(1, 1, 0, 1), // ✅ FIX: Right=0 (ResizeGripControl adds 12px spacing between columns)
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             Padding = new Thickness(1)
@@ -325,7 +325,7 @@ internal sealed class SpecialColumnCellControl : UserControl
             Child = button,
             Background = _viewModel.Theme?.CellDefaultBackground ?? new SolidColorBrush(Colors.White),
             BorderBrush = _viewModel.Theme?.CellBorder ?? new SolidColorBrush(Colors.LightGray),
-            BorderThickness = new Thickness(1, 1, 12, 1), // FIX: Left=1, Top=1, Right=12 (resize grip width), Bottom=1
+            BorderThickness = new Thickness(1, 1, 0, 1), // ✅ FIX: Right=0 (ResizeGripControl adds 12px spacing between columns)
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             Padding = new Thickness(1)
@@ -397,7 +397,7 @@ internal sealed class SpecialColumnCellControl : UserControl
             Child = button,
             Background = _viewModel.Theme?.CellDefaultBackground ?? new SolidColorBrush(Colors.White),
             BorderBrush = _viewModel.Theme?.CellBorder ?? new SolidColorBrush(Colors.LightGray),
-            BorderThickness = new Thickness(1), // ✅ FIX: Rovnaký prístup ako Checkbox (uniformný border, nie 12px vpravo)
+            BorderThickness = new Thickness(1, 1, 0, 1), // ✅ FIX: Right=0 (ResizeGripControl adds 12px spacing between columns)
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             Padding = new Thickness(1)

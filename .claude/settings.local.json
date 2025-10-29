@@ -11,7 +11,11 @@
       "Bash(Get-ChildItem \"D:\\www\\RB0120APP\\NewRpaWinUiComponentsPackage\\RpaWinUiComponentsPackage\\TempLog\")",
       "Bash(Sort-Object LastWriteTime -Descending)",
       "Bash(Select-Object -First 1)",
-      "Bash(ForEach-Object { $_ullName })"
+      "Bash(ForEach-Object { $_ullName })",
+      "Bash(Select-String -Pattern \"error|warning CS0618|Build succeeded|Build FAILED|Error\\(s\\)\")",
+      "Bash(Select-Object -First 5)",
+      "Bash(powershell:*)",
+      "Bash(Select-Object -First 20)"
     ],
     "deny": [],
     "ask": []

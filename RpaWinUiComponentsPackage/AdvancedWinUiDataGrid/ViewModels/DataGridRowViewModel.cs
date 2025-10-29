@@ -13,6 +13,10 @@ public sealed class DataGridRowViewModel : ViewModelBase, IDisposable
     private bool _hasValidationErrors;
     private bool _disposed;
 
+    // ✅ SENIOR FIX: Weak reference to parent DataGridViewModel to prevent circular reference memory leak
+    // WeakReference allows GC to collect parent if grid is disposed but row ViewModels still referenced
+    private WeakReference<DataGridViewModel>? _parentViewModel;
+
     public int RowIndex { get; set; }
 
     /// <summary>
@@ -23,10 +27,50 @@ public sealed class DataGridRowViewModel : ViewModelBase, IDisposable
 
     public ObservableCollection<CellViewModel> Cells { get; } = new();
 
+    /// <summary>
+    /// ✅ SENIOR FIX: IsSelected with batch update optimization.
+    /// Suppresses PropertyChanged during bulk operations (SelectAll/DeselectAll) for performance.
+    /// </summary>
     public bool IsSelected
     {
         get => _isSelected;
-        set => SetProperty(ref _isSelected, value);
+        set
+        {
+            // Check if parent is in batch update mode (SelectAll/DeselectAll optimization)
+            if (_parentViewModel != null &&
+                _parentViewModel.TryGetTarget(out var parent) &&
+                parent.IsBatchUpdating)
+            {
+                // ✅ BATCH MODE: Update value WITHOUT triggering PropertyChanged
+                // This prevents 100+ individual UI updates during SelectAll/DeselectAll
+                _isSelected = value;
+            }
+            else
+            {
+                // ✅ NORMAL MODE: Update with PropertyChanged notification
+                SetProperty(ref _isSelected, value);
+            }
+        }
+    }
+
+    /// <summary>
+    /// ✅ SENIOR FIX: Sets parent DataGridViewModel reference for batch update optimization.
+    /// Uses WeakReference to prevent circular reference memory leak.
+    /// INTERNAL: Called by DataGridViewModel.LoadRows when creating row ViewModels.
+    /// </summary>
+    internal void SetParentViewModel(DataGridViewModel parentViewModel)
+    {
+        _parentViewModel = new WeakReference<DataGridViewModel>(parentViewModel);
+    }
+
+    /// <summary>
+    /// ✅ SENIOR FIX: Public helper to trigger PropertyChanged externally.
+    /// Used for batch update UI refresh (SelectAll/DeselectAll) when batch mode suppressed events.
+    /// INTERNAL: Only accessible within ViewModels namespace for controlled usage.
+    /// </summary>
+    internal void RaisePropertyChanged(string propertyName)
+    {
+        OnPropertyChanged(propertyName);
     }
 
     public bool HasValidationErrors

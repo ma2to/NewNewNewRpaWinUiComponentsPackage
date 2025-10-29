@@ -154,6 +154,52 @@ public class BulkObservableCollection<T> : ObservableCollection<T>
     }
 
     /// <summary>
+    /// ✅ FIX: Returns IDisposable for using() pattern to suspend notifications during batch operations.
+    /// Usage:
+    /// <code>
+    /// using (collection.SuspendNotifications())
+    /// {
+    ///     // Modify collection here - no UI updates
+    ///     foreach (var item in items) { item.Property = value; }
+    /// } // Single UI update fires here
+    /// </code>
+    /// </summary>
+    /// <returns>Disposable that restores notifications when disposed</returns>
+    public IDisposable SuspendNotifications()
+    {
+        return new NotificationSuspender(this);
+    }
+
+    /// <summary>
+    /// Helper class for using() pattern with SuspendNotifications().
+    /// Automatically restores notifications when disposed.
+    /// </summary>
+    private sealed class NotificationSuspender : IDisposable
+    {
+        private readonly BulkObservableCollection<T> _collection;
+        private readonly bool _previousState;
+
+        public NotificationSuspender(BulkObservableCollection<T> collection)
+        {
+            _collection = collection;
+            _previousState = _collection._suppressNotification;
+            _collection._suppressNotification = true; // Suspend notifications
+        }
+
+        public void Dispose()
+        {
+            _collection._suppressNotification = _previousState; // Restore previous state
+
+            // Fire single Reset notification after batch update
+            if (!_previousState)
+            {
+                _collection.OnCollectionChanged(new NotifyCollectionChangedEventArgs(
+                    NotifyCollectionChangedAction.Reset));
+            }
+        }
+    }
+
+    /// <summary>
     /// Overrides CollectionChanged notification to support suppression during bulk operations.
     /// When _suppressNotification is true, individual notifications are blocked.
     /// </summary>

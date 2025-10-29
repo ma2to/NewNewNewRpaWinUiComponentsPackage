@@ -52,7 +52,7 @@ public sealed class AdvancedDataGridControl : UserControl
     private FilterRowView? _filterRowView;
     private HeadersRowView? _headersRowView;
     private DataGridCellsView? _dataCellsView;
-    private PaginationPanelView? _paginationPanelView;
+    private PaginationControlView? _paginationControlView;
 
     private readonly Grid _rootGrid;
     private readonly Border _searchPanelContainer;
@@ -218,10 +218,23 @@ public sealed class AdvancedDataGridControl : UserControl
         _dataCellsView.CellEditCompleted += OnCellEditCompletedInternal;
         _dataCellsContainer.Child = _dataCellsView;
 
-        // Create and wire up PaginationPanelView - provides page navigation controls
-        _paginationPanelView = new PaginationPanelView(ViewModel.PaginationPanel);
-        _paginationPanelView.PageChanged += OnPageChangedInternal;
-        _paginationPanelContainer.Child = _paginationPanelView;
+        // ✅ Create and wire up PaginationControlView with PageManager
+        // Provides navigation: << < [1-5] > >> with intelligent page range
+        if (ViewModel.PageManager != null)
+        {
+            _paginationControlView = new PaginationControlView(
+                ViewModel.PageManager,
+                _loggerFactory?.CreateLogger<PaginationControlView>());
+
+            _paginationPanelContainer.Child = _paginationControlView;
+
+            _logger?.LogInformation("PaginationControlView initialized with PageManager (PageSize={PageSize}, TotalPages={TotalPages})",
+                ViewModel.PageManager.PageSize, ViewModel.PageManager.TotalPages);
+        }
+        else
+        {
+            _logger?.LogDebug("PageManager not available - pagination control not created");
+        }
 
         _logger?.LogInformation("Sub-views initialized successfully");
     }
@@ -262,17 +275,6 @@ public sealed class AdvancedDataGridControl : UserControl
     {
         _logger?.LogInformation("Cell edit completed: row {RowIndex}, column {ColumnName}", cell.RowIndex, cell.ColumnName);
         CellEditCompleted?.Invoke(this, cell);
-    }
-
-    /// <summary>
-    /// Internal handler for page change events from PaginationPanelView.
-    /// TODO: This should trigger a data reload from the facade with the new page number.
-    /// </summary>
-    private void OnPageChangedInternal(object? sender, int newPage)
-    {
-        _logger?.LogInformation("Page changed to {PageNumber}", newPage);
-        // TODO: Reload data for the new page via Facade API
-        // Call IAdvancedDataGridFacade.GetPagedDataAsync(newPage, pageSize)
     }
 
     /// <summary>

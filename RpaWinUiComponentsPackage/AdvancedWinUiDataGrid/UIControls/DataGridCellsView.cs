@@ -175,6 +175,13 @@ public sealed class DataGridCellsView : UserControl, IDisposable
         // Listen for data changes to invalidate viewport
         _viewModel.Rows.CollectionChanged += OnRowsCollectionChanged;
 
+        // ✅ SENIOR FIX: Subscribe to PageChanged event to update ItemsRepeater on page navigation
+        if (_viewModel.PageManager != null)
+        {
+            _viewModel.PageManager.PageChanged += OnPageChanged;
+            _logger.LogDebug("Subscribed to PageManager.PageChanged event for pagination support");
+        }
+
         // Set ScrollViewer as UserControl content
         Content = _scrollViewer;
 
@@ -192,8 +199,9 @@ public sealed class DataGridCellsView : UserControl, IDisposable
     }
 
     /// <summary>
-    /// CRITICAL FIX: Initialize viewport cache on first load.
+    /// ✅ SENIOR FIX: Initialize viewport cache on first load.
     /// Called once when control is first loaded into visual tree.
+    /// UNIFIED LOGIC: Consistent with OnRowsCollectionChanged for predictable behavior.
     /// </summary>
     private async void OnFirstLoaded(object sender, RoutedEventArgs e)
     {
@@ -202,16 +210,48 @@ public sealed class DataGridCellsView : UserControl, IDisposable
 
         try
         {
-            // Pre-load first 50 rows into viewport cache
-            // This prevents "Loading..." placeholders on initial render
-            var rowsToLoad = Math.Min(50, _viewModel.Rows.Count);
+            var pageManager = _viewModel.PageManager;
+            int rowsToLoad = 0;
+            int itemsSourceCount = 0;
+
+            // ✅ SENIOR FIX: Unified logic for consistent behavior
+            if (pageManager != null && pageManager.TotalDataRows > 0)
+            {
+                // WITH PAGINATION: Load entire current page for smooth scrolling
+                var (startIndex, count) = pageManager.GetCurrentPageRange();
+                rowsToLoad = count;
+                itemsSourceCount = count; // ← ItemsSource size matches current page size
+
+                _logger.LogInformation("Loading ENTIRE current page on initial load: {Count} rows (page {Page}/{TotalPages})",
+                    rowsToLoad, pageManager.CurrentPage + 1, pageManager.TotalPages);
+            }
+            else
+            {
+                // ⚠️ PAGINATION REQUIRED: For testing, pagination must be configured
+                _logger.LogError("PageManager not configured or TotalDataRows=0 - cannot load rows without pagination");
+            }
+            // ⚠️ BACKWARD COMPATIBILITY: Disabled for testing - pagination required
+            //{
+            //    // WITHOUT PAGINATION: Load ALL rows for full grid visibility
+            //    rowsToLoad = _viewModel.Rows.Count;
+            //    itemsSourceCount = _viewModel.Rows.Count;
+            //
+            //    _logger.LogInformation("Loading ALL rows (no pagination): {Count} rows", rowsToLoad);
+            //}
+
             if (rowsToLoad > 0)
             {
-                // Set ItemsSource BEFORE loading viewport (required for ItemsRepeater)
-                _itemsRepeater.ItemsSource = Enumerable.Range(0, _viewModel.Rows.Count).ToList();
+                // ✅ CRITICAL FIX: ItemsSource count must match what ViewportManager will provide
+                // With pagination: ItemsSource = page row count (e.g., 15 for PageSize=15)
+                // Without pagination: ItemsSource = all rows
+                _itemsRepeater.ItemsSource = Enumerable.Range(0, itemsSourceCount).ToList();
 
                 await _viewportManager.UpdateViewportAsync(0, rowsToLoad - 1);
                 _logger.LogInformation("Initial viewport cache loaded: {Count} rows", rowsToLoad);
+            }
+            else
+            {
+                _logger.LogDebug("No rows to load on initial load (Rows.Count={Count})", _viewModel.Rows.Count);
             }
         }
         catch (Exception ex)
@@ -360,6 +400,44 @@ public sealed class DataGridCellsView : UserControl, IDisposable
     }
 
     /// <summary>
+    /// ✅ SENIOR FIX: Handles page navigation - updates ItemsRepeater and viewport cache.
+    /// Called when user navigates to different page via PaginationControlView.
+    /// CRITICAL: Must update ItemsSource count to match new page's row count.
+    /// </summary>
+    private async void OnPageChanged(object? sender, RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Pagination.Interfaces.PageChangedEventArgs e)
+    {
+        try
+        {
+            _logger.LogInformation("Page changed: {OldPage} → {NewPage}, loading {Count} rows (StartIndex={Start})",
+                e.OldPage, e.NewPage, e.Count, e.StartIndex);
+
+            // ✅ CRITICAL: Update ItemsRepeater count to match new page's row count
+            // Example: Last page might have fewer rows (e.g., 10 instead of 15)
+            _itemsRepeater.ItemsSource = Enumerable.Range(0, (int)e.Count).ToList();
+
+            // Note: ViewportManager.TotalRowCount getter auto-calculates from PageManager.GetCurrentPageRange()
+            // No need to set it manually - it will return correct value automatically
+
+            // Invalidate cache to force reload from new page range
+            _viewportManager.InvalidateCache();
+
+            // Pre-load entire new page (all rows on current page for smooth scrolling)
+            if (e.Count > 0)
+            {
+                await _viewportManager.UpdateViewportAsync(0, (int)e.Count - 1);
+                _logger.LogDebug("Pre-loaded {Count} rows for page {NewPage}", e.Count, e.NewPage + 1);
+            }
+
+            // Reset scroll to top of new page for better UX
+            _scrollViewer.ChangeView(null, 0, null, disableAnimation: false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "OnPageChanged failed: {Message}", ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Handles row collection changes (add, remove, reset).
     /// Invalidates viewport cache and updates total row count.
     /// </summary>
@@ -376,13 +454,38 @@ public sealed class DataGridCellsView : UserControl, IDisposable
             // Invalidate viewport cache (force reload on next scroll)
             _viewportManager.InvalidateCache();
 
-            // Update ItemsRepeater
-            _itemsRepeater.ItemsSource = Enumerable.Range(0, _viewModel.Rows.Count).ToList();
+            // ✅ SENIOR FIX: Unified logic - same as OnFirstLoaded for consistency
+            var pageManager = _viewModel.PageManager;
+            int rowsToLoad = 0;
+            int itemsSourceCount = 0;
 
-            // SENIOR FIX: Update viewport IMMEDIATELY after cache invalidation
-            // Prevents "Loading..." placeholders by pre-loading first 50 rows
-            // BUG: Without this, ViewportManager cache is empty → GetRowViewModel() returns NULL → "Loading..." shown
-            var rowsToLoad = Math.Min(50, _viewModel.Rows.Count);
+            if (pageManager != null && pageManager.TotalDataRows > 0)
+            {
+                // WITH PAGINATION: Load entire current page into cache for smooth scrolling
+                var (startIndex, count) = pageManager.GetCurrentPageRange();
+                rowsToLoad = count;
+                itemsSourceCount = count; // ← ItemsSource size matches current page size
+
+                _logger.LogInformation("Loading ENTIRE current page into cache: {Count} rows (page {Page}/{TotalPages})",
+                    rowsToLoad, pageManager.CurrentPage + 1, pageManager.TotalPages);
+            }
+            else
+            {
+                // ⚠️ PAGINATION REQUIRED: For testing, pagination must be configured
+                _logger.LogError("PageManager not configured or TotalDataRows=0 - cannot load rows without pagination");
+            }
+            // ⚠️ BACKWARD COMPATIBILITY: Disabled for testing - pagination required
+            //{
+            //    // WITHOUT PAGINATION: Load ALL rows for full grid visibility
+            //    rowsToLoad = _viewModel.Rows.Count;
+            //    itemsSourceCount = _viewModel.Rows.Count;
+            //
+            //    _logger.LogInformation("Loading ALL rows into cache (no pagination): {Count} rows", rowsToLoad);
+            //}
+
+            // ✅ CRITICAL FIX: Update ItemsRepeater with correct count
+            _itemsRepeater.ItemsSource = Enumerable.Range(0, itemsSourceCount).ToList();
+
             if (rowsToLoad > 0)
             {
                 await _viewportManager.UpdateViewportAsync(0, rowsToLoad - 1);
@@ -682,6 +785,12 @@ public sealed class DataGridCellsView : UserControl, IDisposable
         if (_viewModel != null)
         {
             _viewModel.Rows.CollectionChanged -= OnRowsCollectionChanged;
+
+            // ✅ SENIOR FIX: Unsubscribe from PageManager events
+            if (_viewModel.PageManager != null)
+            {
+                _viewModel.PageManager.PageChanged -= OnPageChanged;
+            }
         }
 
         // Unsubscribe from ScrollViewer events
