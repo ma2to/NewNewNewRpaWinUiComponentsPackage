@@ -404,6 +404,17 @@ public sealed class DataGridCellsView : UserControl, IDisposable
     /// Called when user navigates to different page via PaginationControlView.
     /// CRITICAL: Must update ItemsSource count to match new page's row count.
     /// </summary>
+    /// <summary>
+    /// ✅ UNIFIED PAGINATION: Handles page navigation with IN-PLACE ViewModel updates.
+    /// CRITICAL FIX: Uses UpdateViewModelsInPlace() instead of LoadRows() to preserve UI binding.
+    /// ARCHITECTURE:
+    /// - UpdateViewModelsInPlace(): Update existing ViewModels → UI binding preserved, RowId.PropertyChanged fires
+    /// - LoadRows(): Dispose old + create new ViewModels → UI binding MOŽE cache starý RowId (BUG!)
+    /// BENEFITS:
+    /// - No dispose/recreate ViewModels → UI binding (RowId, cells) preserved
+    /// - INSERT/DELETE buttons use CORRECT current RowId (not stale cached RowId)
+    /// - Consistent behavior for all datasets (10, 100, 1000, 10M+ rows)
+    /// </summary>
     private async void OnPageChanged(object? sender, RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Pagination.Interfaces.PageChangedEventArgs e)
     {
         try
@@ -411,14 +422,61 @@ public sealed class DataGridCellsView : UserControl, IDisposable
             _logger.LogInformation("Page changed: {OldPage} → {NewPage}, loading {Count} rows (StartIndex={Start})",
                 e.OldPage, e.NewPage, e.Count, e.StartIndex);
 
-            // ✅ CRITICAL: Update ItemsRepeater count to match new page's row count
-            // Example: Last page might have fewer rows (e.g., 10 instead of 15)
-            _itemsRepeater.ItemsSource = Enumerable.Range(0, (int)e.Count).ToList();
+            // ✅ PROFESSIONAL SOLUTION: Update ViewModels IN-PLACE (preserve UI binding)
+            // CRITICAL: LoadRows() dispose/recreate causes UI binding to cache stale RowId
+            // UpdateViewModelsInPlace() updates existing ViewModels → RowId.PropertyChanged fires → UI rebinds
+            if (_viewModel.RowStore != null)
+            {
+                try
+                {
+                    // Load page rows from RowStore (e.g., rows 60-74 for page 5)
+                    var pageRows = await _viewModel.RowStore.GetRowsRangeAsync(e.StartIndex, (int)e.Count, onlyFiltered: false, cancellationToken: default);
+
+                    _logger.LogDebug("Loaded {ActualCount} rows from RowStore for page {NewPage} (StartIndex={Start}, Requested={Requested})",
+                        pageRows.Count, e.NewPage + 1, e.StartIndex, e.Count);
+
+                    // ✅ CRITICAL FIX: Use UpdateViewModelsInPlace() instead of LoadRows()
+                    // REASON: Preserves UI binding, prevents stale RowId caching
+                    // BEFORE: LoadRows() → Rows.Clear() + Rows.AddRange() → UI binding MAY cache old RowId
+                    // AFTER: UpdateViewModelsInPlace() → Update existing ViewModels → RowId.PropertyChanged fires → UI rebinds
+                    _viewModel.UpdateViewModelsInPlace(pageRows);
+
+                    _logger.LogInformation("✅ Virtual pagination: ViewModel.Rows updated IN-PLACE with {Count} ViewModels for page {NewPage}/{TotalPages}",
+                        pageRows.Count, e.NewPage + 1, _viewModel.PageManager?.TotalPages ?? 0);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to load page data from RowStore for page {NewPage}", e.NewPage + 1);
+                    // Don't throw - fallback to existing behavior with empty/cached data
+                }
+            }
+            else
+            {
+                _logger.LogDebug("RowStore not available - using existing ViewModel.Rows");
+            }
+
+            // ✅ CRITICAL FIX #3: Update ItemsRepeater count ONLY if changed (avoid reset flicker)
+            // PROBLEM: ItemsSource reset = UI completely rebuilds → BLACK SCREEN (~100-200ms)
+            // SOLUTION: Check if count changed before reset
+            // OPTIMIZATION: Most page changes = same count (PageSize=15) → skip reset → NO FLICKER
+            // Example: Page 1→2→3→4→5→6 all have 15 rows → skip reset 5 times
+            //          Page 6→7 (last page 10 rows) → reset only once
+            var currentSource = _itemsRepeater.ItemsSource as IList<int>;
+            if (currentSource == null || currentSource.Count != (int)e.Count)
+            {
+                _itemsRepeater.ItemsSource = Enumerable.Range(0, (int)e.Count).ToList();
+                _logger.LogDebug("✅ FIX #3: ItemsSource updated (count changed: {Old}→{New})", currentSource?.Count ?? 0, e.Count);
+            }
+            else
+            {
+                _logger.LogTrace("✅ FIX #3: ItemsSource unchanged (count={Count}), skipping reset to avoid flicker", e.Count);
+            }
 
             // Note: ViewportManager.TotalRowCount getter auto-calculates from PageManager.GetCurrentPageRange()
             // No need to set it manually - it will return correct value automatically
 
-            // Invalidate cache to force reload from new page range
+            // ✅ OPTIMIZATION: Invalidate cache AFTER ViewModels updated (not before UI render)
+            // REASON: Cache invalidation triggers UI reload - do AFTER data ready to minimize delay
             _viewportManager.InvalidateCache();
 
             // Pre-load entire new page (all rows on current page for smooth scrolling)
@@ -430,6 +488,9 @@ public sealed class DataGridCellsView : UserControl, IDisposable
 
             // Reset scroll to top of new page for better UX
             _scrollViewer.ChangeView(null, 0, null, disableAnimation: false);
+
+            _logger.LogInformation("✅ Page change completed successfully (Page {NewPage}/{TotalPages}, {Count} rows)",
+                e.NewPage + 1, _viewModel.PageManager?.TotalPages ?? 0, e.Count);
         }
         catch (Exception ex)
         {

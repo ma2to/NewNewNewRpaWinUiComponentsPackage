@@ -297,6 +297,62 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
     }
 
     /// <summary>
+    /// ✅ SENIOR FIX: Get range of rows for pagination/virtualization
+    /// CRITICAL: Enables virtual pagination - UI loads only visible page (15 rows) instead of entire dataset (1000+ rows)
+    /// PERFORMANCE: O(n) for Skip/Take with ConcurrentDictionary.Values enumeration
+    /// ARCHITECTURE: Part of dual-mode architecture - small datasets load all, large datasets use pagination
+    /// </summary>
+    public Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> GetRowsRangeAsync(
+        long startIndex,
+        int count,
+        bool onlyFiltered = false,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            IEnumerable<IReadOnlyDictionary<string, object?>> source;
+
+            if (onlyFiltered && _filteredRowIds != null && _filteredRowIds.Count > 0)
+            {
+                // ✅ FILTERED VIEW: Get range from filtered row IDs
+                // Example: Filtered view has 50 rows, request rows 10-24 (15 rows)
+                source = _filteredRowIds
+                    .Skip((int)startIndex)
+                    .Take(count)
+                    .Select(rowId =>
+                    {
+                        // _filteredRowIds contains ULIDs of filtered rows
+                        // Get the actual row by ID
+                        _rows.TryGetValue(rowId, out var row);
+                        return row;
+                    })
+                    .Where(row => row != null)!; // Filter out nulls (defensive)
+            }
+            else
+            {
+                // ✅ ALL ROWS: Get range from full dataset
+                // Example: Dataset has 1000 rows, request rows 60-74 (page 5, 15 rows)
+                source = _rows.Values
+                    .Skip((int)startIndex)
+                    .Take(count);
+            }
+
+            var result = source.ToList();
+
+            _logger?.LogDebug("GetRowsRangeAsync: startIndex={Start}, count={Count}, onlyFiltered={Filtered}, returned={Returned} rows",
+                startIndex, count, onlyFiltered, result.Count);
+
+            return Task.FromResult<IReadOnlyList<IReadOnlyDictionary<string, object?>>>(result);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "GetRowsRangeAsync failed: startIndex={Start}, count={Count}, onlyFiltered={Filtered}",
+                startIndex, count, onlyFiltered);
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Get all rows - IRowStore implementation
     /// PERFORMANCE: O(n) for all rows, O(f) for filtered rows where f = filtered count
     /// </summary>
@@ -1297,6 +1353,182 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
 
         // Generate new ULID (thread-safe, timestamp-based, lexicographically sortable)
         return Ulid.NewUlid().ToString();
+    }
+
+    #endregion
+
+    #region Physical Insert/Delete Operations (RIEŠENIE #2 - FIXED UI POOL)
+
+    /// <summary>
+    /// ✅ PROFESSIONAL SOLUTION: Physically inserts row at specified index.
+    /// ARCHITECTURE:
+    /// - Uses ULID timestamp interpolation to control sort order
+    /// - Calculates timestamp to insert row BETWEEN existing rows
+    /// - RowCount increases by 1
+    /// - Returns RowId (not RowIndex) for caller reference
+    /// PARAMETERS:
+    /// - index: Target position (0-based)
+    /// - rowData: Column values (WITHOUT __rowId - system column added automatically)
+    /// RETURNS: RowId of newly inserted row (STABLE identifier)
+    /// </summary>
+    public async Task<string> InsertRowAtIndexAsync(int index, IReadOnlyDictionary<string, object?>? rowData, CancellationToken cancellationToken = default)
+    {
+        return await Task.Run(() =>
+        {
+            lock (_modificationLock)
+            {
+                var sortedKeys = GetSortedRowKeys();
+
+                if (index < 0 || index > sortedKeys.Count)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(index),
+                        $"Index {index} out of range (0-{sortedKeys.Count})");
+                }
+
+                // Determine ULID timestamp for insertion
+                long newTimestamp;
+
+                if (sortedKeys.Count == 0)
+                {
+                    // Empty store - use current time
+                    newTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    _logger?.LogDebug("InsertRowAtIndex {Index}: Empty store, using current timestamp", index);
+                }
+                else if (index == 0)
+                {
+                    // Insert at beginning - use timestamp BEFORE first row
+                    var firstUlid = Ulid.Parse(sortedKeys[0]);
+                    newTimestamp = firstUlid.Time.ToUnixTimeMilliseconds() - 1000; // 1 second before
+                    _logger?.LogDebug("InsertRowAtIndex {Index}: Timestamp BEFORE first row", index);
+                }
+                else if (index >= sortedKeys.Count)
+                {
+                    // Insert at end - use timestamp AFTER last row
+                    var lastUlid = Ulid.Parse(sortedKeys[sortedKeys.Count - 1]);
+                    newTimestamp = lastUlid.Time.ToUnixTimeMilliseconds() + 1000; // 1 second after
+                    _logger?.LogDebug("InsertRowAtIndex {Index}: Timestamp AFTER last row", index);
+                }
+                else
+                {
+                    // ✅ CRITICAL FIX: Insert in middle - use MICROSECOND OFFSET to prevent collision
+                    // PROBLEM: Midpoint of identical timestamps = same timestamp → ULID sort fails
+                    // LOG EVIDENCE: All rows from IMPORT have same timestamp (1761761456915)
+                    //   - Midpoint: (1761761456915 + 1761761456915) / 2 = 1761761456915 (SAME!)
+                    //   - Result: All INSERTs get IDENTICAL timestamp → RANDOM ORDER
+                    // SOLUTION: Add 1 microsecond (10 ticks) to PREVIOUS timestamp
+                    var prevUlid = Ulid.Parse(sortedKeys[index - 1]);
+                    var nextUlid = Ulid.Parse(sortedKeys[index]);
+                    var prevTimestamp = prevUlid.Time;
+                    var nextTimestamp = nextUlid.Time;
+
+                    // ✅ PROFESSIONAL: Use sequential offset to prevent timestamp collision
+                    // Add 1 microsecond = 10 ticks (100-nanosecond units)
+                    var candidateTimestamp = prevTimestamp.AddTicks(10);
+
+                    // ✅ CRITICAL FIX #5: FALLBACK - Calculate midpoint in MILLISECONDS directly
+                    // PROBLEM: ticksMidpoint / 10000 created WRONG timestamp (63897366839638 instead of 1761770039639)
+                    //   - ticksMidpoint is in TICKS (100-nanosecond units)
+                    //   - Dividing by 10000 converts to WRONG unit (not Unix milliseconds!)
+                    //   - Result: Row appears at WRONG position (year 4000+ instead of 2025)
+                    // SOLUTION: Use ToUnixTimeMilliseconds() to get milliseconds, then calculate midpoint
+                    if (candidateTimestamp >= nextTimestamp)
+                    {
+                        var prevMs = prevTimestamp.ToUnixTimeMilliseconds();
+                        var nextMs = nextTimestamp.ToUnixTimeMilliseconds();
+
+                        // ✅ CRITICAL FIX: HANDLE IDENTICAL TIMESTAMPS (collision from IMPORT)
+                        // PROBLEM: prevMs == nextMs (all IMPORT rows have same timestamp)
+                        //   - Using +1ms creates NEW collision (all INSERT get same timestamp!)
+                        //   - Example: 10 INSERTs all get timestamp 1761790308097 → RANDOM ORDER
+                        // SOLUTION: Use CURRENT TIME (guarantees uniqueness for sequential operations)
+                        if (prevMs == nextMs)
+                        {
+                            // Timestamps are IDENTICAL - use CURRENT TIME to guarantee uniqueness
+                            newTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                            _logger?.LogDebug("InsertRowAtIndex {Index}: Timestamp COLLISION (identical {Prev}ms), using CURRENT TIME → {New}ms",
+                                index, prevMs, newTimestamp);
+                        }
+                        else
+                        {
+                            // Calculate true midpoint in milliseconds
+                            newTimestamp = (prevMs + nextMs) / 2;
+                            _logger?.LogDebug("InsertRowAtIndex {Index}: Timestamp MIDPOINT {Prev}ms → {New}ms → {Next}ms",
+                                index, prevMs, newTimestamp, nextMs);
+                        }
+                    }
+                    else
+                    {
+                        newTimestamp = candidateTimestamp.ToUnixTimeMilliseconds();
+                        _logger?.LogDebug("InsertRowAtIndex {Index}: Timestamp OFFSET +1μs: {Prev}ms → {New}ms",
+                            index, prevTimestamp.ToUnixTimeMilliseconds(), newTimestamp);
+                    }
+                }
+
+                // Generate new ULID with calculated timestamp
+                var newUlid = Ulid.NewUlid(DateTimeOffset.FromUnixTimeMilliseconds(newTimestamp));
+                var newRowId = newUlid.ToString();
+
+                // Create full row data with system columns
+                var fullRowData = new Dictionary<string, object?>(rowData ?? new Dictionary<string, object?>())
+                {
+                    ["__rowId"] = newRowId  // ← STABLE identifier
+                };
+
+                // Add to dictionary
+                _rows[newRowId] = fullRowData;
+
+                // Clear sorted keys cache (will be rebuilt on next access)
+                InvalidateSortedRowKeysCache();
+
+                _logger?.LogInformation("InsertRowAtIndex: Added row at index {Index} (RowId={RowId}, RowCount={OldCount}→{NewCount})",
+                    index, newRowId, sortedKeys.Count, _rows.Count);
+
+                return newRowId;  // ← Return RowId (STABLE), not index!
+            }
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// ✅ PROFESSIONAL SOLUTION: Physically deletes row by RowId.
+    /// ARCHITECTURE:
+    /// - Removes row from internal dictionary
+    /// - RowCount decreases by 1
+    /// - Rows after deleted row automatically SHIFT UP via sort order (ULID timestamps)
+    /// PARAMETERS:
+    /// - rowId: STABLE identifier (not RowIndex!)
+    /// REASON: RowId is stable, RowIndex changes after operations
+    /// </summary>
+    public async Task DeleteRowByIdAsync(string rowId, CancellationToken cancellationToken = default)
+    {
+        await Task.Run(() =>
+        {
+            if (string.IsNullOrEmpty(rowId))
+            {
+                throw new ArgumentNullException(nameof(rowId));
+            }
+
+            lock (_modificationLock)
+            {
+                if (!_rows.ContainsKey(rowId))
+                {
+                    _logger?.LogWarning("DeleteRowById: RowId {RowId} not found", rowId);
+                    return;
+                }
+
+                var oldRowCount = _rows.Count;
+
+                // Remove from dictionary
+                _rows.TryRemove(rowId, out _);
+
+                // Clear caches
+                InvalidateSortedRowKeysCache();
+                _validationErrors.TryRemove(rowId, out _);
+                _validatedRowsCache.Remove(rowId);
+
+                _logger?.LogInformation("DeleteRowById: Removed row {RowId} (RowCount={OldCount}→{NewCount})",
+                    rowId, oldRowCount, _rows.Count);
+            }
+        }, cancellationToken);
     }
 
     #endregion

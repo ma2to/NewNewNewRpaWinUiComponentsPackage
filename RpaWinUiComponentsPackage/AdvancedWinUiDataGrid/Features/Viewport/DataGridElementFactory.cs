@@ -57,14 +57,15 @@ internal sealed class DataGridElementFactory : IElementFactory
     }
 
     /// <summary>
-    /// Gets or creates element for specified data item.
-    /// Uses recycled Grid if available, otherwise creates new one.
+    /// Gets or creates element for specified data item (RowIndex).
+    /// FIXED UI POOL: Always returns element (even for invisible rows - returns collapsed placeholder).
+    /// Uses ViewportManager.GetRowViewModel(index) to get RowId-based ViewModel.
     /// </summary>
     public UIElement GetElement(ElementFactoryGetArgs args)
     {
         try
         {
-            // args.Data is the index (int) from ItemsSource
+            // args.Data is the index (int) from ItemsSource (0 to PageSize-1)
             if (args.Data is not int index)
             {
                 _logger.LogWarning("GetElement called with non-int data: {Data}", args.Data);
@@ -73,13 +74,22 @@ internal sealed class DataGridElementFactory : IElementFactory
 
             _logger.LogTrace("GetElement called for index {Index}", index);
 
-            // Get ViewModel from ViewportManager (always returns canonical ViewModel from Rows collection)
+            // Get ViewModel from ViewportManager (uses page-relative index 0-14)
+            // CRITICAL: ViewModel contains RowId (stable identifier used for operations)
             var rowViewModel = _viewportManager.GetRowViewModel(index);
             if (rowViewModel == null)
             {
-                _logger.LogError("CRITICAL: No ViewModel found for index {Index} - this should NEVER happen with canonical ViewModels! " +
-                    "Returning placeholder. Check if Rows collection is populated correctly.", index);
+                _logger.LogError("No ViewModel found for index {Index}", index);
                 return CreatePlaceholderElement();
+            }
+
+            // ✅ CRITICAL: Skip invisible rows (UI pool padding - no data)
+            // RENDERING: Return collapsed placeholder (takes no space in UI)
+            // EXAMPLE: Page 7 has 10 data rows, PageSize=15 → rows 10-14 are invisible
+            if (!rowViewModel.IsVisible)
+            {
+                _logger.LogTrace("Row {Index} is INVISIBLE (UI pool padding), returning collapsed element", index);
+                return CreateCollapsedPlaceholder();
             }
 
             // Try to recycle existing Grid
@@ -91,14 +101,11 @@ internal sealed class DataGridElementFactory : IElementFactory
             }
             else
             {
-                rowGrid = new Grid
-                {
-                    Margin = new Thickness(0, 0, 0, 2) // Row spacing
-                };
+                rowGrid = new Grid { Margin = new Thickness(0, 0, 0, 2) };
                 _logger.LogTrace("Created new Grid element");
             }
 
-            // Configure Grid for this row
+            // Configure Grid with RowId-based ViewModel
             ConfigureRowGrid(rowGrid, rowViewModel);
 
             return rowGrid;
@@ -320,6 +327,19 @@ internal sealed class DataGridElementFactory : IElementFactory
         });
 
         return cellControl;
+    }
+
+    /// <summary>
+    /// Creates collapsed placeholder for invisible rows (UI pool padding).
+    /// Takes no space in UI.
+    /// </summary>
+    private UIElement CreateCollapsedPlaceholder()
+    {
+        return new Grid
+        {
+            Height = 0,
+            Visibility = Visibility.Collapsed
+        };
     }
 
     /// <summary>

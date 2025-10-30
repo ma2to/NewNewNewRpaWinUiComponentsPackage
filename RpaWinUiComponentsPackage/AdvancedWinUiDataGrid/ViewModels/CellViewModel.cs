@@ -271,9 +271,35 @@ public sealed class CellViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// Gets the display row number for RowNumber special column (1-based)
+    /// ✅ PROFESSIONAL FIX: Gets GLOBAL row number for RowNumber special column (1-based)
+    /// BEFORE: Displayed page-relative number (1-15 on every page)
+    /// AFTER: Displays global position in dataset (Page 1: 1-15, Page 2: 16-30, etc.)
+    /// ARCHITECTURE:
+    /// - RowIndex = page-relative index (0-14)
+    /// - PageManager.CurrentPage = current page number (0-based)
+    /// - PageManager.PageSize = rows per page (e.g., 15)
+    /// - Global position = (CurrentPage × PageSize) + RowIndex + 1
+    /// EXAMPLE: Page 2 (CurrentPage=1), RowIndex=5, PageSize=15
+    ///   → Global position = (1 × 15) + 5 + 1 = 21
+    /// FILTERING/SEARCH: Recalculates automatically when PageManager updates
     /// </summary>
-    public int DisplayRowNumber => RowIndex + 1;
+    public int DisplayRowNumber
+    {
+        get
+        {
+            // Get PageManager from parent row (if available)
+            var pageManager = _parentRow?.PageManager;
+            if (pageManager != null)
+            {
+                // Calculate global position: (page × pageSize) + row + 1
+                var globalPosition = (pageManager.CurrentPage * pageManager.PageSize) + RowIndex + 1;
+                return globalPosition;
+            }
+
+            // Fallback: page-relative number (if PageManager not available)
+            return RowIndex + 1;
+        }
+    }
 
     /// <summary>
     /// Gets or sets whether the row is selected (for Checkbox special column)

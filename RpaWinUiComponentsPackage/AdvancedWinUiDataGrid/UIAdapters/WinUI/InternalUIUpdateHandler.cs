@@ -48,6 +48,15 @@ internal sealed class InternalUIUpdateHandler : IDisposable
         _viewModel = viewModel;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
+        // ✅ SENIOR FIX: Inject RowStore into ViewModel for virtual pagination
+        // CRITICAL: DataGridCellsView needs ViewModel.RowStore to load page data on PageChanged event
+        // This enables dual-mode architecture (small datasets: all rows, large datasets: page-by-page)
+        if (_viewModel != null)
+        {
+            _viewModel.RowStore = _rowStore;
+            _logger.LogInformation("RowStore injected into DataGridViewModel for virtual pagination support");
+        }
+
         // ✅ Subscribe ONLY in Interactive mode
         if (_options.OperationMode == PublicDataGridOperationMode.Interactive)
         {
@@ -287,112 +296,178 @@ internal sealed class InternalUIUpdateHandler : IDisposable
     /// PERFORMANCE: Updates cell values WITHOUT dispose/recreate (10-50ms vs 1300ms full reload).
     /// Used for Virtual Insert/Delete operations where data shifted in IRowStore.
     /// </summary>
-    private void PerformIncrementalUpdate()
+    private async void PerformIncrementalUpdate()
     {
         if (_viewModel == null)
             return;
 
         try
         {
-            _logger.LogDebug("Performing incremental update - syncing ViewModels with IRowStore...");
+            _logger.LogDebug("Performing incremental update - reloading current page from IRowStore...");
 
-            // Get all rows from IRowStore (reflects shifted data)
-            var allRows = _rowStore.GetAllRows();
+            // ✅ UNIFIED PAGINATION: Always reload current page after VirtualInsert/Delete
+            // ARCHITECTURE:
+            // - IRowStore.RowCount stays CONSTANT during VirtualInsert/Delete (e.g., 100 rows)
+            //   → VirtualInsert: shifts data DOWN, inserts empty at position, last row loses data
+            //   → VirtualDelete: shifts data UP, deletes row data, last row becomes empty
+            // - ViewModel.Rows.Count = PageSize (e.g., 15 ViewModels for current page)
+            // - EXAMPLE: Page 6 (rows 90-104), VirtualInsert at row 96
+            //   → IRowStore[96] = empty, IRowStore[97] = old 96 data, IRowStore[98] = old 97 data, etc.
+            //   → Must reload page 6 to reflect shifted data in UI
+            // - BUSINESS LAYER: Still works on full dataset (100 rows) via GetAllRowsAsync()
+            // - USER PERCEPTION: "Added empty row" / "Deleted row"
+            // - REALITY: IRowStore.RowCount unchanged, data shifted only
 
-            if (allRows == null || allRows.Count == 0)
+            if (_viewModel.PageManager == null)
             {
-                _logger.LogWarning("IRowStore is empty during incremental update - falling back to full reload");
+                _logger.LogError("PageManager not configured - cannot perform incremental update with unified pagination");
+                PerformFullReload();  // Fallback to full reload
+                return;
+            }
+
+            // ✅ CRITICAL FIX #2: Update TotalPages after Physical INSERT/DELETE
+            // PROBLEM: Physical INSERT/DELETE changes RowCount (100→101→102→104...)
+            //          BUT PageManager.TotalDataRows stays at old value → TotalPages stuck at 7/7
+            // SOLUTION: Get current RowCount from IRowStore and update PageManager
+            // EXAMPLE: 100 rows, PageSize=15 → TotalPages=7 (100÷15=6.67→7)
+            //          104 rows, PageSize=15 → TotalPages=7 (104÷15=6.93→7)
+            //          106 rows, PageSize=15 → TotalPages=8 (106÷15=7.07→8)
+            var newRowCount = await _rowStore.GetRowCountAsync(onlyFiltered: false, cancellationToken: default);
+
+            if (_viewModel.PageManager.TotalDataRows != newRowCount)
+            {
+                var oldTotalPages = _viewModel.PageManager.TotalPages;
+                _viewModel.PageManager.SetTotalDataRows(newRowCount);
+                var newTotalPages = _viewModel.PageManager.TotalPages;
+
+                _logger.LogInformation("✅ FIX #2: PageManager updated after Physical INSERT/DELETE: TotalDataRows={Old}→{New}, TotalPages={OldPages}→{NewPages}",
+                    _viewModel.PageManager.TotalDataRows - (newRowCount - _viewModel.PageManager.TotalDataRows), newRowCount, oldTotalPages, newTotalPages);
+            }
+
+            var (startIndex, count) = _viewModel.PageManager.GetCurrentPageRange();
+
+            _logger.LogInformation("INCREMENTAL UPDATE: Reloading current page {Page}/{TotalPages} (StartIndex={Start}, Count={Count})",
+                _viewModel.PageManager.CurrentPage + 1, _viewModel.PageManager.TotalPages, startIndex, count);
+
+            // ✅ CRITICAL: Load current page from IRowStore to get shifted data
+            // EXAMPLE: Page 6 (rows 90-104), VirtualInsert at row 96
+            // - BEFORE INSERT: IRowStore[96] = "old 96 data"
+            // - AFTER INSERT: IRowStore[96] = null (empty), IRowStore[97] = "old 96 data", IRowStore[98] = "old 97 data", etc.
+            // - Reload page 6 → ViewModel.Rows[0-14] gets NEW data from IRowStore[90-104]
+            // - User sees empty row at position 6 (ViewModel.Rows[6] = IRowStore[96] = null) ✅
+            // - User perception: "Added empty row under row 96" ✅
+            // - Reality: IRowStore.RowCount = 100 (unchanged), data shifted only
+            var pageRows = await _rowStore.GetRowsRangeAsync(startIndex, count, onlyFiltered: false, cancellationToken: default);
+
+            if (pageRows == null || pageRows.Count == 0)
+            {
+                _logger.LogWarning("IRowStore returned empty page during incremental update - falling back to full reload");
                 PerformFullReload();
                 return;
             }
 
-            // ✅ CRITICAL: Update existing ViewModels in-place (NO dispose/recreate)
-            for (int i = 0; i < _viewModel.Rows.Count && i < allRows.Count; i++)
-            {
-                var rowViewModel = _viewModel.Rows[i];
-                var rowData = allRows[i];
+            // ✅ CRITICAL FIX: Use UpdateViewModelsInPlace() instead of LoadRows()
+            // REASON: Preserves UI binding, prevents stale RowId caching
+            // - LoadRows() disposes ViewModels → WinUI caches old RowId → INSERT/DELETE use wrong index
+            // - UpdateViewModelsInPlace() updates existing ViewModels → RowId.PropertyChanged fires → UI rebinds
+            // RESULT: INSERT/DELETE buttons always use CORRECT current RowId after VirtualInsert/Delete
+            // CONSISTENCY: Same approach as OnPageChanged() - preserves UI binding
+            _viewModel.UpdateViewModelsInPlace(pageRows);
 
-                // Update RowId (may have shifted after delete)
-                if (rowData.TryGetValue("__rowId", out var newRowId))
-                {
-                    rowViewModel.RowId = newRowId?.ToString();
-                }
+            // Invalidate caches to force UI refresh
+            _viewModel.InvalidateRowIdCache();
+            _viewModel.ViewportManager?.InvalidateCache();
 
-                // Update cell values for non-special columns
-                foreach (var cell in rowViewModel.Cells.Where(c => !c.IsSpecialColumn))
-                {
-                    if (rowData.TryGetValue(cell.ColumnName, out var newValue))
-                    {
-                        cell.Value = newValue; // ✅ PropertyChanged event fires automatically → UI updates
-                    }
-                }
-            }
-
-            // ✅ CRITICAL FIX: NO REFLECTION NEEDED!
-            // Setting CellViewModel.Value properties triggers PropertyChanged events automatically.
-            // WinUI data binding system detects these events and updates the UI without manual Reset.
-            // REMOVED: Reflection call to ObservableCollection.OnCollectionChanged (was throwing exceptions)
-            // PERFORMANCE: Incremental update now completes in 10-50ms (vs 1500ms full reload)
-
-            _logger.LogInformation("Incremental update completed - synced {Count} ViewModels with IRowStore (PropertyChanged events handle UI refresh)", _viewModel.Rows.Count);
+            _logger.LogInformation("✅ INCREMENTAL UPDATE completed - reloaded {Count} ViewModels for current page (VirtualInsert/Delete shifted data now visible)",
+                pageRows.Count);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Incremental update failed - falling back to full reload");
-            PerformFullReload(); // Fallback to full reload on error
+            PerformFullReload();  // Fallback to full reload on error
         }
     }
 
     /// <summary>
-    /// Performs full reload of ViewModel from IRowStore.
-    /// Used as fallback when granular metadata is not available (e.g., after Import, AddRow).
-    /// CRITICAL FIX: Updates PageManager.TotalDataRows after reload.
+    /// ✅ UNIFIED PAGINATION: Performs full reload with virtual pagination for ALL datasets.
+    /// ARCHITECTURE:
+    /// - IRowStore.RowCount can be 10, 100, 1000, 10M+ (flexible, changes via AddRow/DeleteRow)
+    /// - ViewModel.Rows.Count is always PageSize (fixed, typically 15)
+    /// - MEMORY: Always load only PageSize ViewModels instead of all (85-99.9% memory reduction)
+    /// - CONSISTENCY: Same behavior for 10 rows and 10M rows
+    /// - VirtualInsert/Delete: Shift data in IRowStore, reload current page in UI
+    /// - BUSINESS LAYER: Validations, search, filter still use GetAllRowsAsync/StreamRowsAsync (full dataset)
     /// </summary>
-    private void PerformFullReload()
+    private async void PerformFullReload()
     {
         if (_viewModel == null)
             return;
 
         try
         {
-            _logger.LogDebug("Performing full reload from IRowStore...");
+            _logger.LogDebug("Performing full reload with UNIFIED pagination (virtual pagination for all datasets)...");
 
-            // Get all rows from backend
-            var allRows = _rowStore.GetAllRows();
+            // ✅ STEP 1: Get total row count (full dataset)
+            // IRowStore.RowCount is flexible: 10, 100, 1000, 10M+ rows
+            // Can grow via AddRowAsync() or shrink via DeleteRowAsync()
+            // VirtualInsert/Delete DO NOT change this count (shift data only)
+            var totalRowCount = await _rowStore.GetRowCountAsync(onlyFiltered: false, cancellationToken: default);
 
-            if (allRows == null || allRows.Count == 0)
+            if (totalRowCount == 0)
             {
                 _logger.LogDebug("No data in IRowStore - clearing ViewModel");
                 _viewModel.InitializeColumns(new List<string>(), _options);
                 _viewModel.LoadRows(new List<Dictionary<string, object?>>());
 
-                // ✅ CRITICAL FIX: Reset PageManager to 0 total rows
+                // Reset PageManager to 0 total rows
                 if (_viewModel.PageManager != null)
                 {
                     _viewModel.PageManager.SetTotalDataRows(0);
-                    _logger.LogInformation("PageManager.TotalDataRows reset to 0, TotalPages=0");
+                    _logger.LogInformation("PageManager.TotalDataRows = 0, TotalPages = 0");
                 }
                 return;
             }
 
-            // Extract column headers from first row
-            var headers = allRows.First().Keys.ToList();
-
-            _logger.LogDebug("Reloading {RowCount} rows with {ColumnCount} columns", allRows.Count, headers.Count);
-
-            // Load data into ViewModel (InitializeColumns first, then LoadRows)
-            _viewModel.InitializeColumns(headers, _options);
-            _viewModel.LoadRows(allRows);
-
-            // ✅ CRITICAL FIX: Update PageManager total data rows
-            if (_viewModel.PageManager != null)
+            // ✅ STEP 2: Extract column headers from first row (sample)
+            var firstRow = await _rowStore.GetRowAsync(0, cancellationToken: default);
+            if (firstRow == null)
             {
-                _viewModel.PageManager.SetTotalDataRows(allRows.Count);
-                _logger.LogInformation("PageManager.TotalDataRows updated to {TotalRows}, TotalPages={TotalPages}",
-                    allRows.Count, _viewModel.PageManager.TotalPages);
+                _logger.LogWarning("Failed to get first row for column headers");
+                return;
             }
 
-            _logger.LogInformation("Full reload completed - loaded {RowCount} rows", allRows.Count);
+            var headers = firstRow.Keys.ToList();
+            _viewModel.InitializeColumns(headers, _options);
+
+            // ✅ STEP 3: Require PageManager for unified pagination
+            if (_viewModel.PageManager == null)
+            {
+                _logger.LogError("PageManager not configured - cannot perform unified pagination reload");
+                return;
+            }
+
+            // ✅ STEP 4: Configure PageManager with total data rows
+            _viewModel.PageManager.SetTotalDataRows(totalRowCount);
+            var pageSize = _viewModel.PageManager.PageSize;
+            _logger.LogInformation("✅ UNIFIED PAGINATION: TotalDataRows={Total}, PageSize={PageSize}, TotalPages={TotalPages}",
+                totalRowCount, pageSize, _viewModel.PageManager.TotalPages);
+
+            // ✅ STEP 5: Load ONLY FIRST PAGE (unified for ALL datasets)
+            // NO THRESHOLD - always use virtual pagination for consistent behavior
+            // REASON: User expects same behavior for 10, 100, 1000, 10M+ rows
+            // MEMORY: Always load only PageSize ViewModels (e.g., 15) instead of all (e.g., 100 or 10M)
+            // ARCHITECTURE:
+            // - 10 rows: load 10 ViewModels (page 1/1)
+            // - 100 rows: load 15 ViewModels (page 1/7) → 85% memory saving
+            // - 10M rows: load 15 ViewModels (page 1/666667) → 99.9998% memory saving
+            var (startIndex, count) = _viewModel.PageManager.GetCurrentPageRange();
+            var firstPageRows = await _rowStore.GetRowsRangeAsync(startIndex, count, onlyFiltered: false, cancellationToken: default);
+
+            // Load first page ViewModels into UI
+            _viewModel.LoadRows(firstPageRows);
+
+            _logger.LogInformation("✅ UNIFIED PAGINATION: Loaded {Count} ViewModels for page {Page}/{TotalPages} (TotalDataRows={Total}, Memory: {PageSize} ViewModels vs {Total} rows)",
+                firstPageRows.Count, _viewModel.PageManager.CurrentPage + 1, _viewModel.PageManager.TotalPages, totalRowCount, firstPageRows.Count, totalRowCount);
         }
         catch (Exception ex)
         {

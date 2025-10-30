@@ -230,6 +230,17 @@ internal sealed class AdaptiveRowStore : IRowStore, IAsyncDisposable
     public Task<long> GetFilteredRowCountAsync(CancellationToken cancellationToken = default) =>
         _activeStore.GetFilteredRowCountAsync(cancellationToken);
 
+    /// <summary>
+    /// ✅ SENIOR FIX: Delegate GetRowsRangeAsync to active store (InMemory or Hybrid)
+    /// Part of dual-mode virtual pagination architecture
+    /// </summary>
+    public Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> GetRowsRangeAsync(
+        long startIndex,
+        int count,
+        bool onlyFiltered = false,
+        CancellationToken cancellationToken = default) =>
+        _activeStore.GetRowsRangeAsync(startIndex, count, onlyFiltered, cancellationToken);
+
     public async Task PersistRowsAsync(IEnumerable<IReadOnlyDictionary<string, object?>> rows, CancellationToken cancellationToken = default)
     {
         await _activeStore.PersistRowsAsync(rows, cancellationToken);
@@ -511,5 +522,16 @@ internal sealed class AdaptiveRowStore : IRowStore, IAsyncDisposable
             if (_migrationLock.CurrentCount == 0)
                 _migrationLock.Release();
         }
+    }
+
+    // ✅ RIEŠENIE #2 - FIXED UI POOL stubs (delegate to active store)
+    public Task<string> InsertRowAtIndexAsync(int index, IReadOnlyDictionary<string, object?>? rowData, CancellationToken cancellationToken = default)
+    {
+        return _activeStore.InsertRowAtIndexAsync(index, rowData, cancellationToken);
+    }
+
+    public Task DeleteRowByIdAsync(string rowId, CancellationToken cancellationToken = default)
+    {
+        return _activeStore.DeleteRowByIdAsync(rowId, cancellationToken);
     }
 }

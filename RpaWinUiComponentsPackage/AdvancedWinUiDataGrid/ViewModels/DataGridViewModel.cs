@@ -625,11 +625,15 @@ public sealed class DataGridViewModel : ViewModelBase
         // ✅ SENIOR FIX: Update PageManager BEFORE AddRange to prevent race condition
         // CRITICAL: OnRowsCollectionChanged fires DURING AddRange and needs TotalDataRows set!
         // Without this: OnRowsCollectionChanged sees TotalDataRows=0 → ERROR "PageManager not configured"
+        // ⚠️ DUAL-MODE ARCHITECTURE FIX: TotalDataRows is set EXTERNALLY (not from ViewModels count)
+        // REASON: UI layer (ViewModels) contains only CURRENT PAGE (15 rows), not full dataset (1000+ rows)
+        // TotalDataRows must be set by caller (PerformFullReload or OnPageChanged) based on RowStore.GetRowCountAsync()
         if (_pageManager != null)
         {
-            UpdateTotalRowCount(rowViewModels.Count);
-            _logger?.LogInformation("PageManager.TotalDataRows updated to {Count} BEFORE AddRange (TotalPages={TotalPages})",
-                rowViewModels.Count, _pageManager.TotalPages);
+            // ❌ REMOVED: UpdateTotalRowCount(rowViewModels.Count);
+            // ✅ TotalDataRows is already set externally - DO NOT override it with page count
+            _logger?.LogInformation("PageManager.TotalDataRows already set externally to {TotalDataRows} (TotalPages={TotalPages}), loading {ViewModelCount} ViewModels for current page",
+                _pageManager.TotalDataRows, _pageManager.TotalPages, rowViewModels.Count);
         }
 
         // CRITICAL PERFORMANCE: Use AddRange instead of individual Add() calls
@@ -642,6 +646,218 @@ public sealed class DataGridViewModel : ViewModelBase
 
         _logger?.LogInformation("Rows loaded successfully with {SpecialCount} special columns per row",
             ColumnHeaders.Count(h => h.IsSpecialColumn));
+    }
+
+    /// <summary>
+    /// ✅ PROFESSIONAL SOLUTION: Updates existing ViewModels IN-PLACE with FIXED UI POOL.
+    /// ARCHITECTURE:
+    /// - FIXED UI POOL: Always maintains EXACTLY PageSize ViewModels (e.g., 15)
+    /// - Data count may be less than PageSize (e.g., page 7 has 10 rows)
+    /// - Empty slots (15-10=5) are marked as IsVisible=false
+    /// - RowId-BASED: All updates use RowId (stable identifier), not RowIndex (unstable)
+    /// BENEFITS:
+    /// - NO dispose/create overhead (pool size constant)
+    /// - INSERT/DELETE only update data, not UI object count
+    /// - Safe for concurrent operations (RowId is stable)
+    /// </summary>
+    /// <param name="rowsData">New row data to apply to existing ViewModels</param>
+    public void UpdateViewModelsInPlace(IEnumerable<IReadOnlyDictionary<string, object?>> rowsData)
+    {
+        var dataList = rowsData.ToList();
+        var pageSize = PageManager?.PageSize ?? 15;
+
+        _logger?.LogInformation("Updating ViewModels IN-PLACE: DataCount={DataCount}, FixedPoolSize={PoolSize}",
+            dataList.Count, pageSize);
+
+        // ✅ STEP 1: Ensure Rows collection has EXACTLY PageSize ViewModels (FIXED POOL)
+        // REASON: UI pool is FIXED size (always PageSize ViewModels, regardless of data count)
+        while (Rows.Count > pageSize)
+        {
+            var removedRow = Rows[Rows.Count - 1];
+            Rows.RemoveAt(Rows.Count - 1);
+
+            if (removedRow is IDisposable disposable)
+            {
+                disposable.Dispose();
+            }
+
+            _logger?.LogTrace("Removed excess ViewModel (shrinking pool to {PoolSize})", pageSize);
+        }
+
+        while (Rows.Count < pageSize)
+        {
+            // Create new empty ViewModel for UI pool
+            var rowVm = new DataGridRowViewModel
+            {
+                RowIndex = Rows.Count,
+                RowId = null,  // ← Empty row has no RowId
+                IsVisible = false  // ← Start as invisible (will be set to true if has data)
+            };
+            rowVm.SetParentViewModel(this);
+
+            // Create cells for all columns
+            for (int colIndex = 0; colIndex < ColumnHeaders.Count; colIndex++)
+            {
+                var header = ColumnHeaders[colIndex];
+                var cellVm = new CellViewModel(Theme, _loggerFactory?.CreateLogger<CellViewModel>())
+                {
+                    RowIndex = Rows.Count,
+                    RowId = null,  // ← Empty cell has no RowId
+                    ColumnIndex = colIndex,
+                    ColumnName = header.ColumnName,
+                    SpecialType = header.SpecialType,
+                    IsReadOnly = header.IsSpecialColumn
+                };
+                cellVm.SetParentRow(rowVm);
+                rowVm.Cells.Add(cellVm);
+            }
+
+            Rows.Add(rowVm);
+            _logger?.LogTrace("Added empty ViewModel to UI pool (growing pool to {PoolSize})", Rows.Count);
+        }
+
+        _logger?.LogDebug("UI Pool ensured: {PoolSize} ViewModels (fixed)", pageSize);
+
+        // ✅ STEP 2: Update ViewModels with data (RowId-BASED)
+        // ARCHITECTURE:
+        // - First dataList.Count ViewModels: VISIBLE (have RowId + data)
+        // - Remaining (pageSize - dataList.Count) ViewModels: INVISIBLE (no RowId, no data)
+        for (int i = 0; i < pageSize; i++)
+        {
+            var rowViewModel = Rows[i];
+
+            if (i < dataList.Count)
+            {
+                // ✅ VISIBLE ROW: Has data
+                var rowData = dataList[i];
+
+                // ✅ CRITICAL: Extract RowId from data (__rowId column)
+                // REASON: RowId is STABLE identifier used for all operations (delete, update, etc.)
+                string? newRowId = null;
+                if (rowData.TryGetValue("__rowId", out var rowIdValue))
+                {
+                    newRowId = rowIdValue?.ToString();
+                }
+
+                // Update RowId (fires PropertyChanged → UI rebinds)
+                if (rowViewModel.RowId != newRowId)
+                {
+                    _logger?.LogTrace("Updating RowId at index {Index}: {OldId} → {NewId}",
+                        i, rowViewModel.RowId ?? "(null)", newRowId ?? "(null)");
+                    rowViewModel.RowId = newRowId;  // ← RowId updated (UI button Click will use this!)
+                }
+
+                // Update RowIndex (page-relative, 0-based)
+                if (rowViewModel.RowIndex != i)
+                {
+                    rowViewModel.RowIndex = i;
+                }
+
+                // Mark as visible
+                if (!rowViewModel.IsVisible)
+                {
+                    rowViewModel.IsVisible = true;
+                    _logger?.LogTrace("Row {Index} marked VISIBLE (has data, RowId={RowId})", i, newRowId);
+                }
+
+                // ✅ Update cell values (RowId propagated to all cells)
+                foreach (var cell in rowViewModel.Cells)
+                {
+                    // Update cell RowId (same as row RowId)
+                    if (cell.RowId != newRowId)
+                    {
+                        cell.RowId = newRowId;  // ← Cell inherits RowId from row
+                    }
+
+                    if (cell.RowIndex != i)
+                    {
+                        cell.RowIndex = i;
+                    }
+
+                    // Update cell value based on column type
+                    if (cell.SpecialType == SpecialColumnType.RowNumber)
+                    {
+                        // RowNumber - computed from rowIndex (1-based)
+                        cell.Value = i + 1;
+                    }
+                    else if (cell.SpecialType == SpecialColumnType.Checkbox)
+                    {
+                        // Checkbox - preserve current state (don't reset)
+                    }
+                    else if (cell.SpecialType == SpecialColumnType.ValidationAlerts)
+                    {
+                        // ValidationAlerts - preserve current state
+                    }
+                    else if (cell.SpecialType == SpecialColumnType.DeleteRow ||
+                             cell.SpecialType == SpecialColumnType.InsertRow)
+                    {
+                        // DeleteRow/InsertRow buttons - no value
+                        // CRITICAL: Button Click handlers use cell.RowId (updated above!)
+                    }
+                    else
+                    {
+                        // Normal data column - update value from row data
+                        if (rowData.TryGetValue(cell.ColumnName, out var newValue))
+                        {
+                            cell.Value = newValue;
+                        }
+                        else
+                        {
+                            cell.Value = null;
+                        }
+                    }
+                }
+            }
+            else
+            {
+                // ✅ EMPTY ROW: No data (UI pool padding)
+                // REASON: Page has fewer data rows than PageSize (e.g., page 7 has 10 rows, PageSize=15)
+                // RENDERING: Row is INVISIBLE (DataGridElementFactory returns collapsed placeholder)
+
+                if (rowViewModel.RowId != null)
+                {
+                    rowViewModel.RowId = null;  // ← Clear RowId (no data)
+                }
+
+                if (rowViewModel.RowIndex != i)
+                {
+                    rowViewModel.RowIndex = i;
+                }
+
+                // Mark as invisible
+                if (rowViewModel.IsVisible)
+                {
+                    rowViewModel.IsVisible = false;
+                    _logger?.LogTrace("Row {Index} marked INVISIBLE (UI pool padding, no data)", i);
+                }
+
+                // Clear all cell values and RowIds
+                foreach (var cell in rowViewModel.Cells)
+                {
+                    if (cell.RowId != null)
+                    {
+                        cell.RowId = null;  // ← Clear RowId
+                    }
+
+                    if (cell.RowIndex != i)
+                    {
+                        cell.RowIndex = i;
+                    }
+
+                    if (cell.Value != null)
+                    {
+                        cell.Value = null;  // ← Clear value
+                    }
+                }
+            }
+        }
+
+        // ✅ STEP 3: Invalidate caches
+        InvalidateCache();
+        ViewportManager?.InvalidateCache();
+
+        _logger?.LogInformation("✅ Updated {DataCount} visible ViewModels + {EmptyCount} empty (fixed pool={PoolSize})",
+            dataList.Count, pageSize - dataList.Count, pageSize);
     }
 
     /// <summary>
@@ -1667,6 +1883,14 @@ public sealed class DataGridViewModel : ViewModelBase
     /// INTERNAL: Only accessible to ViewModels namespace for performance optimization.
     /// </summary>
     internal bool IsBatchUpdating => _isBatchUpdating;
+
+    /// <summary>
+    /// ✅ SENIOR FIX: Exposes RowStore for virtual pagination page loading
+    /// CRITICAL: DataGridCellsView needs RowStore to load new page data on PageChanged event
+    /// INTERNAL: Only accessible to UI adapters for pagination data fetching
+    /// ARCHITECTURE: Enables dual-mode virtual pagination (UI loads only current page from RowStore)
+    /// </summary>
+    internal Infrastructure.Persistence.Interfaces.IRowStore? RowStore { get; set; }
 
     /// <summary>
     /// Event fired when page data needs to be reloaded from IRowStore

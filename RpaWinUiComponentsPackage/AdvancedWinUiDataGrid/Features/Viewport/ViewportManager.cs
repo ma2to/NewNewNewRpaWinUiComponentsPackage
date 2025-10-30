@@ -142,48 +142,47 @@ public sealed class ViewportManager : IDisposable
     /// CRITICAL FIX: Adds page offset calculation to support pagination navigation.
     /// This fixes issue where rows beyond PageSize were invisible.
     /// </summary>
+    /// <summary>
+    /// ✅ SENIOR FIX: Simplified GetRowViewModel with dual-mode architecture support
+    /// MODE 1 (Small datasets): Rows contains all data, direct index access
+    /// MODE 2 (Large datasets): Rows contains only current page, page-relative index access
+    /// CRITICAL: Index is always page-relative (0-14) after OnPageChanged loads new page data
+    /// ARCHITECTURE: Rows collection is synced with current page via OnPageChanged → LoadRows
+    /// </summary>
     public DataGridRowViewModel? GetRowViewModel(int index)
     {
-        var pageManager = _sourceViewModel.PageManager;
+        // ✅ DUAL-MODE ARCHITECTURE: index is page-relative (0-14 for PageSize=15)
+        // Rows collection is synchronized with current page via OnPageChanged event handler
+        // Example: Page 5 → OnPageChanged loads rows 60-74 → Rows[0-14] contains those 15 ViewModels
+        // User scrolls to row 5 on page → GetRowViewModel(5) → returns Rows[5] (absolute row 65)
 
-        if (pageManager != null && pageManager.TotalDataRows > 0)
-        {
-            // ✅ PAGINATION ACTIVE: Convert page-relative index to absolute index
-            var (pageStartIndex, pageRowCount) = pageManager.GetCurrentPageRange();
-
-            // Validate index is within current page bounds
-            if (index < 0 || index >= pageRowCount)
-            {
-                _logger.LogWarning("GetRowViewModel: Page-relative index {Index} out of current page range (PageRowCount={Count})",
-                    index, pageRowCount);
-                return null;
-            }
-
-            // Calculate absolute index in Rows collection
-            var absoluteIndex = (int)pageStartIndex + index;
-
-            if (absoluteIndex >= 0 && absoluteIndex < _sourceViewModel.Rows.Count)
-            {
-                _logger.LogTrace("GetRowViewModel: Page-relative index {PageIndex} → Absolute index {AbsIndex} (Page {Page}/{TotalPages})",
-                    index, absoluteIndex, pageManager.CurrentPage + 1, pageManager.TotalPages);
-
-                return _sourceViewModel.Rows[absoluteIndex];
-            }
-
-            _logger.LogWarning("GetRowViewModel: Absolute index {AbsIndex} out of range (Rows.Count={Count})",
-                absoluteIndex, _sourceViewModel.Rows.Count);
-            return null;
-        }
-
-        // ✅ NO PAGINATION: Return directly from Rows collection (absolute index)
         if (index >= 0 && index < _sourceViewModel.Rows.Count)
         {
+            var pageManager = _sourceViewModel.PageManager;
+
+            if (pageManager != null)
+            {
+                _logger.LogTrace("GetRowViewModel: Page-relative index {PageIndex} → Rows[{PageIndex}] (Page {Page}/{TotalPages}, Rows.Count={RowsCount})",
+                    index, index, pageManager.CurrentPage + 1, pageManager.TotalPages, _sourceViewModel.Rows.Count);
+            }
+            else
+            {
+                _logger.LogTrace("GetRowViewModel: Direct index {Index} → Rows[{Index}] (no pagination, Rows.Count={RowsCount})",
+                    index, index, _sourceViewModel.Rows.Count);
+            }
+
             return _sourceViewModel.Rows[index];
         }
 
-        _logger.LogWarning("GetRowViewModel: Absolute index {Index} out of range (Rows.Count={Count})",
+        _logger.LogWarning("GetRowViewModel: Page-relative index {Index} out of range (Rows.Count={Count})",
             index, _sourceViewModel.Rows.Count);
         return null;
+
+        // ✅ REMOVED OLD PAGINATION CODE: No longer needed with dual-mode architecture
+        // Old behavior: Calculate absoluteIndex = pageStartIndex + index, access Rows[absoluteIndex]
+        // Problem: Rows contained ALL data (1000 rows), causing memory issues
+        // New behavior: Rows contains ONLY current page (15 rows), direct index access
+        // Benefits: 98.5% memory reduction, simpler code, no absolute index calculation
     }
 
     /// <summary>
@@ -216,18 +215,21 @@ public sealed class ViewportManager : IDisposable
     }
 
     /// <summary>
-    /// Total row count for CURRENT PAGE (for ItemsRepeater).
-    /// PAGINATION ARCHITECTURE:
-    /// - WITH PAGINATION: Returns row count for current page (can be less than PageSize on last page)
-    /// - WITHOUT PAGINATION: Returns all rows from Rows collection
+    /// Total row count for ItemsRepeater (FIXED UI POOL).
+    /// ALWAYS returns PageSize (not actual data count) to maintain fixed UI object pool.
+    /// Empty rows (when data count < PageSize) are rendered as invisible placeholders.
     ///
-    /// EXAMPLE with 250 total rows, PageSize=100:
-    /// - Page 0 (1-100): TotalRowCount = 100 (rows 0-99)
-    /// - Page 1 (101-200): TotalRowCount = 100 (rows 100-199)
-    /// - Page 2 (201-250): TotalRowCount = 50 (rows 200-249)
+    /// ARCHITECTURE:
+    /// - FIXED UI POOL: UI always has EXACTLY PageSize ViewModels (e.g., 15)
+    /// - Data count may be less than PageSize (e.g., page 7 has 10 rows)
+    /// - Empty slots (15-10=5) are marked as IsVisible=false in UpdateViewModelsInPlace()
+    /// - DataGridElementFactory skips invisible rows (returns collapsed placeholder)
     ///
-    /// CRITICAL FIX: Now returns actual row count per page, not fixed PageSize.
-    /// This fixes issue where rows beyond PageSize were invisible.
+    /// EXAMPLE with 100 total rows, PageSize=15, TotalPages=7:
+    /// - Page 1: 15 data rows → UI pool: 15 ViewModels (15 visible + 0 invisible)
+    /// - Page 7: 10 data rows → UI pool: 15 ViewModels (10 visible + 5 invisible)
+    ///
+    /// CRITICAL: ALWAYS return PageSize (not variable count) to prevent UI object creation/disposal!
     /// </summary>
     public int TotalRowCount
     {
@@ -236,28 +238,24 @@ public sealed class ViewportManager : IDisposable
             var pageManager = _sourceViewModel.PageManager;
             if (pageManager != null && pageManager.TotalDataRows > 0)
             {
-                // ✅ PAGINATION ACTIVE: Return row count for CURRENT PAGE
-                var (startIndex, count) = pageManager.GetCurrentPageRange();
+                // ✅ CRITICAL: Always return PageSize (not variable count!)
+                // REASON: UI pool is FIXED size
+                // EXAMPLE: Page 7 has 10 data rows but UI always has 15 ViewModels (5 empty)
+                var pageSize = pageManager.PageSize;
 
-                _logger.LogTrace("TotalRowCount: Page {Page}/{TotalPages}, StartIndex={Start}, Count={Count}",
-                    pageManager.CurrentPage + 1, pageManager.TotalPages, startIndex, count);
+                _logger.LogTrace("TotalRowCount: Fixed UI pool size={PageSize} (Page {Page}/{TotalPages})",
+                    pageSize, pageManager.CurrentPage + 1, pageManager.TotalPages);
 
-                return count;
+                return pageSize;  // ← ALWAYS PageSize (15), not variable!
             }
 
-            // ⚠️ BACKWARD COMPATIBILITY: Disabled for testing - pagination required
-            // ✅ NO PAGINATION: Return all rows from Rows collection
-            // This ensures ALL rows are visible when pagination is not active
-            //return _sourceViewModel.Rows.Count;
-
-            // For testing: Require pagination, return 0 if not configured
             _logger.LogWarning("PageManager not configured or TotalDataRows=0, returning 0 rows");
             return 0;
         }
         set
         {
             _totalRowCount = value;
-            _logger.LogDebug("TotalRowCount set to {Count} (may be overridden by pagination logic)", value);
+            _logger.LogDebug("TotalRowCount set to {Count} (ignored, using PageSize instead)", value);
         }
     }
 

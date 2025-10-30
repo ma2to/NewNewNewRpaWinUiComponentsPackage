@@ -722,16 +722,30 @@ internal sealed class DataGridRows : IDataGridRows
     }
 
     /// <summary>
-    /// PROFESSIONAL SOLUTION: Virtuálne vloží prázdny riadok na pozíciu (posunie data smerom nadol v rámci page).
-    /// Počet riadkov zostáva KONŠTANTNÝ - posledný riadok sa prepíše prázdnymi hodnotami.
+    /// ✅ PROFESSIONAL SOLUTION: Physically inserts empty row at position (FIXED UI POOL).
+    /// ARCHITECTURE:
+    /// - Uses IRowStore.InsertRowAtIndexAsync() to PHYSICALLY add row (RowCount++)
+    /// - PageManager.TotalDataRows updated → TotalPages recalculated
+    /// - UI: FIXED pool of PageSize ViewModels (always 15, never changes)
+    ///   - UpdateViewModelsInPlace() updates existing ViewModels IN-PLACE
+    ///   - Empty rows (pool padding) become VISIBLE when data count increases
+    ///   - NO new UI objects created (pool size constant)
+    /// PARAMETERS:
+    /// - referenceRowId: RowId of reference row (STABLE identifier, not RowIndex!)
+    /// EXAMPLE: PageSize=15, Page 7 has 10 visible rows
+    ///   - UI pool: 10 visible + 5 invisible (total 15)
+    ///   - User clicks INSERT after row 9 (RowId="R99")
+    ///   - InsertRowAtIndexAsync(98) → RowCount 100→101
+    ///   - UpdateViewModelsInPlace(): 11 visible + 4 invisible (total 15)
+    ///   - Result: Row 10 became VISIBLE (was invisible), NO new UI objects!
     /// </summary>
     public async Task<PublicResult> VirtualInsertEmptyRowAfterAsync(string referenceRowId, CancellationToken cancellationToken = default)
     {
         try
         {
-            _logger?.LogInformation("VIRTUAL INSERT: Starting bulk operation for rowId {RowId}", referenceRowId);
+            _logger?.LogInformation("PHYSICAL INSERT (FIXED UI POOL): Starting for rowId {RowId}", referenceRowId);
 
-            // 1. Find reference row index
+            // 1. Find reference row index BY RowId (STABLE identifier)
             var referenceIndex = _rowStore.GetRowIndexById(referenceRowId);
             if (referenceIndex == null)
             {
@@ -739,10 +753,7 @@ internal sealed class DataGridRows : IDataGridRows
             }
 
             var insertAtIndex = referenceIndex.Value + 1;
-            var totalRows = _rowStore.GetRowCount();
-
-            _logger?.LogInformation("VIRTUAL INSERT: Will shift {Count} rows (from index {Start} to {End})",
-                totalRows - insertAtIndex, insertAtIndex, totalRows - 1);
+            var oldRowCount = _rowStore.GetRowCount();
 
             // 2. Get template for empty row (all columns = null)
             var firstRow = _rowStore.GetRow(0);
@@ -754,145 +765,127 @@ internal sealed class DataGridRows : IDataGridRows
             var emptyRowData = new Dictionary<string, object?>();
             foreach (var colName in firstRow.Keys)
             {
-                if (colName == "__rowId") continue;
+                if (colName == "__rowId" || colName == "__createdAt")
+                    continue;  // System columns added by InsertRowAtIndexAsync
                 emptyRowData[colName] = null;
             }
 
-            // ✅ STEP 3: COLLECT all row shifts (NO AWAIT - fast)
-            var bulkUpdates = new Dictionary<string, IReadOnlyDictionary<string, object?>>();
+            // ✅ STEP 3: PHYSICALLY INSERT row at position (RowCount++)
+            // IRowStore will:
+            // - Generate new RowId (STABLE identifier)
+            // - Calculate ULID timestamp for correct sort order
+            // - Add row to dictionary
+            // - Return RowId (for logging/debugging)
+            var newRowId = await _rowStore.InsertRowAtIndexAsync(insertAtIndex, emptyRowData, cancellationToken);
 
-            // Collect all shifts from end to insertAtIndex
-            for (int i = totalRows - 2; i >= insertAtIndex; i--)
-            {
-                var currentRow = _rowStore.GetRow(i);
-                if (currentRow != null)
-                {
-                    var nextRowId = _rowStore.GetRowIdByIndex(i + 1);
-                    if (!string.IsNullOrEmpty(nextRowId))
-                    {
-                        bulkUpdates[nextRowId] = currentRow;
-                    }
-                }
-            }
+            var newRowCount = _rowStore.GetRowCount();
 
-            _logger?.LogInformation("VIRTUAL INSERT: Prepared {Count} rows for bulk shift", bulkUpdates.Count);
+            _logger?.LogInformation("PHYSICAL INSERT: Added empty row at index {Index} (RowId={RowId}), RowCount: {OldCount}→{NewCount}",
+                insertAtIndex, newRowId, oldRowCount, newRowCount);
 
-            // ✅ STEP 4: SINGLE bulk update (10-50x faster)
-            // BEFORE: 15 serial updates × 50ms = 750ms
-            // AFTER: 1 batch update = 50ms
-            var updatedCount = await _rowStore.BulkUpdateRowsAsync(bulkUpdates, cancellationToken);
-            _logger?.LogInformation("VIRTUAL INSERT: Bulk shift completed - {Count} rows updated in ~50ms (was ~{OldTime}ms)",
-                updatedCount, updatedCount * 50);
+            // ✅ STEP 4: Trigger UI refresh (calls UpdateViewModelsInPlace)
+            // UI BEHAVIOR (FIXED POOL):
+            // - GetRowsRangeAsync() returns new data count (e.g., 10→11 rows)
+            // - UpdateViewModelsInPlace() updates EXISTING ViewModels (pool size=15, UNCHANGED)
+            // - IF page had invisible rows (e.g., 10 visible + 5 invisible):
+            //   → One invisible row becomes VISIBLE (11 visible + 4 invisible)
+            //   → RowId updated from null → newRowId
+            //   → IsVisible updated from false → true
+            //   → NO new UI objects created!
+            // - IF page was full (15 visible):
+            //   → Last row shifts to next page
+            //   → Still 15 visible (data updated IN-PLACE)
+            //   → NO new UI objects created!
+            // NOTE: PageManager.TotalDataRows will be auto-updated in UiNotificationService.NotifyDataRefreshAsync
+            await TriggerUIRefreshIfNeededAsync("VirtualInsert", 1);
 
-            // ✅ STEP 5: Insert empty row at position
-            var insertRowId = _rowStore.GetRowIdByIndex(insertAtIndex);
-            if (!string.IsNullOrEmpty(insertRowId))
-            {
-                await _rowStore.UpdateRowByIdAsync(insertRowId, emptyRowData, cancellationToken);
-                _logger?.LogInformation("VIRTUAL INSERT: Empty row inserted at index {Index}", insertAtIndex);
-            }
+            _logger?.LogInformation("PHYSICAL INSERT (FIXED UI POOL): Completed - dataset grew by 1 row");
 
-            // ✅ STEP 6: SINGLE UI refresh (not 15-20!)
-            await TriggerUIRefreshIfNeededAsync("VirtualInsert", updatedCount + 1);
-
-            _logger?.LogInformation("VIRTUAL INSERT: Completed in ~50-100ms (was ~750-1000ms)");
             return new PublicResult
             {
                 IsSuccess = true,
-                Message = "Virtual insert completed - row data shifted down"
+                Message = $"Empty row inserted at position {insertAtIndex}, dataset now has {newRowCount} rows (RowId={newRowId})"
             };
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "VIRTUAL INSERT failed for rowId {RowId}", referenceRowId);
+            _logger?.LogError(ex, "PHYSICAL INSERT failed for rowId {RowId}", referenceRowId);
             throw;
         }
     }
 
     /// <summary>
-    /// PROFESSIONAL SOLUTION: Virtuálne zmaže riadok na pozícii (posunie data smerom nahor v rámci page).
-    /// Počet riadkov zostáva KONŠTANTNÝ - dáta riadku sa úplne zmažú (posunú nahor) a posledný riadok ostane prázdny.
-    /// DÔLEŽITÉ: Dáta zmazaného riadku sú ÚPLNE ODSTRÁNENÉ (nie len vymazané - posunú sa všetky nasledujúce riadky nahor).
+    /// ✅ PROFESSIONAL SOLUTION: Physically deletes row (FIXED UI POOL).
+    /// ARCHITECTURE:
+    /// - Uses IRowStore.DeleteRowByIdAsync() to PHYSICALLY remove row (RowCount--)
+    /// - PageManager.TotalDataRows updated → TotalPages recalculated
+    /// - UI: FIXED pool of PageSize ViewModels (always 15, never changes)
+    ///   - UpdateViewModelsInPlace() updates existing ViewModels IN-PLACE
+    ///   - Visible rows become INVISIBLE when data count decreases
+    ///   - NO UI objects removed (pool size constant)
+    /// PARAMETERS:
+    /// - rowId: RowId to delete (STABLE identifier, not RowIndex!)
+    /// EXAMPLE: PageSize=15, Page 7 has 10 visible rows
+    ///   - UI pool: 10 visible + 5 invisible (total 15)
+    ///   - User clicks DELETE on row 5 (RowId="R95")
+    ///   - DeleteRowByIdAsync("R95") → RowCount 100→99
+    ///   - UpdateViewModelsInPlace(): 9 visible + 6 invisible (total 15)
+    ///   - Result: Row 9 became INVISIBLE (was visible), NO UI objects removed!
     /// </summary>
     public async Task<PublicResult> VirtualDeleteRowAsync(string rowId, CancellationToken cancellationToken = default)
     {
         try
         {
-            _logger?.LogInformation("VIRTUAL DELETE: Starting bulk operation for rowId {RowId}", rowId);
+            _logger?.LogInformation("PHYSICAL DELETE (FIXED UI POOL): Starting for rowId {RowId}", rowId);
 
-            // 1. Find row index to delete
+            // 1. Find row index BY RowId (for logging only - DeleteRowByIdAsync uses RowId directly)
             var deleteIndex = _rowStore.GetRowIndexById(rowId);
             if (deleteIndex == null)
             {
                 return PublicResult.Failure($"Row {rowId} not found");
             }
 
-            var totalRows = _rowStore.GetRowCount();
+            var oldRowCount = _rowStore.GetRowCount();
 
-            _logger?.LogInformation("VIRTUAL DELETE: Will shift {Count} rows (from index {Start} to {End})",
-                totalRows - deleteIndex.Value - 1, deleteIndex.Value + 1, totalRows - 1);
+            // ✅ STEP 2: PHYSICALLY DELETE row BY RowId (RowCount--)
+            // CRITICAL: Uses RowId (STABLE), not RowIndex (unstable)!
+            // IRowStore will:
+            // - Remove row from dictionary
+            // - Rows after deleted row automatically SHIFT UP via sort order
+            // - Clear caches
+            await _rowStore.DeleteRowByIdAsync(rowId, cancellationToken);
 
-            // 2. Get template for empty row
-            var firstRow = _rowStore.GetRow(0);
-            if (firstRow == null)
-            {
-                return PublicResult.Failure("Cannot determine column structure - no rows exist");
-            }
+            var newRowCount = _rowStore.GetRowCount();
 
-            var emptyRowData = new Dictionary<string, object?>();
-            foreach (var colName in firstRow.Keys)
-            {
-                if (colName == "__rowId") continue;
-                emptyRowData[colName] = null;
-            }
+            _logger?.LogInformation("PHYSICAL DELETE: Deleted row at index {Index} (RowId={RowId}), RowCount: {OldCount}→{NewCount}",
+                deleteIndex.Value, rowId, oldRowCount, newRowCount);
 
-            // ✅ STEP 3: COLLECT all row shifts (NO AWAIT - fast)
-            var bulkUpdates = new Dictionary<string, IReadOnlyDictionary<string, object?>>();
+            // ✅ STEP 3: Trigger UI refresh (calls UpdateViewModelsInPlace)
+            // UI BEHAVIOR (FIXED POOL):
+            // - GetRowsRangeAsync() returns new data count (e.g., 10→9 rows)
+            // - UpdateViewModelsInPlace() updates EXISTING ViewModels (pool size=15, UNCHANGED)
+            // - IF page has visible rows (e.g., 10 visible + 5 invisible):
+            //   → One visible row becomes INVISIBLE (9 visible + 6 invisible)
+            //   → RowId updated from oldRowId → null
+            //   → IsVisible updated from true → false
+            //   → NO UI objects removed!
+            // - IF page refills from next page (rows shift UP):
+            //   → Still 15 visible (data updated IN-PLACE)
+            //   → NO UI objects removed!
+            // NOTE: PageManager.TotalDataRows will be auto-updated in UiNotificationService.NotifyDataRefreshAsync
+            await TriggerUIRefreshIfNeededAsync("VirtualDelete", 1);
 
-            // Collect all shifts from deleteIndex to totalRows-1
-            for (int i = deleteIndex.Value; i < totalRows - 1; i++)
-            {
-                var nextRow = _rowStore.GetRow(i + 1);
-                if (nextRow != null)
-                {
-                    var currentRowId = _rowStore.GetRowIdByIndex(i);
-                    if (!string.IsNullOrEmpty(currentRowId))
-                    {
-                        bulkUpdates[currentRowId] = nextRow;
-                    }
-                }
-            }
+            _logger?.LogInformation("PHYSICAL DELETE (FIXED UI POOL): Completed - dataset shrunk by 1 row");
 
-            _logger?.LogInformation("VIRTUAL DELETE: Prepared {Count} rows for bulk shift", bulkUpdates.Count);
-
-            // ✅ STEP 4: SINGLE bulk update (10-50x faster)
-            // BEFORE: 16 serial updates × 50ms = 800ms
-            // AFTER: 1 batch update = 50ms
-            var updatedCount = await _rowStore.BulkUpdateRowsAsync(bulkUpdates, cancellationToken);
-            _logger?.LogInformation("VIRTUAL DELETE: Bulk shift completed - {Count} rows updated in ~50ms (was ~{OldTime}ms)",
-                updatedCount, updatedCount * 50);
-
-            // ✅ STEP 5: Clear last row (data COMPLETELY deleted)
-            var lastRowId = _rowStore.GetRowIdByIndex(totalRows - 1);
-            if (!string.IsNullOrEmpty(lastRowId))
-            {
-                await _rowStore.UpdateRowByIdAsync(lastRowId, emptyRowData, cancellationToken);
-                _logger?.LogInformation("VIRTUAL DELETE: Last row cleared at index {Index} (row data deleted, not row itself)", totalRows - 1);
-            }
-
-            // ✅ STEP 6: SINGLE UI refresh (not 16-20!)
-            await TriggerUIRefreshIfNeededAsync("VirtualDelete", updatedCount + 1);
-
-            _logger?.LogInformation("VIRTUAL DELETE: Completed - row data completely deleted, last row empty");
             return new PublicResult
             {
                 IsSuccess = true,
-                Message = "Virtual delete completed - row data deleted and shifted up, last row is now empty"
+                Message = $"Row deleted at position {deleteIndex.Value} (RowId={rowId}), dataset now has {newRowCount} rows"
             };
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "VIRTUAL DELETE failed for rowId {RowId}", rowId);
+            _logger?.LogError(ex, "PHYSICAL DELETE failed for rowId {RowId}", rowId);
             throw;
         }
     }

@@ -88,10 +88,24 @@ public sealed class PageManager : IPageManager
             throw new ArgumentOutOfRangeException(nameof(totalRows), "TotalDataRows cannot be negative");
 
         var oldTotal = _totalDataRows;
-        _totalDataRows = totalRows;
+        var oldTotalPages = TotalPages;  // ✅ SENIOR FIX: Capture old TotalPages BEFORE update
 
-        _logger.LogDebug("TotalDataRows changed from {OldTotal} to {NewTotal}, TotalPages={TotalPages}",
-            oldTotal, _totalDataRows, TotalPages);
+        _totalDataRows = totalRows;
+        var newTotalPages = TotalPages;
+
+        _logger.LogDebug("TotalDataRows changed from {OldTotal} to {NewTotal}, TotalPages changed from {OldPages} to {NewPages}",
+            oldTotal, _totalDataRows, oldTotalPages, newTotalPages);
+
+        // ✅ SENIOR FIX: Fire PageSizeChanged event when TotalPages changes
+        // CRITICAL: This notifies PaginationControlView to update UI visibility (Collapsed→Visible)
+        // Without this event, pagination UI stays hidden even when TotalPages goes from 0→7
+        // Example: TotalDataRows 0→100 with PageSize=15 → TotalPages 0→7 → pagination should appear
+        if (oldTotalPages != newTotalPages)
+        {
+            _logger.LogInformation("TotalPages changed from {OldPages} to {NewPages}, firing PageSizeChanged event for UI update",
+                oldTotalPages, newTotalPages);
+            PageSizeChanged?.Invoke(this, _pageSize);
+        }
 
         // If current page is now out of bounds, move to last page
         if (_currentPage >= TotalPages && TotalPages > 0)

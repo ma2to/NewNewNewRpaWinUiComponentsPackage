@@ -11,6 +11,7 @@ public sealed class DataGridRowViewModel : ViewModelBase, IDisposable
 {
     private bool _isSelected;
     private bool _hasValidationErrors;
+    private bool _isVisible = true;
     private bool _disposed;
 
     // ✅ SENIOR FIX: Weak reference to parent DataGridViewModel to prevent circular reference memory leak
@@ -24,6 +25,21 @@ public sealed class DataGridRowViewModel : ViewModelBase, IDisposable
     /// This ID is stable across row operations (delete, sort, filter).
     /// </summary>
     public string? RowId { get; set; }
+
+    /// <summary>
+    /// Indicates whether this row is visible in UI (FIXED UI POOL).
+    /// FALSE for empty rows in UI pool padding (when page has fewer data rows than PageSize).
+    /// Used by DataGridElementFactory to render collapsed placeholder.
+    /// ARCHITECTURE:
+    /// - FIXED UI POOL: Always PageSize ViewModels (e.g., 15)
+    /// - Page with 10 data rows: 10 visible + 5 invisible (total 15)
+    /// - Invisible rows: RowId=null, IsVisible=false, Height=0, Collapsed
+    /// </summary>
+    public bool IsVisible
+    {
+        get => _isVisible;
+        set => SetProperty(ref _isVisible, value);
+    }
 
     public ObservableCollection<CellViewModel> Cells { get; } = new();
 
@@ -50,6 +66,23 @@ public sealed class DataGridRowViewModel : ViewModelBase, IDisposable
                 // ✅ NORMAL MODE: Update with PropertyChanged notification
                 SetProperty(ref _isSelected, value);
             }
+        }
+    }
+
+    /// <summary>
+    /// ✅ PROFESSIONAL FIX: Gets PageManager from parent DataGridViewModel for global row numbering.
+    /// Used by CellViewModel.DisplayRowNumber to calculate global position (Page 1: 1-15, Page 2: 16-30).
+    /// Returns null if parent not available.
+    /// </summary>
+    public Features.Pagination.Interfaces.IPageManager? PageManager
+    {
+        get
+        {
+            if (_parentViewModel != null && _parentViewModel.TryGetTarget(out var parent))
+            {
+                return parent.PageManager;
+            }
+            return null;
         }
     }
 

@@ -64,6 +64,32 @@ internal interface IRowStore
     Task<long> GetRowCountAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// ✅ SENIOR FIX: Get a range of rows for pagination/virtualization
+    /// CRITICAL: Enables virtual pagination - UI loads only visible page instead of entire dataset
+    /// PERFORMANCE: O(n) for skip/take in InMemoryRowStore, O(1) for SQL LIMIT/OFFSET in HybridRowStore
+    /// ARCHITECTURE: This is the foundation of dual-mode architecture:
+    /// - Small datasets (<1000): Load all rows into UI (backward compatible)
+    /// - Large datasets (>=1000): Load only current page into UI (virtual pagination)
+    /// BUSINESS LAYER: Validations, search, filter, smart delete still use GetAllRowsAsync/StreamRowsAsync (full dataset access)
+    /// </summary>
+    /// <param name="startIndex">Starting row index (0-based, absolute position in dataset)</param>
+    /// <param name="count">Number of rows to retrieve (page size, typically 15-100)</param>
+    /// <param name="onlyFiltered">If true, returns range from filtered view; otherwise from all rows</param>
+    /// <param name="cancellationToken">Cancellation token for async operations</param>
+    /// <returns>Range of rows (may be fewer than count if near end of dataset)</returns>
+    /// <example>
+    /// Dataset: 1000 rows, PageSize: 15
+    /// Page 1: GetRowsRangeAsync(0, 15)   → rows 0-14
+    /// Page 5: GetRowsRangeAsync(60, 15)  → rows 60-74
+    /// Page 67: GetRowsRangeAsync(990, 15) → rows 990-999 (only 10 rows returned)
+    /// </example>
+    Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> GetRowsRangeAsync(
+        long startIndex,
+        int count,
+        bool onlyFiltered = false,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Get row count for filtered data
     /// </summary>
     /// <param name="cancellationToken">Cancellation token for async operations</param>
@@ -470,4 +496,24 @@ internal interface IRowStore
     Task<int> BulkUpdateRowsAsync(
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, object?>> updates,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// ✅ RIEŠENIE #2: Physically inserts row at specified index (FIXED UI POOL).
+    /// Uses ULID timestamp interpolation to control sort order.
+    /// RowCount increases by 1.
+    /// </summary>
+    /// <param name="index">Target position (0-based)</param>
+    /// <param name="rowData">Column values (WITHOUT __rowId - system column added automatically)</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>RowId of newly inserted row (STABLE identifier)</returns>
+    Task<string> InsertRowAtIndexAsync(int index, IReadOnlyDictionary<string, object?>? rowData, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// ✅ RIEŠENIE #2: Physically deletes row by RowId (FIXED UI POOL).
+    /// RowCount decreases by 1.
+    /// Rows after deleted row automatically SHIFT UP via sort order.
+    /// </summary>
+    /// <param name="rowId">STABLE identifier (not RowIndex!)</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    Task DeleteRowByIdAsync(string rowId, CancellationToken cancellationToken = default);
 }
