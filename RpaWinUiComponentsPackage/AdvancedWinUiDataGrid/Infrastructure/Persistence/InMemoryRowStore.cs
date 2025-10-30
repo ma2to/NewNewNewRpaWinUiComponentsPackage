@@ -166,7 +166,11 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
     }
 
     /// <summary>
-    /// Adds multiple rows in batch
+    /// ✅ PROFESSIONAL FIX: Adds multiple rows in batch with sequential __rowNumber.
+    /// ARCHITECTURE:
+    /// - Finds max existing __rowNumber
+    /// - Assigns new rows: max+1, max+2, max+3, ...
+    /// - Generates ULID for __rowId (unique identifier)
     /// ULID MIGRATION: Uses Ulid.NewUlid() for thread-safe unique ID generation
     /// </summary>
     public async Task<int> AddRangeAsync(
@@ -179,15 +183,24 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
 
             lock (_modificationLock)
             {
+                // ✅ Find max __rowNumber in existing rows
+                var currentMaxRowNumber = _rows.Values
+                    .Select(r => r.TryGetValue("__rowNumber", out var rn) ? Convert.ToInt32(rn) : 0)
+                    .DefaultIfEmpty(0)
+                    .Max();
+
                 foreach (var row in rows)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
                     // ULID MIGRATION: Generate ULID string (timestamp-based, lexicographically sortable)
                     var rowId = Ulid.NewUlid().ToString();
+                    currentMaxRowNumber++; // Increment for each new row
+
                     var rowWithId = new Dictionary<string, object?>(row)
                     {
-                        ["__rowId"] = rowId
+                        ["__rowId"] = rowId,
+                        ["__rowNumber"] = currentMaxRowNumber // ✅ Sequential numbering (1-based)
                     };
 
                     _rows.TryAdd(rowId, rowWithId);
@@ -206,10 +219,16 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
                     // SENIOR FIX: Clear validation cache when new rows added
                     // Ensures new rows are validated (not skipped as "already validated")
                     _validatedRowsCache.Clear();
+
+                    _logger.LogDebug("Added {AddedCount} rows in batch with __rowNumber starting from {StartNum}, sorted keys cache and validation cache cleared",
+                        addedCount, currentMaxRowNumber - addedCount + 1);
+                }
+                else
+                {
+                    _logger.LogDebug("Added {AddedCount} rows in batch, sorted keys cache and validation cache cleared", addedCount);
                 }
             }
 
-            _logger.LogDebug("Added {AddedCount} rows in batch, sorted keys cache and validation cache cleared", addedCount);
             return addedCount;
         }, cancellationToken);
     }
@@ -819,16 +838,61 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
     }
 
     /// <summary>
-    /// Set sort criteria - IRowStore implementation
-    /// Note: InMemoryRowStore does not use this (sorting handled by SortService).
-    /// This is a no-op to maintain interface compatibility.
+    /// ✅ PROFESSIONAL FIX: Set sort criteria - sorts rows by specified column and RENUMBERS __rowNumber.
+    /// ARCHITECTURE:
+    /// - Sorts rows by column value (ascending/descending)
+    /// - Renumbers __rowNumber sequentially (1, 2, 3, ...)
+    /// - CRITICAL: This is the ONLY way to change __rowNumber order (besides INSERT/DELETE)
+    /// EXAMPLE: Sort by "Age" descending:
+    ///   - Before: __rowNumber = 1-100 (original import order)
+    ///   - Sort: Order by Age DESC
+    ///   - Renumber: __rowNumber = 1 (oldest), 2, 3, ..., 100 (youngest)
     /// </summary>
     public void SetSortCriteria(string columnName, Common.SortDirection direction)
     {
-        // No-op: InMemoryRowStore doesn't use SQL-based sorting
-        // Sorting is handled by SortService using LINQ OrderBy
-        _logger.LogDebug("SetSortCriteria called on InMemoryRowStore (no-op): column={Column}, direction={Direction}",
-            columnName, direction);
+        _logger.LogInformation("SetSortCriteria: column={ColumnName}, direction={Direction}", columnName, direction);
+
+        if (direction == Common.SortDirection.None)
+        {
+            // Clear sort → keep current __rowNumber order (no renumbering)
+            InvalidateSortedRowKeysCache();
+            _logger.LogInformation("Sort cleared - reverted to current __rowNumber order");
+            return;
+        }
+
+        lock (_modificationLock)
+        {
+            var sortedRows = _rows.Values.ToList();
+
+            // Sort by column value
+            if (direction == Common.SortDirection.Ascending)
+            {
+                sortedRows = sortedRows
+                    .OrderBy(row => row.TryGetValue(columnName, out var val) ? val : null)
+                    .ToList();
+            }
+            else
+            {
+                sortedRows = sortedRows
+                    .OrderByDescending(row => row.TryGetValue(columnName, out var val) ? val : null)
+                    .ToList();
+            }
+
+            // Renumber __rowNumber sequentially (1, 2, 3, ...)
+            for (int i = 0; i < sortedRows.Count; i++)
+            {
+                var row = sortedRows[i];
+                var rowId = (string)row["__rowId"]!;
+                var mutableRow = new Dictionary<string, object?>(row);
+                mutableRow["__rowNumber"] = i + 1; // 1-based
+                _rows[rowId] = mutableRow;
+            }
+
+            InvalidateSortedRowKeysCache();
+
+            _logger.LogInformation("Sort completed: {Count} rows renumbered by column={Column}, direction={Direction}",
+                sortedRows.Count, columnName, direction);
+        }
     }
 
     /// <summary>
@@ -1360,12 +1424,18 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
     #region Physical Insert/Delete Operations (RIEŠENIE #2 - FIXED UI POOL)
 
     /// <summary>
-    /// ✅ PROFESSIONAL SOLUTION: Physically inserts row at specified index.
+    /// ✅ PROFESSIONAL FIX: Physically inserts row at specified index with __rowNumber shift.
     /// ARCHITECTURE:
-    /// - Uses ULID timestamp interpolation to control sort order
-    /// - Calculates timestamp to insert row BETWEEN existing rows
+    /// - index = 0-based position, __rowNumber = 1-based sort key
+    /// - __rowNumber = index + 1
+    /// - Shifts rows with __rowNumber >= (index+1) UP by incrementing their __rowNumber
     /// - RowCount increases by 1
     /// - Returns RowId (not RowIndex) for caller reference
+    /// EXAMPLE: Insert at index=2 (100 existing rows):
+    ///   - Old: __rowNumber = 1-100
+    ///   - Shift: __rowNumber >= 3 → increment (3→4, 4→5, ..., 100→101)
+    ///   - Insert: New row gets __rowNumber=3
+    ///   - Result: __rowNumber = 1-2, 3 (NEW), 4-101
     /// PARAMETERS:
     /// - index: Target position (0-based)
     /// - rowData: Column values (WITHOUT __rowId - system column added automatically)
@@ -1377,7 +1447,7 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
         {
             lock (_modificationLock)
             {
-                var sortedKeys = GetSortedRowKeys();
+                var sortedKeys = GetSortedRowKeys(); // Sorted by __rowNumber
 
                 if (index < 0 || index > sortedKeys.Count)
                 {
@@ -1385,103 +1455,55 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
                         $"Index {index} out of range (0-{sortedKeys.Count})");
                 }
 
-                // Determine ULID timestamp for insertion
-                long newTimestamp;
+                int newRowNumber;
 
                 if (sortedKeys.Count == 0)
                 {
-                    // Empty store - use current time
-                    newTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                    _logger?.LogDebug("InsertRowAtIndex {Index}: Empty store, using current timestamp", index);
+                    // Empty store → __rowNumber=1
+                    newRowNumber = 1;
+                    _logger?.LogDebug("InsertRowAtIndex {Index}: Empty store, __rowNumber=1", index);
                 }
-                else if (index == 0)
+                else if (index == sortedKeys.Count)
                 {
-                    // Insert at beginning - use timestamp BEFORE first row
-                    var firstUlid = Ulid.Parse(sortedKeys[0]);
-                    newTimestamp = firstUlid.Time.ToUnixTimeMilliseconds() - 1000; // 1 second before
-                    _logger?.LogDebug("InsertRowAtIndex {Index}: Timestamp BEFORE first row", index);
-                }
-                else if (index >= sortedKeys.Count)
-                {
-                    // Insert at end - use timestamp AFTER last row
-                    var lastUlid = Ulid.Parse(sortedKeys[sortedKeys.Count - 1]);
-                    newTimestamp = lastUlid.Time.ToUnixTimeMilliseconds() + 1000; // 1 second after
-                    _logger?.LogDebug("InsertRowAtIndex {Index}: Timestamp AFTER last row", index);
+                    // Insert at end → max+1
+                    var lastRow = _rows[sortedKeys[sortedKeys.Count - 1]];
+                    var lastRowNumber = Convert.ToInt32(lastRow["__rowNumber"]);
+                    newRowNumber = lastRowNumber + 1;
+                    _logger?.LogDebug("InsertRowAtIndex {Index}: Insert at end, __rowNumber={RowNum}", index, newRowNumber);
                 }
                 else
                 {
-                    // ✅ CRITICAL FIX: Insert in middle - use MICROSECOND OFFSET to prevent collision
-                    // PROBLEM: Midpoint of identical timestamps = same timestamp → ULID sort fails
-                    // LOG EVIDENCE: All rows from IMPORT have same timestamp (1761761456915)
-                    //   - Midpoint: (1761761456915 + 1761761456915) / 2 = 1761761456915 (SAME!)
-                    //   - Result: All INSERTs get IDENTICAL timestamp → RANDOM ORDER
-                    // SOLUTION: Add 1 microsecond (10 ticks) to PREVIOUS timestamp
-                    var prevUlid = Ulid.Parse(sortedKeys[index - 1]);
-                    var nextUlid = Ulid.Parse(sortedKeys[index]);
-                    var prevTimestamp = prevUlid.Time;
-                    var nextTimestamp = nextUlid.Time;
+                    // Insert in middle → shift rows UP
+                    newRowNumber = index + 1; // Convert 0-based to 1-based
 
-                    // ✅ PROFESSIONAL: Use sequential offset to prevent timestamp collision
-                    // Add 1 microsecond = 10 ticks (100-nanosecond units)
-                    var candidateTimestamp = prevTimestamp.AddTicks(10);
-
-                    // ✅ CRITICAL FIX #5: FALLBACK - Calculate midpoint in MILLISECONDS directly
-                    // PROBLEM: ticksMidpoint / 10000 created WRONG timestamp (63897366839638 instead of 1761770039639)
-                    //   - ticksMidpoint is in TICKS (100-nanosecond units)
-                    //   - Dividing by 10000 converts to WRONG unit (not Unix milliseconds!)
-                    //   - Result: Row appears at WRONG position (year 4000+ instead of 2025)
-                    // SOLUTION: Use ToUnixTimeMilliseconds() to get milliseconds, then calculate midpoint
-                    if (candidateTimestamp >= nextTimestamp)
+                    // Shift rows with __rowNumber >= newRowNumber UP by 1
+                    for (int i = index; i < sortedKeys.Count; i++)
                     {
-                        var prevMs = prevTimestamp.ToUnixTimeMilliseconds();
-                        var nextMs = nextTimestamp.ToUnixTimeMilliseconds();
+                        var rowId = sortedKeys[i];
+                        var row = _rows[rowId];
+                        var mutableRow = new Dictionary<string, object?>(row);
+                        var currentRowNumber = Convert.ToInt32(row["__rowNumber"]);
+                        mutableRow["__rowNumber"] = currentRowNumber + 1;
+                        _rows[rowId] = mutableRow;
+                    }
 
-                        // ✅ CRITICAL FIX: HANDLE IDENTICAL TIMESTAMPS (collision from IMPORT)
-                        // PROBLEM: prevMs == nextMs (all IMPORT rows have same timestamp)
-                        //   - Using +1ms creates NEW collision (all INSERT get same timestamp!)
-                        //   - Example: 10 INSERTs all get timestamp 1761790308097 → RANDOM ORDER
-                        // SOLUTION: Use CURRENT TIME (guarantees uniqueness for sequential operations)
-                        if (prevMs == nextMs)
-                        {
-                            // Timestamps are IDENTICAL - use CURRENT TIME to guarantee uniqueness
-                            newTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                            _logger?.LogDebug("InsertRowAtIndex {Index}: Timestamp COLLISION (identical {Prev}ms), using CURRENT TIME → {New}ms",
-                                index, prevMs, newTimestamp);
-                        }
-                        else
-                        {
-                            // Calculate true midpoint in milliseconds
-                            newTimestamp = (prevMs + nextMs) / 2;
-                            _logger?.LogDebug("InsertRowAtIndex {Index}: Timestamp MIDPOINT {Prev}ms → {New}ms → {Next}ms",
-                                index, prevMs, newTimestamp, nextMs);
-                        }
-                    }
-                    else
-                    {
-                        newTimestamp = candidateTimestamp.ToUnixTimeMilliseconds();
-                        _logger?.LogDebug("InsertRowAtIndex {Index}: Timestamp OFFSET +1μs: {Prev}ms → {New}ms",
-                            index, prevTimestamp.ToUnixTimeMilliseconds(), newTimestamp);
-                    }
+                    _logger?.LogDebug("InsertRowAtIndex {Index}: Shifted {Count} rows UP (__rowNumber {StartNum}-{EndNum} → {NewStart}-{NewEnd})",
+                        index, sortedKeys.Count - index, newRowNumber, newRowNumber + sortedKeys.Count - index - 1, newRowNumber + 1, newRowNumber + sortedKeys.Count - index);
                 }
 
-                // Generate new ULID with calculated timestamp
-                var newUlid = Ulid.NewUlid(DateTimeOffset.FromUnixTimeMilliseconds(newTimestamp));
-                var newRowId = newUlid.ToString();
-
-                // Create full row data with system columns
+                // Create new row with __rowNumber
+                var newRowId = Ulid.NewUlid().ToString();
                 var fullRowData = new Dictionary<string, object?>(rowData ?? new Dictionary<string, object?>())
                 {
-                    ["__rowId"] = newRowId  // ← STABLE identifier
+                    ["__rowId"] = newRowId,
+                    ["__rowNumber"] = newRowNumber
                 };
 
-                // Add to dictionary
                 _rows[newRowId] = fullRowData;
-
-                // Clear sorted keys cache (will be rebuilt on next access)
                 InvalidateSortedRowKeysCache();
 
-                _logger?.LogInformation("InsertRowAtIndex: Added row at index {Index} (RowId={RowId}, RowCount={OldCount}→{NewCount})",
-                    index, newRowId, sortedKeys.Count, _rows.Count);
+                _logger?.LogInformation("InsertRowAtIndex: Added row at index {Index} (RowId={RowId}, __rowNumber={RowNumber}, RowCount={OldCount}→{NewCount})",
+                    index, newRowId, newRowNumber, sortedKeys.Count, _rows.Count);
 
                 return newRowId;  // ← Return RowId (STABLE), not index!
             }
@@ -1489,11 +1511,18 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
     }
 
     /// <summary>
-    /// ✅ PROFESSIONAL SOLUTION: Physically deletes row by RowId.
+    /// ✅ PROFESSIONAL FIX: Physically deletes row by RowId and shifts subsequent rows DOWN.
     /// ARCHITECTURE:
-    /// - Removes row from internal dictionary
+    /// - Accepts RowID (STABLE identifier)
+    /// - Finds row's __rowNumber
+    /// - Deletes row
+    /// - Shifts rows with __rowNumber > deleted DOWN by decrementing their __rowNumber
     /// - RowCount decreases by 1
-    /// - Rows after deleted row automatically SHIFT UP via sort order (ULID timestamps)
+    /// EXAMPLE: Delete row with __rowNumber=5 (100 existing rows):
+    ///   - Old: __rowNumber = 1-100
+    ///   - Delete: Row with __rowNumber=5 removed
+    ///   - Shift: __rowNumber > 5 → decrement (6→5, 7→6, ..., 100→99)
+    ///   - Result: __rowNumber = 1-4, 5-99 (99 rows total)
     /// PARAMETERS:
     /// - rowId: STABLE identifier (not RowIndex!)
     /// REASON: RowId is stable, RowIndex changes after operations
@@ -1509,24 +1538,41 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
 
             lock (_modificationLock)
             {
-                if (!_rows.ContainsKey(rowId))
+                if (!_rows.TryGetValue(rowId, out var deletedRow))
                 {
-                    _logger?.LogWarning("DeleteRowById: RowId {RowId} not found", rowId);
+                    _logger?.LogWarning("DeleteRowById: Row {RowId} not found", rowId);
                     return;
                 }
 
-                var oldRowCount = _rows.Count;
+                var deletedRowNumber = Convert.ToInt32(deletedRow["__rowNumber"]);
+                var oldCount = _rows.Count;
 
-                // Remove from dictionary
+                // Remove row
                 _rows.TryRemove(rowId, out _);
+
+                // Shift DOWN: rows with __rowNumber > deleted → decrement
+                var shiftedCount = 0;
+                foreach (var kvp in _rows)
+                {
+                    var row = kvp.Value;
+                    var currentRowNumber = Convert.ToInt32(row["__rowNumber"]);
+
+                    if (currentRowNumber > deletedRowNumber)
+                    {
+                        var mutableRow = new Dictionary<string, object?>(row);
+                        mutableRow["__rowNumber"] = currentRowNumber - 1;
+                        _rows[kvp.Key] = mutableRow;
+                        shiftedCount++;
+                    }
+                }
 
                 // Clear caches
                 InvalidateSortedRowKeysCache();
                 _validationErrors.TryRemove(rowId, out _);
                 _validatedRowsCache.Remove(rowId);
 
-                _logger?.LogInformation("DeleteRowById: Removed row {RowId} (RowCount={OldCount}→{NewCount})",
-                    rowId, oldRowCount, _rows.Count);
+                _logger?.LogInformation("DeleteRowById: Deleted row {RowId} (__rowNumber={RowNumber}), shifted {ShiftCount} rows DOWN, RowCount={OldCount}→{NewCount}",
+                    rowId, deletedRowNumber, shiftedCount, oldCount, _rows.Count);
             }
         }, cancellationToken);
     }
@@ -1654,7 +1700,11 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
     }
 
     /// <summary>
-    /// Gets cached sorted row keys (ULID chronological order).
+    /// ✅ PROFESSIONAL FIX: Gets cached sorted row keys by __rowNumber (PRIMARY SORT KEY).
+    /// ARCHITECTURE:
+    /// - Primary sort: __rowNumber (1-based, mutable) - determines display order
+    /// - Fallback sort: __rowId (ULID, immutable) - for rows without __rowNumber
+    /// - Cached until InvalidateSortedRowKeysCache() is called
     /// PERFORMANCE: Lazy rebuild - sorts only when cache invalidated by insert/delete.
     /// Thread-safe via double-check locking pattern.
     /// </summary>
@@ -1675,8 +1725,15 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
                 return _sortedRowKeys;
             }
 
-            _logger.LogDebug("Rebuilding sorted row keys cache for {RowCount} rows", _rows.Count);
-            _sortedRowKeys = _rows.Keys.OrderBy(k => k).ToList();
+            _logger.LogDebug("Rebuilding sorted row keys cache for {RowCount} rows (sorting by __rowNumber)", _rows.Count);
+
+            // ✅ Sort by __rowNumber (PRIMARY), fallback to ULID (SECONDARY)
+            _sortedRowKeys = _rows.Values
+                .OrderBy(row => row.TryGetValue("__rowNumber", out var rn) ? Convert.ToInt32(rn) : int.MaxValue)
+                .ThenBy(row => row["__rowId"]) // Fallback: ULID for rows without __rowNumber
+                .Select(row => (string)row["__rowId"]!)
+                .ToList();
+
             _sortedRowKeysInvalid = false;
             return _sortedRowKeys;
         }

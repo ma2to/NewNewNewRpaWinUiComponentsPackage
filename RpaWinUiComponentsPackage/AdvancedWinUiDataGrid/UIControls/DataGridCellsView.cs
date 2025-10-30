@@ -705,49 +705,68 @@ public sealed class DataGridCellsView : UserControl, IDisposable
     /// Excel-like behavior: Insert Above/Below, Delete selected rows.
     /// Supports multi-row selection (e.g., select 5 rows → Insert 5 Rows Above/Below).
     /// </summary>
+    /// <summary>
+    /// ✅ PROFESSIONAL FIX: Handles right-click on ItemsRepeater to show Row Context Menu.
+    /// ARCHITECTURE:
+    /// - Detekuje SELECTED CELLS (nie len selected rows)
+    /// - Získa unikátne RowIDs z označených buniek
+    /// - Context menu: INSERT BEFORE/AFTER/DELETE na základe selected cells
+    /// EXAMPLE: Označené bunky v riadkoch __rowNumber 3, 4, 7:
+    ///   - Insert Before: Pridá 2 riadky pred __rowNumber=3, 1 riadok pred __rowNumber=7
+    ///   - Insert After: Pridá 2 riadky po __rowNumber=4, 1 riadok po __rowNumber=7
+    ///   - Delete: Zmaže rows s __rowNumber 3, 4, 7
+    /// </summary>
     private void OnItemsRepeaterRightTapped(object sender, RightTappedRoutedEventArgs e)
     {
-        _logger.LogInformation("Right-click detected on ItemsRepeater - showing Row Context Menu");
+        _logger.LogInformation("Right-click detected on ItemsRepeater - analyzing SELECTED CELLS for Row Context Menu");
 
-        // Get all selected rows (from checkbox column)
-        var selectedRows = _viewModel.Rows
-            .Where(r => r.IsSelected)
-            .ToList();
+        // ✅ STEP 1: Get all SELECTED CELLS (nie len selected rows!)
+        var selectedCells = _viewModel.GetSelectedCells();
 
-        // If no rows selected, try to select the row under cursor
-        if (selectedRows.Count == 0)
+        if (selectedCells.Count == 0)
         {
-            // Find the row element that was right-clicked
+            // ✅ FALLBACK: Try to select the cell under cursor
             var originalSource = e.OriginalSource as FrameworkElement;
             while (originalSource != null)
             {
-                if (originalSource.DataContext is DataGridRowViewModel rowVm)
+                if (originalSource.DataContext is CellViewModel cellVm)
                 {
-                    rowVm.IsSelected = true;
-                    selectedRows.Add(rowVm);
-                    _logger.LogInformation("Auto-selected row {RowIndex} under cursor", rowVm.RowIndex);
+                    cellVm.IsSelected = true;
+                    selectedCells.Add(cellVm);
+                    _logger.LogInformation("Auto-selected cell under cursor: Row={Row}, Col={Col}", cellVm.RowIndex, cellVm.ColumnIndex);
                     break;
                 }
                 originalSource = originalSource.Parent as FrameworkElement;
             }
         }
 
-        // If still no selection, show empty menu (or skip)
-        if (selectedRows.Count == 0)
+        if (selectedCells.Count == 0)
         {
-            _logger.LogWarning("No rows selected - context menu skipped");
+            _logger.LogWarning("No cells selected - context menu skipped");
             e.Handled = true;
             return;
         }
 
-        // Extract indices and IDs
-        var selectedIndices = selectedRows.Select(r => r.RowIndex).ToList();
-        var selectedIds = selectedRows.Select(r => r.RowId).ToList();
+        // ✅ STEP 2: Get UNIQUE row RowIDs from selected cells
+        var uniqueRows = selectedCells
+            .Where(c => c.RowId != null) // Filter out null RowIDs
+            .GroupBy(c => c.RowId)
+            .Select(g => new
+            {
+                RowId = g.Key!,
+                RowIndex = g.First().RowIndex,
+                CellCount = g.Count()
+            })
+            .OrderBy(r => r.RowIndex)
+            .ToList();
 
-        _logger.LogInformation("Showing Row Context Menu for {Count} selected rows (indices: {Indices})",
-            selectedRows.Count, string.Join(", ", selectedIndices));
+        var selectedIndices = uniqueRows.Select(r => r.RowIndex).ToList();
+        var selectedIds = uniqueRows.Select(r => r.RowId).ToList();
 
-        // Create and show context menu (SENIOR ARCHITECTURE: Pass theme)
+        _logger.LogInformation("Showing Row Context Menu for {CellCount} selected cells across {RowCount} rows (RowIDs: {Ids})",
+            selectedCells.Count, uniqueRows.Count, string.Join(", ", selectedIds.Take(5)));
+
+        // ✅ STEP 3: Create and show context menu
         var contextMenu = _rowContextMenu.CreateRowContextMenu(selectedIndices, selectedIds, _viewModel.Theme);
         contextMenu.ShowAt(_itemsRepeater, e.GetPosition(_itemsRepeater));
 
@@ -755,59 +774,212 @@ public sealed class DataGridCellsView : UserControl, IDisposable
     }
 
     /// <summary>
-    /// SENIOR IMPLEMENTATION: Handles "Insert Rows Above" request from context menu.
-    /// Fires InsertRowRequested event for application layer to handle via Rows API.
+    /// ✅ PROFESSIONAL FIX: Handles "Insert Rows Above" for MULTIPLE selected rows.
+    /// ARCHITECTURE:
+    /// - Analyzuje selected row indices → identifikuje CONTINUOUS GROUPS
+    /// - Pre každú group: pridá N riadkov PRED PRVÝM riadkom v group
+    /// EXAMPLE: Selected cells v riadkoch index [2, 3, 6] (page-relative 0-based):
+    ///   - Groups: [2,3], [6]
+    ///   - Group [2,3]: Pridá 2 riadky PRED index 2 (global index = currentPage*pageSize + 2)
+    ///   - Group [6]: Pridá 1 riadok PRED index 6 (global index = currentPage*pageSize + 6 + 2)
+    /// IMPORTANT:
+    ///   - indices are page-relative (0-based)
+    ///   - Must convert to global index: globalIndex = currentPage * pageSize + pageRelativeIndex
     /// </summary>
-    private void OnRowContextMenuInsertAbove(object? sender, InsertRowsEventArgs e)
+    private async void OnRowContextMenuInsertAbove(object? sender, InsertRowsEventArgs e)
     {
-        _logger.LogInformation("Row Context Menu: Insert {Count} rows ABOVE index {Index}",
-            e.RowCount, e.ReferenceRowIndex);
+        _logger.LogInformation("Row Context Menu: Insert rows ABOVE for {Count} selected RowIDs",
+            e.SelectedRowIds.Count);
 
-        // Fire event for each row to insert (application layer will call Rows.InsertRowAsync)
-        for (int i = 0; i < e.RowCount; i++)
+        if (e.SelectedRowIds.Count == 0)
         {
-            var insertIndex = e.ReferenceRowIndex; // Always insert at same index (previous inserts shift down)
-            var eventArgs = new InsertRowRequestedEventArgs(insertIndex, null, "Above");
-            InsertRowRequested?.Invoke(this, eventArgs);
+            _logger.LogWarning("No selected RowIDs - operation cancelled");
+            return;
         }
+
+        // ✅ STEP 1: Get selected cell indices (from ViewModel)
+        var selectedCells = _viewModel.GetSelectedCells();
+        var selectedRowIndices = selectedCells
+            .Select(c => c.RowIndex)
+            .Distinct()
+            .OrderBy(i => i)
+            .ToList();
+
+        if (selectedRowIndices.Count == 0)
+        {
+            _logger.LogWarning("No selected rows - operation cancelled");
+            return;
+        }
+
+        // ✅ STEP 2: Group consecutive row indices
+        // EXAMPLE: [2, 3, 6, 9, 10, 11] → [[2,3], [6], [9,10,11]]
+        var groups = new List<List<int>>();
+        List<int>? currentGroup = null;
+
+        foreach (var index in selectedRowIndices)
+        {
+            if (currentGroup == null || index != currentGroup[^1] + 1)
+            {
+                currentGroup = new List<int> { index };
+                groups.Add(currentGroup);
+            }
+            else
+            {
+                currentGroup.Add(index);
+            }
+        }
+
+        _logger.LogInformation("Grouped {Count} selected rows into {GroupCount} continuous groups",
+            selectedRowIndices.Count, groups.Count);
+
+        // ✅ STEP 3: Insert rows for each group (REVERSE order to preserve indices)
+        var currentPage = _viewModel.PageManager?.CurrentPage ?? 0;
+        var pageSize = _viewModel.PageManager?.PageSize ?? 15;
+        var totalInserted = 0;
+
+        for (int g = groups.Count - 1; g >= 0; g--)
+        {
+            var group = groups[g];
+            var firstIndexInGroup = group[0];
+            var rowCount = group.Count;
+
+            // Convert page-relative index to global index
+            var globalIndex = currentPage * pageSize + firstIndexInGroup;
+
+            _logger.LogInformation("Group {GroupNum}: Insert {Count} rows BEFORE global index {GlobalIndex} (page-relative index {PageIndex})",
+                g + 1, rowCount, globalIndex, firstIndexInGroup);
+
+            // INSERT rows at global index (will shift existing rows UP)
+            for (int i = 0; i < rowCount; i++)
+            {
+                var eventArgs = new InsertRowRequestedEventArgs(globalIndex, null, "Above");
+                InsertRowRequested?.Invoke(this, eventArgs);
+                totalInserted++;
+            }
+        }
+
+        _logger.LogInformation("Inserted {Total} rows ABOVE {GroupCount} groups", totalInserted, groups.Count);
     }
 
     /// <summary>
-    /// SENIOR IMPLEMENTATION: Handles "Insert Rows Below" request from context menu.
-    /// Fires InsertRowRequested event for application layer to handle via Rows API.
+    /// ✅ PROFESSIONAL FIX: Handles "Insert Rows Below" for MULTIPLE selected rows.
+    /// ARCHITECTURE:
+    /// - Analyzuje selected row indices → identifikuje CONTINUOUS GROUPS
+    /// - Pre každú group: pridá N riadkov PO POSLEDNOM riadku v group
+    /// EXAMPLE: Selected cells v riadkoch index [2, 3, 6]:
+    ///   - Groups: [2,3], [6]
+    ///   - Group [6]: Pridá 1 riadok PO index 6 (global index 7)
+    ///   - Group [2,3]: Pridá 2 riadky PO index 3 (global index 5, už posunuté)
     /// </summary>
-    private void OnRowContextMenuInsertBelow(object? sender, InsertRowsEventArgs e)
+    private async void OnRowContextMenuInsertBelow(object? sender, InsertRowsEventArgs e)
     {
-        _logger.LogInformation("Row Context Menu: Insert {Count} rows BELOW index {Index}",
-            e.RowCount, e.ReferenceRowIndex);
+        _logger.LogInformation("Row Context Menu: Insert rows BELOW for {Count} selected RowIDs",
+            e.SelectedRowIds.Count);
 
-        // Insert BELOW = insert at (referenceIndex + 1)
-        var insertIndex = e.ReferenceRowIndex + 1;
-
-        // Fire event for each row to insert
-        for (int i = 0; i < e.RowCount; i++)
+        if (e.SelectedRowIds.Count == 0)
         {
-            var eventArgs = new InsertRowRequestedEventArgs(insertIndex, null, "Below");
-            InsertRowRequested?.Invoke(this, eventArgs);
+            _logger.LogWarning("No selected RowIDs - operation cancelled");
+            return;
         }
+
+        // ✅ STEP 1: Get selected cell indices (from ViewModel)
+        var selectedCells = _viewModel.GetSelectedCells();
+        var selectedRowIndices = selectedCells
+            .Select(c => c.RowIndex)
+            .Distinct()
+            .OrderBy(i => i)
+            .ToList();
+
+        if (selectedRowIndices.Count == 0)
+        {
+            _logger.LogWarning("No selected rows - operation cancelled");
+            return;
+        }
+
+        // ✅ STEP 2: Group consecutive row indices
+        var groups = new List<List<int>>();
+        List<int>? currentGroup = null;
+
+        foreach (var index in selectedRowIndices)
+        {
+            if (currentGroup == null || index != currentGroup[^1] + 1)
+            {
+                currentGroup = new List<int> { index };
+                groups.Add(currentGroup);
+            }
+            else
+            {
+                currentGroup.Add(index);
+            }
+        }
+
+        _logger.LogInformation("Grouped {Count} selected rows into {GroupCount} continuous groups",
+            selectedRowIndices.Count, groups.Count);
+
+        // ✅ STEP 3: Insert rows for each group (REVERSE order to preserve indices)
+        var currentPage = _viewModel.PageManager?.CurrentPage ?? 0;
+        var pageSize = _viewModel.PageManager?.PageSize ?? 15;
+        var totalInserted = 0;
+
+        for (int g = groups.Count - 1; g >= 0; g--)
+        {
+            var group = groups[g];
+            var lastIndexInGroup = group[^1];
+            var rowCount = group.Count;
+
+            // Convert page-relative index to global index + 1 (insert AFTER)
+            var globalIndex = currentPage * pageSize + lastIndexInGroup + 1;
+
+            _logger.LogInformation("Group {GroupNum}: Insert {Count} rows AFTER global index {GlobalIndex} (page-relative index {PageIndex})",
+                g + 1, rowCount, globalIndex - 1, lastIndexInGroup);
+
+            // INSERT rows at global index
+            for (int i = 0; i < rowCount; i++)
+            {
+                var eventArgs = new InsertRowRequestedEventArgs(globalIndex, null, "Below");
+                InsertRowRequested?.Invoke(this, eventArgs);
+                totalInserted++;
+            }
+        }
+
+        _logger.LogInformation("Inserted {Total} rows BELOW {GroupCount} groups", totalInserted, groups.Count);
     }
 
     /// <summary>
-    /// SENIOR IMPLEMENTATION: Handles "Delete Rows" request from context menu.
-    /// Fires DeleteRowRequested event for application layer to handle via Rows API.
+    /// ✅ PROFESSIONAL FIX: Handles "Delete Rows" for MULTIPLE selected rows.
+    /// ARCHITECTURE:
+    /// - Získa unique RowIDs from selected cells
+    /// - Zmaže všetky riadky pomocou DeleteRowByIdAsync (accepts RowID!)
+    /// EXAMPLE: Selected cells v riadkoch __rowNumber [3, 4, 7]:
+    ///   - Delete RowID_3 (__rowNumber=3) → rows 4-100 shift DOWN to 3-99
+    ///   - Delete RowID_4 (__rowNumber=4, now 3) → rows 5-99 shift DOWN to 4-98
+    ///   - Delete RowID_7 (__rowNumber=7, now 5) → rows 8-98 shift DOWN to 6-96
+    /// IMPORTANT:
+    ///   - DeleteRowByIdAsync() automatically shifts __rowNumber DOWN
+    ///   - No need for reverse order (RowID is stable identifier)
     /// </summary>
-    private void OnRowContextMenuDelete(object? sender, DeleteRowsEventArgs e)
+    private async void OnRowContextMenuDelete(object? sender, DeleteRowsEventArgs e)
     {
-        _logger.LogInformation("Row Context Menu: Delete {Count} rows (IDs: {Ids})",
+        _logger.LogInformation("Row Context Menu: Delete {Count} rows from selected cells",
+            e.RowIds.Count);
+
+        if (e.RowIds.Count == 0)
+        {
+            _logger.LogWarning("No valid RowIDs to delete - operation cancelled");
+            return;
+        }
+
+        _logger.LogInformation("Deleting {Count} unique rows (RowIDs: {Ids})",
             e.RowIds.Count, string.Join(", ", e.RowIds.Take(5)));
 
-        // Fire event for each row to delete (application layer will call Rows.RemoveRowsAsync)
+        // ✅ STEP 1: Delete rows by RowId (DeleteRowByIdAsync handles __rowNumber shift automatically)
         foreach (var rowId in e.RowIds)
         {
-            var rowIndex = e.RowIndices[e.RowIds.ToList().IndexOf(rowId)];
-            var eventArgs = new DeleteRowRequestedEventArgs(rowIndex, rowId);
+            var eventArgs = new DeleteRowRequestedEventArgs(-1, rowId); // Index not needed (using RowId)
             DeleteRowRequested?.Invoke(this, eventArgs);
         }
+
+        _logger.LogInformation("Deleted {Count} rows", e.RowIds.Count);
     }
 
     #endregion

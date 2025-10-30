@@ -661,6 +661,16 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
     /// Set sort criteria (supports single or multiple columns).
     /// Builds SQL ORDER BY clause from sort descriptors.
     /// </summary>
+    /// <summary>
+    /// ✅ PROFESSIONAL FIX: Sorts rows by specified column and RENUMBERS __rowNumber.
+    /// ARCHITECTURE:
+    /// - Sorts rows by column value (ascending/descending)
+    /// - SQL CTE: Calculates new __rowNumber using ROW_NUMBER() OVER (ORDER BY column)
+    /// - SQL UPDATE: Updates __rowNumber for all rows
+    /// EXAMPLE: Sort by "Age" descending:
+    ///   - SQL: WITH sorted_rows AS (SELECT __rowId, ROW_NUMBER() OVER (ORDER BY json_extract(data, '$.Age') DESC) as new_rn FROM grid_rows)
+    ///   - SQL: UPDATE grid_rows SET data = json_set(data, '$.__rowNumber', new_rn)
+    /// </summary>
     public void SetSortCriteria(string columnName, SortDirection direction)
     {
         _logger.LogInformation("SetSortCriteria: column={ColumnName}, direction={Direction}", columnName, direction);
@@ -668,7 +678,7 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
         if (direction == SortDirection.None)
         {
             _activeSortSql = null;
-            _logger.LogInformation("Sort cleared");
+            _logger.LogInformation("Sort cleared - reverted to current __rowNumber order");
             return;
         }
 
@@ -677,7 +687,7 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
         var directionStr = direction == SortDirection.Ascending ? "ASC" : "DESC";
 
         // Type-aware sorting (try numeric first, fallback to text)
-        _activeSortSql = $@"
+        var orderBy = $@"
             CASE
                 WHEN json_type(json_extract(data, '{columnPath}')) IN ('integer', 'real')
                 THEN CAST(json_extract(data, '{columnPath}') AS REAL)
@@ -685,7 +695,40 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
             END {directionStr},
             json_extract(data, '{columnPath}') {directionStr}";
 
-        _logger.LogInformation("Sort SQL built: ORDER BY {Sql}", _activeSortSql);
+        // ✅ PROFESSIONAL: Execute SQL UPDATE to renumber __rowNumber using ROW_NUMBER()
+        var connection = _databaseLifecycleManager.GetConnection();
+        if (connection != null)
+        {
+            try
+            {
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = $@"
+                    WITH sorted_rows AS (
+                        SELECT __rowId,
+                               ROW_NUMBER() OVER (ORDER BY {orderBy}) as new_rn
+                        FROM grid_rows
+                        WHERE __isDeleted = 0
+                    )
+                    UPDATE grid_rows
+                    SET data = json_set(data, '$.__rowNumber', (
+                        SELECT new_rn
+                        FROM sorted_rows
+                        WHERE sorted_rows.__rowId = grid_rows.__rowId
+                    ))
+                    WHERE __isDeleted = 0";
+
+                var updatedCount = cmd.ExecuteNonQuery();
+                _logger.LogInformation("Sort completed: {Count} rows renumbered by column={Column}, direction={Direction}",
+                    updatedCount, columnName, direction);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "SetSortCriteria failed: column={Column}, direction={Direction}", columnName, direction);
+            }
+        }
+
+        // Set active sort SQL for future queries
+        _activeSortSql = $"CAST(json_extract(data, '$.__rowNumber') AS INTEGER) ASC";
     }
 
     /// <summary>
@@ -988,10 +1031,10 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
                 whereClause += $" AND ({_activeFilterSql})";
             }
 
-            // ✅ Build ORDER BY clause (respects active sort or default to creation time)
+            // ✅ PROFESSIONAL FIX: Build ORDER BY clause (primary: __rowNumber, fallback: __createdAt)
             var orderByClause = !string.IsNullOrEmpty(_activeSortSql)
                 ? _activeSortSql
-                : "__createdAt ASC";
+                : "CAST(json_extract(data, '$.__rowNumber') AS INTEGER) ASC";
 
             // ✅ PROFESSIONAL QUALITY: SQL with LIMIT/OFFSET for efficient pagination
             // Example: startIndex=60, count=15 → LIMIT 15 OFFSET 60 → rows 60-74
@@ -1051,6 +1094,12 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
         _logger.LogInformation("ReplaceAllRowsAsync completed (writer queue flushed)");
     }
 
+    /// <summary>
+    /// ✅ PROFESSIONAL FIX: Appends rows with sequential __rowNumber.
+    /// ARCHITECTURE:
+    /// - Gets max existing __rowNumber from database
+    /// - Assigns new rows: max+1, max+2, max+3, ...
+    /// </summary>
     public async Task AppendRowsAsync(IEnumerable<IReadOnlyDictionary<string, object?>> rows, CancellationToken cancellationToken = default)
     {
         var rowsList = rows.ToList();
@@ -1063,15 +1112,22 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
         _logger.LogInformation("AppendRowsAsync: Appending {Count} rows", rowsList.Count);
 
         var timestamp = GetUnixTimestampMs();
+        var maxRowNumber = await GetMaxRowNumberAsync(cancellationToken);
 
-        // Create bulk insert operation
+        // Create bulk insert operation with __rowNumber
         var insertData = rowsList.Select(row =>
         {
+            maxRowNumber++; // Increment for each new row
+
             var rowId = row.ContainsKey("__rowId") && row["__rowId"] is string existingId
                 ? existingId
                 : GenerateRowId();
 
-            var dataJson = SerializeRowData(row);
+            // Add __rowNumber to row data
+            var dataDict = new Dictionary<string, object?>(row);
+            dataDict["__rowNumber"] = maxRowNumber;
+
+            var dataJson = SerializeRowData(dataDict);
 
             return new RowInsertData
             {
@@ -1095,7 +1151,23 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
         // Ensures new rows are validated (not skipped as "already validated")
         ClearValidationCache();
 
-        _logger.LogInformation("AppendRowsAsync: Queued {Count} rows for insertion (validation cache cleared)", rowsList.Count);
+        _logger.LogInformation("AppendRowsAsync: Queued {Count} rows for insertion with __rowNumber starting from {StartNum} (validation cache cleared)",
+            rowsList.Count, maxRowNumber - rowsList.Count + 1);
+    }
+
+    /// <summary>
+    /// ✅ PROFESSIONAL Helper: Gets max __rowNumber from database.
+    /// </summary>
+    private async Task<int> GetMaxRowNumberAsync(CancellationToken cancellationToken)
+    {
+        var connection = _databaseLifecycleManager.GetConnection();
+        if (connection == null)
+            return 0;
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT COALESCE(MAX(CAST(json_extract(data, '$.__rowNumber') AS INTEGER)), 0) FROM grid_rows WHERE __isDeleted = 0";
+        var result = await cmd.ExecuteScalarAsync(cancellationToken);
+        return result != null && result != DBNull.Value ? Convert.ToInt32(result) : 0;
     }
 
     public async Task EnsureInitialEmptyRowAsync(IEnumerable<string> columnNames, CancellationToken cancellationToken = default)
@@ -2150,25 +2222,125 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
     #region RIEŠENIE #2 - FIXED UI POOL stubs
 
     /// <summary>
-    /// ✅ RIEŠENIE #2: Physically inserts row at specified index (NOT IMPLEMENTED for HybridRowStore).
-    /// ARCHITECTURE: HybridRowStore delegates to InMemoryRowStore for data operations.
-    /// WORKAROUND: For now, throw NotImplementedException - Virtual operations still work.
-    /// TODO: Implement proper SQLite INSERT with timestamp interpolation.
+    /// ✅ PROFESSIONAL FIX: Inserts row at specified index (0-based) in SQLite.
+    /// ARCHITECTURE:
+    /// - index=0-based, __rowNumber=1-based
+    /// - targetRowNumber = index + 1
+    /// - SQL UPDATE: Shifts rows with __rowNumber >= targetRowNumber UP by 1
+    /// - SQL INSERT: Inserts new row with __rowNumber = targetRowNumber
+    /// EXAMPLE: Insert at index=2 (100 existing rows):
+    ///   - targetRowNumber = 3
+    ///   - SQL: UPDATE rows SET __rowNumber = __rowNumber + 1 WHERE __rowNumber >= 3
+    ///   - SQL: INSERT new row with __rowNumber=3
+    ///   - Result: __rowNumber = 1-2, 3 (NEW), 4-101
     /// </summary>
-    public Task<string> InsertRowAtIndexAsync(int index, IReadOnlyDictionary<string, object?>? rowData, CancellationToken cancellationToken = default)
+    public async Task<string> InsertRowAtIndexAsync(int index, IReadOnlyDictionary<string, object?>? rowData, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("InsertRowAtIndexAsync not yet implemented for HybridRowStore. Use InMemoryRowStore or AdaptiveRowStore below threshold.");
+        var connection = _databaseLifecycleManager.GetConnection();
+        if (connection == null)
+            throw new InvalidOperationException("Database not initialized");
+
+        int targetRowNumber = index + 1; // Convert 0-based to 1-based
+
+        // ✅ STEP 1: Shift rows UP (SQL UPDATE)
+        using (var cmdShift = connection.CreateCommand())
+        {
+            cmdShift.CommandText = $@"
+                UPDATE grid_rows
+                SET data = json_set(data, '$.__rowNumber', CAST(json_extract(data, '$.__rowNumber') AS INTEGER) + 1)
+                WHERE __isDeleted = 0
+                  AND CAST(json_extract(data, '$.__rowNumber') AS INTEGER) >= {targetRowNumber}";
+
+            var shiftedCount = await cmdShift.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogDebug("InsertRowAtIndex {Index}: Shifted {Count} rows UP (__rowNumber >= {StartNum})",
+                index, shiftedCount, targetRowNumber);
+        }
+
+        // ✅ STEP 2: Insert new row with __rowNumber
+        var newRowId = GenerateRowId();
+        var dataDict = new Dictionary<string, object?>(rowData ?? new Dictionary<string, object?>());
+        dataDict["__rowNumber"] = targetRowNumber;
+
+        var insertOp = new InsertRowWriteOp
+        {
+            RowId = newRowId,
+            DataJson = SerializeRowData(dataDict),
+            CreatedAt = GetUnixTimestampMs(),
+            ModifiedAt = GetUnixTimestampMs(),
+            ValidationStateJson = null
+        };
+
+        await QueueWriteOperationAsync(insertOp, cancellationToken);
+        await FlushWriterQueueAsync(cancellationToken);
+
+        _logger.LogInformation("InsertRowAtIndex: Added row at index {Index} (RowId={RowId}, __rowNumber={RowNumber})",
+            index, newRowId, targetRowNumber);
+
+        return newRowId;
     }
 
     /// <summary>
-    /// ✅ RIEŠENIE #2: Physically deletes row by RowId (NOT IMPLEMENTED for HybridRowStore).
-    /// ARCHITECTURE: HybridRowStore delegates to InMemoryRowStore for data operations.
-    /// WORKAROUND: For now, throw NotImplementedException - Virtual operations still work.
-    /// TODO: Implement proper SQLite DELETE.
+    /// ✅ PROFESSIONAL FIX: Deletes row by RowID and shifts subsequent rows DOWN in SQLite.
+    /// ARCHITECTURE:
+    /// - Accepts RowID (STABLE identifier)
+    /// - SQL SELECT: Gets __rowNumber of deleted row
+    /// - SQL UPDATE: Sets __isDeleted=1 (soft delete)
+    /// - SQL UPDATE: Shifts rows with __rowNumber > deleted DOWN by 1
+    /// EXAMPLE: Delete row with __rowNumber=5 (100 existing rows):
+    ///   - SQL: SELECT __rowNumber WHERE __rowId='...' → returns 5
+    ///   - SQL: UPDATE SET __isDeleted=1 WHERE __rowId='...'
+    ///   - SQL: UPDATE rows SET __rowNumber = __rowNumber - 1 WHERE __rowNumber > 5
+    ///   - Result: __rowNumber = 1-4, 5-99 (99 rows total)
     /// </summary>
-    public Task DeleteRowByIdAsync(string rowId, CancellationToken cancellationToken = default)
+    public async Task DeleteRowByIdAsync(string rowId, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("DeleteRowByIdAsync not yet implemented for HybridRowStore. Use InMemoryRowStore or AdaptiveRowStore below threshold.");
+        var connection = _databaseLifecycleManager.GetConnection();
+        if (connection == null)
+            return;
+
+        int deletedRowNumber;
+
+        // ✅ STEP 1: Get __rowNumber of deleted row
+        using (var cmdGet = connection.CreateCommand())
+        {
+            cmdGet.CommandText = $@"
+                SELECT CAST(json_extract(data, '$.__rowNumber') AS INTEGER) as rn
+                FROM grid_rows
+                WHERE __rowId = @rowId AND __isDeleted = 0";
+            cmdGet.Parameters.AddWithValue("@rowId", rowId);
+
+            var result = await cmdGet.ExecuteScalarAsync(cancellationToken);
+
+            if (result == null || result == DBNull.Value)
+            {
+                _logger.LogWarning("DeleteRowById: Row {RowId} not found", rowId);
+                return;
+            }
+
+            deletedRowNumber = Convert.ToInt32(result);
+        }
+
+        // ✅ STEP 2: Soft delete row
+        using (var cmdDelete = connection.CreateCommand())
+        {
+            cmdDelete.CommandText = "UPDATE grid_rows SET __isDeleted = 1 WHERE __rowId = @rowId";
+            cmdDelete.Parameters.AddWithValue("@rowId", rowId);
+            await cmdDelete.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // ✅ STEP 3: Shift rows DOWN
+        using (var cmdShift = connection.CreateCommand())
+        {
+            cmdShift.CommandText = $@"
+                UPDATE grid_rows
+                SET data = json_set(data, '$.__rowNumber', CAST(json_extract(data, '$.__rowNumber') AS INTEGER) - 1)
+                WHERE __isDeleted = 0
+                  AND CAST(json_extract(data, '$.__rowNumber') AS INTEGER) > {deletedRowNumber}";
+
+            var shiftedCount = await cmdShift.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("DeleteRowById: Deleted row {RowId} (__rowNumber={RowNumber}), shifted {ShiftCount} rows DOWN",
+                rowId, deletedRowNumber, shiftedCount);
+        }
     }
 
     #endregion
