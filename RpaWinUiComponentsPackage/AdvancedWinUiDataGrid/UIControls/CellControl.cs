@@ -185,8 +185,14 @@ public sealed class CellControl : UserControl
             PointerEventArgs = e  // ✅ CRITICAL FIX: Pass pointer args for capture support
         });
 
-        // Mark event as handled to prevent bubbling to ScrollViewer
-        e.Handled = true;
+        // ✅ PROFESSIONAL FIX (CHYBA 4): ALLOW event bubbling to ScrollViewer for drag selection
+        // REASON: WinUI 3 pointer capture does NOT redirect PointerMoved to capture target (unlike WPF)
+        //         PointerMoved is still delivered to visual element under pointer (CellControl)
+        //         By NOT handling the event, it bubbles to ScrollViewer → OnScrollViewerPointerMoved fires
+        //         This enables smooth drag-and-drop multiselect (click and drag across cells)
+        // BEFORE: e.Handled = true → PointerMoved blocked → drag selection doesn't work
+        // AFTER: Event bubbles → OnScrollViewerPointerMoved receives events → drag selection works
+        // e.Handled = true;  // ❌ COMMENTED OUT - blocks drag selection
     }
 
     private void OnPointerEntered(object sender, PointerRoutedEventArgs e)

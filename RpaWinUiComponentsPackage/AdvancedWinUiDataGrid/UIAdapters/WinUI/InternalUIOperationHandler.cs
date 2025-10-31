@@ -92,9 +92,12 @@ internal sealed class InternalUIOperationHandler : IDisposable
     }
 
     /// <summary>
-    /// Handles insert row requests from UI control (InsertRow special column button).
+    /// Handles insert row requests from UI control (InsertRow special column button OR context menu).
     /// PROFESSIONAL SOLUTION: Uses virtual insert to shift data down without changing row count.
     /// CRITICAL: Only active in Interactive mode - automatically inserts empty row below clicked row.
+    /// SUPPORTS:
+    /// - RowId-based insert: From special column button (has RowId)
+    /// - Index-based insert: From context menu (has RowIndex, RowId may be null)
     /// </summary>
     private async void OnInsertRowRequested(object? sender, InsertRowRequestedEventArgs args)
     {
@@ -106,34 +109,54 @@ internal sealed class InternalUIOperationHandler : IDisposable
 
         try
         {
-            _logger.LogInformation("AUTO-INSERT (VIRTUAL): User clicked InsertRow button at RowIndex={RowIndex}, RowId={RowId}",
-                args.RowIndex, args.RowId ?? "(NULL)");
+            _logger.LogInformation("AUTO-INSERT: User requested insert at RowIndex={RowIndex}, RowId={RowId}, Position={Position}",
+                args.RowIndex, args.RowId ?? "(NULL)", args.Position ?? "Below");
 
-            // ✅ ENHANCED FIX: Better null handling with detailed logging
+            // ✅ PROFESSIONAL FIX: Validate RowId is present (required for stable insertion)
             if (string.IsNullOrEmpty(args.RowId))
             {
-                _logger.LogError("AUTO-INSERT: CRITICAL BUG - RowId is NULL! Cannot insert row. " +
-                    "This indicates CellViewModel.RowId is not set correctly. RowIndex={RowIndex}", args.RowIndex);
+                _logger.LogError("AUTO-INSERT: RowId is null or empty - cannot perform insert. " +
+                    "This is a bug in the UI layer - event should always include RowId.");
                 return;
             }
 
-            // ✅ PROFESSIONAL SOLUTION: Use virtual insert instead of physical insert
-            var result = await _facade.Rows.VirtualInsertEmptyRowAfterAsync(args.RowId, CancellationToken.None);
+            // ✅ PROFESSIONAL FIX: DUAL POSITION SUPPORT - Above (before) vs Below (after)
+            if (args.Position == "Above")
+            {
+                // MODE 1: Insert BEFORE (above) the specified row
+                _logger.LogInformation("AUTO-INSERT (ABOVE): Inserting empty row BEFORE RowId={RowId}", args.RowId);
 
-            if (result.IsSuccess)
-            {
-                _logger.LogInformation("AUTO-INSERT (VIRTUAL): Empty row inserted virtually after rowId {RowId}", args.RowId);
-                // UI refresh handled automatically by InternalUIUpdateHandler
+                var result = await _facade.Rows.VirtualInsertEmptyRowBeforeAsync(args.RowId, CancellationToken.None);
+
+                if (result.IsSuccess)
+                {
+                    _logger.LogInformation("✅ AUTO-INSERT (ABOVE): Empty row inserted BEFORE RowId={RowId}", args.RowId);
+                }
+                else
+                {
+                    _logger.LogError("❌ AUTO-INSERT (ABOVE): Insert failed - {ErrorMessage}", result.ErrorMessage);
+                }
             }
-            else
+            else // Default: Position="Below" or null
             {
-                _logger.LogError("AUTO-INSERT (VIRTUAL): Insert failed - {ErrorMessage}. RowIndex={RowIndex}, RowId={RowId}",
-                    result.ErrorMessage, args.RowIndex, args.RowId);
+                // MODE 2: Insert AFTER (below) the specified row
+                _logger.LogInformation("AUTO-INSERT (BELOW): Inserting empty row AFTER RowId={RowId}", args.RowId);
+
+                var result = await _facade.Rows.VirtualInsertEmptyRowAfterAsync(args.RowId, CancellationToken.None);
+
+                if (result.IsSuccess)
+                {
+                    _logger.LogInformation("✅ AUTO-INSERT (BELOW): Empty row inserted AFTER RowId={RowId}", args.RowId);
+                }
+                else
+                {
+                    _logger.LogError("❌ AUTO-INSERT (BELOW): Insert failed - {ErrorMessage}", result.ErrorMessage);
+                }
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "AUTO-INSERT (VIRTUAL): Exception during virtual insert operation. RowIndex={RowIndex}, RowId={RowId}",
+            _logger.LogError(ex, "AUTO-INSERT: Exception during insert operation. RowIndex={RowIndex}, RowId={RowId}",
                 args.RowIndex, args.RowId ?? "(NULL)");
         }
     }

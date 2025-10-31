@@ -175,6 +175,10 @@ public sealed class DataGridCellsView : UserControl, IDisposable
         // Listen for data changes to invalidate viewport
         _viewModel.Rows.CollectionChanged += OnRowsCollectionChanged;
 
+        // ✅ CRITICAL FIX: Subscribe to ItemsRepeaterRefreshRequested for complete UI refresh
+        // This handles cases where IsVisible changes on ViewModels but ItemsRepeater doesn't re-render
+        _viewModel.ItemsRepeaterRefreshRequested += OnItemsRepeaterRefreshRequested;
+
         // ✅ SENIOR FIX: Subscribe to PageChanged event to update ItemsRepeater on page navigation
         if (_viewModel.PageManager != null)
         {
@@ -499,6 +503,43 @@ public sealed class DataGridCellsView : UserControl, IDisposable
     }
 
     /// <summary>
+    /// ✅ CRITICAL FIX: Handles ItemsRepeater complete refresh request.
+    /// PROBLEM: Page 7 has 10 rows → user adds 5 rows → UI still shows only 10 (collapsed elements not re-rendered).
+    /// ROOT CAUSE: ItemsRepeater caches collapsed elements (rows 10-14) and doesn't re-render when IsVisible changes.
+    /// SOLUTION: Rebind ItemsSource (null → recreate) to force ItemsRepeater to recreate ALL elements.
+    /// USE CASE: After INSERT operations that change visible row count on last page.
+    /// </summary>
+    private void OnItemsRepeaterRefreshRequested(object? sender, EventArgs e)
+    {
+        try
+        {
+            _logger.LogInformation("ItemsRepeater complete refresh requested - rebinding ItemsSource");
+
+            // Get current ItemsSource count
+            var currentSource = _itemsRepeater.ItemsSource as IList<int>;
+            var currentCount = currentSource?.Count ?? 0;
+
+            if (currentCount == 0)
+            {
+                _logger.LogWarning("ItemsSource is empty - skipping refresh");
+                return;
+            }
+
+            // ✅ Force complete re-render: ItemsSource = null → recreate
+            // This clears ItemsRepeater's internal cache and forces recreation of ALL elements
+            _itemsRepeater.ItemsSource = null;
+            _itemsRepeater.UpdateLayout();  // Force layout pass to clear cache
+            _itemsRepeater.ItemsSource = Enumerable.Range(0, currentCount).ToList();
+
+            _logger.LogInformation("✅ ItemsRepeater refresh completed - {Count} elements recreated", currentCount);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to refresh ItemsRepeater");
+        }
+    }
+
+    /// <summary>
     /// Handles row collection changes (add, remove, reset).
     /// Invalidates viewport cache and updates total row count.
     /// </summary>
@@ -723,48 +764,64 @@ public sealed class DataGridCellsView : UserControl, IDisposable
         // ✅ STEP 1: Get all SELECTED CELLS (nie len selected rows!)
         var selectedCells = _viewModel.GetSelectedCells();
 
+        // ✅ PROFESSIONAL FIX: FALLBACK - získať cell pod kurzorom BEZ ZMENY SELECTION STATE
+        CellViewModel? cellUnderCursor = null;
         if (selectedCells.Count == 0)
         {
-            // ✅ FALLBACK: Try to select the cell under cursor
             var originalSource = e.OriginalSource as FrameworkElement;
             while (originalSource != null)
             {
                 if (originalSource.DataContext is CellViewModel cellVm)
                 {
-                    cellVm.IsSelected = true;
-                    selectedCells.Add(cellVm);
-                    _logger.LogInformation("Auto-selected cell under cursor: Row={Row}, Col={Col}", cellVm.RowIndex, cellVm.ColumnIndex);
+                    // ❌ NEMODIFIKOVAŤ IsSelected - len získať reference na cell
+                    cellUnderCursor = cellVm;
+                    _logger.LogInformation("Found cell under cursor (NOT modifying selection): Row={Row}, Col={Col}",
+                        cellVm.RowIndex, cellVm.ColumnIndex);
                     break;
                 }
                 originalSource = originalSource.Parent as FrameworkElement;
             }
         }
 
-        if (selectedCells.Count == 0)
+        // ✅ STEP 2: Build RowIDs list - buď zo selected cells alebo z cell pod kurzorom
+        List<(string RowId, int RowIndex)> targetRows;
+
+        if (selectedCells.Count > 0)
         {
-            _logger.LogWarning("No cells selected - context menu skipped");
+            // Používateľ má selected cells - použiť ich
+            targetRows = selectedCells
+                .Where(c => c.RowId != null)
+                .GroupBy(c => c.RowId)
+                .Select(g => (RowId: g.Key!, RowIndex: g.First().RowIndex))
+                .OrderBy(r => r.RowIndex)
+                .ToList();
+
+            _logger.LogInformation("Using {Count} selected rows for context menu", targetRows.Count);
+        }
+        else if (cellUnderCursor != null && cellUnderCursor.RowId != null)
+        {
+            // Žiadne selected cells - použiť cell pod kurzorom (bez zmeny selection!)
+            targetRows = new List<(string, int)>
+            {
+                (cellUnderCursor.RowId, cellUnderCursor.RowIndex)
+            };
+
+            _logger.LogInformation("Using cell under cursor for context menu (RowId={RowId}, no selection change)",
+                cellUnderCursor.RowId);
+        }
+        else
+        {
+            // Žiadne selected cells ani valid cell pod kurzorom
+            _logger.LogWarning("No cells selected and no valid cell under cursor - context menu skipped");
             e.Handled = true;
             return;
         }
 
-        // ✅ STEP 2: Get UNIQUE row RowIDs from selected cells
-        var uniqueRows = selectedCells
-            .Where(c => c.RowId != null) // Filter out null RowIDs
-            .GroupBy(c => c.RowId)
-            .Select(g => new
-            {
-                RowId = g.Key!,
-                RowIndex = g.First().RowIndex,
-                CellCount = g.Count()
-            })
-            .OrderBy(r => r.RowIndex)
-            .ToList();
+        var selectedIndices = targetRows.Select(r => r.RowIndex).ToList();
+        var selectedIds = targetRows.Select(r => r.RowId).ToList();
 
-        var selectedIndices = uniqueRows.Select(r => r.RowIndex).ToList();
-        var selectedIds = uniqueRows.Select(r => r.RowId).ToList();
-
-        _logger.LogInformation("Showing Row Context Menu for {CellCount} selected cells across {RowCount} rows (RowIDs: {Ids})",
-            selectedCells.Count, uniqueRows.Count, string.Join(", ", selectedIds.Take(5)));
+        _logger.LogInformation("Showing Row Context Menu for {RowCount} rows (RowIDs: {Ids})",
+            targetRows.Count, string.Join(", ", selectedIds.Take(5)));
 
         // ✅ STEP 3: Create and show context menu
         var contextMenu = _rowContextMenu.CreateRowContextMenu(selectedIndices, selectedIds, _viewModel.Theme);
@@ -811,6 +868,12 @@ public sealed class DataGridCellsView : UserControl, IDisposable
             return;
         }
 
+        // ✅ PROFESSIONAL FIX: Create RowIndex → RowId mapping
+        // This allows us to retrieve stable RowId for each row index
+        var rowIndexToRowId = selectedCells
+            .GroupBy(c => c.RowIndex)
+            .ToDictionary(g => g.Key, g => g.First().RowId);
+
         // ✅ STEP 2: Group consecutive row indices
         // EXAMPLE: [2, 3, 6, 9, 10, 11] → [[2,3], [6], [9,10,11]]
         var groups = new List<List<int>>();
@@ -843,16 +906,31 @@ public sealed class DataGridCellsView : UserControl, IDisposable
             var firstIndexInGroup = group[0];
             var rowCount = group.Count;
 
+            // ✅ PROFESSIONAL FIX: Get RowId for first row in group
+            if (!rowIndexToRowId.TryGetValue(firstIndexInGroup, out var rowId))
+            {
+                _logger.LogError("Cannot find RowId for row index {RowIndex} - skipping group {GroupNum}",
+                    firstIndexInGroup, g + 1);
+                continue;
+            }
+
+            if (string.IsNullOrEmpty(rowId))
+            {
+                _logger.LogError("RowId is null/empty for row index {RowIndex} - skipping group {GroupNum}",
+                    firstIndexInGroup, g + 1);
+                continue;
+            }
+
             // Convert page-relative index to global index
             var globalIndex = currentPage * pageSize + firstIndexInGroup;
 
-            _logger.LogInformation("Group {GroupNum}: Insert {Count} rows BEFORE global index {GlobalIndex} (page-relative index {PageIndex})",
-                g + 1, rowCount, globalIndex, firstIndexInGroup);
+            _logger.LogInformation("Group {GroupNum}: Insert {Count} rows BEFORE global index {GlobalIndex} (page-relative index {PageIndex}), RowId={RowId}",
+                g + 1, rowCount, globalIndex, firstIndexInGroup, rowId);
 
-            // INSERT rows at global index (will shift existing rows UP)
+            // ✅ FIXED: INSERT rows at global index with RowId (not null!)
             for (int i = 0; i < rowCount; i++)
             {
-                var eventArgs = new InsertRowRequestedEventArgs(globalIndex, null, "Above");
+                var eventArgs = new InsertRowRequestedEventArgs(globalIndex, rowId, "Above");
                 InsertRowRequested?.Invoke(this, eventArgs);
                 totalInserted++;
             }
@@ -896,6 +974,12 @@ public sealed class DataGridCellsView : UserControl, IDisposable
             return;
         }
 
+        // ✅ PROFESSIONAL FIX: Create RowIndex → RowId mapping
+        // This allows us to retrieve stable RowId for each row index
+        var rowIndexToRowId = selectedCells
+            .GroupBy(c => c.RowIndex)
+            .ToDictionary(g => g.Key, g => g.First().RowId);
+
         // ✅ STEP 2: Group consecutive row indices
         var groups = new List<List<int>>();
         List<int>? currentGroup = null;
@@ -927,16 +1011,31 @@ public sealed class DataGridCellsView : UserControl, IDisposable
             var lastIndexInGroup = group[^1];
             var rowCount = group.Count;
 
+            // ✅ PROFESSIONAL FIX: Get RowId for last row in group
+            if (!rowIndexToRowId.TryGetValue(lastIndexInGroup, out var rowId))
+            {
+                _logger.LogError("Cannot find RowId for row index {RowIndex} - skipping group {GroupNum}",
+                    lastIndexInGroup, g + 1);
+                continue;
+            }
+
+            if (string.IsNullOrEmpty(rowId))
+            {
+                _logger.LogError("RowId is null/empty for row index {RowIndex} - skipping group {GroupNum}",
+                    lastIndexInGroup, g + 1);
+                continue;
+            }
+
             // Convert page-relative index to global index + 1 (insert AFTER)
             var globalIndex = currentPage * pageSize + lastIndexInGroup + 1;
 
-            _logger.LogInformation("Group {GroupNum}: Insert {Count} rows AFTER global index {GlobalIndex} (page-relative index {PageIndex})",
-                g + 1, rowCount, globalIndex - 1, lastIndexInGroup);
+            _logger.LogInformation("Group {GroupNum}: Insert {Count} rows AFTER global index {GlobalIndex} (page-relative index {PageIndex}), RowId={RowId}",
+                g + 1, rowCount, globalIndex - 1, lastIndexInGroup, rowId);
 
-            // INSERT rows at global index
+            // ✅ FIXED: INSERT rows at global index with RowId (not null!)
             for (int i = 0; i < rowCount; i++)
             {
-                var eventArgs = new InsertRowRequestedEventArgs(globalIndex, null, "Below");
+                var eventArgs = new InsertRowRequestedEventArgs(globalIndex, rowId, "Below");
                 InsertRowRequested?.Invoke(this, eventArgs);
                 totalInserted++;
             }
@@ -1018,6 +1117,7 @@ public sealed class DataGridCellsView : UserControl, IDisposable
         if (_viewModel != null)
         {
             _viewModel.Rows.CollectionChanged -= OnRowsCollectionChanged;
+            _viewModel.ItemsRepeaterRefreshRequested -= OnItemsRepeaterRefreshRequested;
 
             // ✅ SENIOR FIX: Unsubscribe from PageManager events
             if (_viewModel.PageManager != null)

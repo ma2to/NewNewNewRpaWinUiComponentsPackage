@@ -12,13 +12,19 @@ internal sealed class DataGridSorting : IDataGridSorting
 {
     private readonly ILogger<DataGridSorting>? _logger;
     private readonly ISortService _sortService;
+    private readonly UIAdapters.WinUI.UiNotificationService? _uiNotificationService;
+    private readonly Infrastructure.Persistence.Interfaces.IRowStore? _rowStore;
 
     public DataGridSorting(
         ISortService sortService,
-        ILogger<DataGridSorting>? logger = null)
+        ILogger<DataGridSorting>? logger = null,
+        UIAdapters.WinUI.UiNotificationService? uiNotificationService = null,
+        Infrastructure.Persistence.Interfaces.IRowStore? rowStore = null)
     {
         _sortService = sortService ?? throw new ArgumentNullException(nameof(sortService));
         _logger = logger;
+        _uiNotificationService = uiNotificationService;
+        _rowStore = rowStore;
     }
 
     public async Task<PublicResult> SortByColumnAsync(string columnName, PublicSortDirection direction, CancellationToken cancellationToken = default)
@@ -29,7 +35,29 @@ internal sealed class DataGridSorting : IDataGridSorting
 
             var internalDirection = direction.ToInternal();
             var internalResult = await _sortService.SortByColumnAsync(columnName, internalDirection, cancellationToken);
-            return internalResult ? PublicResult.Success() : PublicResult.Failure("Sort operation failed");
+
+            if (!internalResult)
+            {
+                return PublicResult.Failure("Sort operation failed");
+            }
+
+            // ✅ PROFESSIONAL FIX: Trigger UI refresh after successful sort
+            // This ensures InternalUIUpdateHandler detects changes and updates DataGridViewModel
+            if (_uiNotificationService != null && _rowStore != null)
+            {
+                // Get current row count to pass to notification
+                var allRows = await _rowStore.GetAllRowsAsync(cancellationToken);
+                var rowCount = allRows.Count();
+
+                _logger?.LogInformation("Triggering UI refresh after sort: {RowCount} rows", rowCount);
+                await _uiNotificationService.NotifyDataRefreshAsync(rowCount, "Sort");
+            }
+            else
+            {
+                _logger?.LogDebug("UiNotificationService or RowStore not available - skipping UI refresh notification");
+            }
+
+            return PublicResult.Success();
         }
         catch (Exception ex)
         {
@@ -62,6 +90,28 @@ internal sealed class DataGridSorting : IDataGridSorting
             _logger?.LogInformation("Clearing all sorting via Sorting module");
 
             var internalResult = await _sortService.ClearSortingAsync(cancellationToken);
+
+            if (!internalResult.IsSuccess)
+            {
+                return internalResult.ToPublic();
+            }
+
+            // ✅ PROFESSIONAL FIX: Trigger UI refresh after successful clear sort
+            // This ensures InternalUIUpdateHandler detects changes and updates DataGridViewModel
+            if (_uiNotificationService != null && _rowStore != null)
+            {
+                // Get current row count to pass to notification
+                var allRows = await _rowStore.GetAllRowsAsync(cancellationToken);
+                var rowCount = allRows.Count();
+
+                _logger?.LogInformation("Triggering UI refresh after clear sort: {RowCount} rows", rowCount);
+                await _uiNotificationService.NotifyDataRefreshAsync(rowCount, "ClearSort");
+            }
+            else
+            {
+                _logger?.LogDebug("UiNotificationService or RowStore not available - skipping UI refresh notification");
+            }
+
             return internalResult.ToPublic();
         }
         catch (Exception ex)

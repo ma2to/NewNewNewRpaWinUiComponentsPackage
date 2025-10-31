@@ -75,7 +75,7 @@ internal sealed class AdaptiveRowStore : IRowStore, IAsyncDisposable
     }
 
     /// <summary>
-    /// Migrate from InMemory to Hybrid (SQLite)
+    /// ✅ STRATEGY PATTERN: Migrate from InMemory to Hybrid (SQLite)
     /// THREAD-SAFE: Uses semaphore lock
     /// </summary>
     private async Task MigrateToHybridAsync(CancellationToken cancellationToken)
@@ -86,36 +86,35 @@ internal sealed class AdaptiveRowStore : IRowStore, IAsyncDisposable
             _logger?.LogWarning("MIGRATION START: InMemory → Hybrid (SQLite + WAL)");
             var stopwatch = Stopwatch.StartNew();
 
-            // 1. Create new HybridRowStore
+            // 1. Create new UnifiedRowStore with SQLite strategies
             var hybridStore = CreateHybridStore();
-            await hybridStore.InitializeAsync(_options.DatabasePath, cancellationToken);
 
-            // 2. Copy all data from InMemory to Hybrid
+            // 2. Initialize SQLite database
+            await InitializeHybridStoreAsync(cancellationToken);
+
+            // 3. Copy all data from InMemory to Hybrid
             var allRows = await _activeStore.GetAllRowsAsync(cancellationToken);
             await hybridStore.AppendRowsAsync(allRows, cancellationToken);
 
-            // 3. Copy validation cache (if exists)
-            if (_activeStore is InMemoryRowStore inMemoryStore)
+            // 4. Copy validation cache (if exists)
+            var validationErrors = await _activeStore.GetValidationErrorsAsync(false, false, cancellationToken);
+            if (validationErrors.Count > 0)
             {
-                var validationErrors = await inMemoryStore.GetValidationErrorsAsync(false, false, cancellationToken);
-                if (validationErrors.Count > 0)
-                {
-                    // Group by rowId for batch write
-                    var validationDict = validationErrors
-                        .GroupBy(e => e.RowId)
-                        .Where(g => !string.IsNullOrEmpty(g.Key))
-                        .ToDictionary(g => g.Key!, g => g.ToArray());
+                // Group by rowId for batch write
+                var validationDict = validationErrors
+                    .GroupBy(e => e.RowId)
+                    .Where(g => !string.IsNullOrEmpty(g.Key))
+                    .ToDictionary(g => g.Key!, g => g.ToArray());
 
-                    await hybridStore.WriteValidationResultsBatchAsync(validationDict, cancellationToken);
-                }
+                await hybridStore.WriteValidationResultsBatchAsync(validationDict, cancellationToken);
             }
 
-            // 4. Swap stores (atomic)
+            // 5. Swap stores (atomic)
             var oldStore = _activeStore;
             _activeStore = hybridStore;
             _currentStrategy = StorageStrategy.Hybrid;
 
-            // 5. Dispose old InMemory store
+            // 6. Dispose old InMemory store (no database to close)
             if (oldStore is IAsyncDisposable asyncDisposable)
                 await asyncDisposable.DisposeAsync();
 
@@ -131,7 +130,7 @@ internal sealed class AdaptiveRowStore : IRowStore, IAsyncDisposable
     }
 
     /// <summary>
-    /// Migrate from Hybrid to InMemory (when row count drops below threshold)
+    /// ✅ STRATEGY PATTERN: Migrate from Hybrid to InMemory (when row count drops below threshold)
     /// </summary>
     private async Task MigrateToInMemoryAsync(CancellationToken cancellationToken)
     {
@@ -141,7 +140,7 @@ internal sealed class AdaptiveRowStore : IRowStore, IAsyncDisposable
             _logger?.LogWarning("MIGRATION START: Hybrid → InMemory");
             var stopwatch = Stopwatch.StartNew();
 
-            // 1. Create new InMemoryRowStore
+            // 1. Create new UnifiedRowStore with InMemory strategies
             var inMemoryStore = CreateInMemoryStore();
 
             // 2. Copy all data from Hybrid to InMemory
@@ -181,22 +180,53 @@ internal sealed class AdaptiveRowStore : IRowStore, IAsyncDisposable
     }
 
     /// <summary>
-    /// Factory: Create InMemoryRowStore
+    /// ✅ STRATEGY PATTERN (PART 2): Create UnifiedRowStore with InMemory strategies
     /// </summary>
-    private InMemoryRowStore CreateInMemoryStore()
+    private UnifiedRowStore CreateInMemoryStore()
     {
-        var logger = _serviceProvider.GetService<ILogger<InMemoryRowStore>>();
-        return new InMemoryRowStore(logger);
+        var storageLogger = _serviceProvider.GetService<ILogger<Strategies.Storage.InMemoryStorageStrategy>>();
+        var validationLogger = _serviceProvider.GetService<ILogger<Strategies.Validation.InMemoryValidationStrategy>>();
+        var unifiedLogger = _serviceProvider.GetService<ILogger<UnifiedRowStore>>();
+
+        var storageStrategy = new Strategies.Storage.InMemoryStorageStrategy(storageLogger);
+        var validationStrategy = new Strategies.Validation.InMemoryValidationStrategy(validationLogger);
+
+        return new UnifiedRowStore(storageStrategy, validationStrategy, unifiedLogger);
     }
 
     /// <summary>
-    /// Factory: Create HybridRowStore
+    /// ✅ STRATEGY PATTERN (PART 2): Create UnifiedRowStore with SQLite strategies
+    /// NOTE: Database initialization must be done AFTER creating the store
     /// </summary>
-    private HybridRowStore CreateHybridStore()
+    private UnifiedRowStore CreateHybridStore()
     {
-        var logger = _serviceProvider.GetService<ILogger<HybridRowStore>>();
         var dbLifecycleManager = _serviceProvider.GetRequiredService<IDatabaseLifecycleManager>();
-        return new HybridRowStore(logger, dbLifecycleManager, _options.ViewportCacheSize);
+        var storageLogger = _serviceProvider.GetService<ILogger<Strategies.Storage.SqliteStorageStrategy>>();
+        var validationLogger = _serviceProvider.GetService<ILogger<Strategies.Validation.SqliteValidationStrategy>>();
+        var unifiedLogger = _serviceProvider.GetService<ILogger<UnifiedRowStore>>();
+
+        var storageStrategy = new Strategies.Storage.SqliteStorageStrategy(dbLifecycleManager, storageLogger);
+        var validationStrategy = new Strategies.Validation.SqliteValidationStrategy(dbLifecycleManager, validationLogger);
+
+        return new UnifiedRowStore(storageStrategy, validationStrategy, unifiedLogger);
+    }
+
+    /// <summary>
+    /// ✅ STRATEGY PATTERN: Initialize HybridStore database (SQLite)
+    /// Called after CreateHybridStore()
+    /// </summary>
+    private async Task InitializeHybridStoreAsync(CancellationToken cancellationToken)
+    {
+        var dbLifecycleManager = _serviceProvider.GetRequiredService<IDatabaseLifecycleManager>();
+        var result = await dbLifecycleManager.InitializeDatabaseAsync(_options.DatabasePath, cancellationToken);
+
+        if (result.IsFailure)
+        {
+            _logger?.LogError("Failed to initialize HybridStore database: {Error}", result.ErrorMessage);
+            throw new InvalidOperationException($"Database initialization failed: {result.ErrorMessage}");
+        }
+
+        _logger?.LogInformation("HybridStore database initialized successfully");
     }
 
     // ========================================================================================

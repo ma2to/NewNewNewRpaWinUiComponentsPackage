@@ -22,6 +22,7 @@ public sealed partial class AdvancedDataGridFacade : IAdvancedDataGridFacade
     private readonly UIAdapters.WinUI.GridViewModelAdapter? _gridViewModelAdapter;
     private readonly UIAdapters.WinUI.InternalUIUpdateHandler? _internalUIUpdateHandler;
     private readonly UIAdapters.WinUI.InternalUIOperationHandler? _internalUIOperationHandler;
+    private readonly UIAdapters.WinUI.InternalUISortHandler? _internalUISortHandler;
     private readonly Features.Color.ThemeService _themeService;
     private bool _disposed;
 
@@ -205,6 +206,55 @@ public sealed partial class AdvancedDataGridFacade : IAdvancedDataGridFacade
             );
         }
 
+        // PROFESSIONAL: Create InternalUISortHandler to enable automatic sort operations
+        // This handler automatically processes sort requests from header clicks without application code involvement
+        // ACTIVE in all operation modes (Interactive, Headless, Readonly) - sorting is always allowed
+        // NOTE: Needs reference to facade (this) and ViewModel, so created here instead of DI
+        {
+            var viewModel = serviceProvider.GetService<ViewModels.DataGridViewModel>();
+            if (viewModel != null)
+            {
+                var uiSortLogger = serviceProvider.GetService<ILogger<UIAdapters.WinUI.InternalUISortHandler>>();
+                _internalUISortHandler = new UIAdapters.WinUI.InternalUISortHandler(
+                    this, // Pass facade reference
+                    viewModel,
+                    uiSortLogger
+                );
+                _logger.LogInformation("InternalUISortHandler initialized for automatic sort handling");
+            }
+            else
+            {
+                _logger.LogWarning("DataGridViewModel not available - InternalUISortHandler not created");
+            }
+        }
+
+        // PROFESSIONAL: Inject FilterFlyoutService into DataGridViewModel
+        // This enables HeadersRowView to trigger filter operations (checkbox + regex modes)
+        // ACTIVE in all operation modes (Interactive, Headless, Readonly) - filtering is always allowed
+        {
+            var viewModel = serviceProvider.GetService<ViewModels.DataGridViewModel>();
+            if (viewModel != null)
+            {
+                var rowStore = serviceProvider.GetRequiredService<Infrastructure.Persistence.Interfaces.IRowStore>();
+                var filterLogger = serviceProvider.GetService<ILogger<Features.Filter.Services.FilterFlyoutService>>();
+                var uiNotificationService = serviceProvider.GetService<UIAdapters.WinUI.UiNotificationService>();
+
+                // ✅ PROFESSIONAL FIX: Include UiNotificationService for UI refresh after filter
+                var filterFlyoutService = new Features.Filter.Services.FilterFlyoutService(
+                    filterLogger,
+                    rowStore,
+                    uiNotificationService);
+
+                // ✅ Inject FilterFlyoutService into ViewModel (accessible from HeadersRowView)
+                viewModel.FilterFlyoutService = filterFlyoutService;
+                _logger.LogInformation("FilterFlyoutService created and injected into DataGridViewModel (with UI refresh support)");
+            }
+            else
+            {
+                _logger.LogWarning("DataGridViewModel not available - FilterFlyoutService not injected");
+            }
+        }
+
         // Obtain ThemeService (always available)
         _themeService = serviceProvider.GetRequiredService<Features.Color.ThemeService>();
 
@@ -312,6 +362,7 @@ public sealed partial class AdvancedDataGridFacade : IAdvancedDataGridFacade
                 // Dispose handlers first (unsubscribe from events)
                 _internalUIUpdateHandler?.Dispose();
                 _internalUIOperationHandler?.Dispose();
+                _internalUISortHandler?.Dispose();
 
                 // Dispose of service provider if it's disposable
                 if (_serviceProvider is IDisposable disposableProvider)

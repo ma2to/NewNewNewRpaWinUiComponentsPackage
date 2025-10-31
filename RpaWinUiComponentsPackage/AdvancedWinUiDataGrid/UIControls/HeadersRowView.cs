@@ -739,8 +739,15 @@ public sealed class HeadersRowView : UserControl
         };
         sortAscItem.Click += (s, e) =>
         {
-            _logger?.LogInformation("Sort Ascending selected for column {ColumnName}", header.ColumnName);
-            _viewModel.SetSortDirection(header.ColumnName, "Ascending");
+            // ✅ PROFESSIONAL FIX: Detect Shift key for multi-sort
+            var shiftKeyPressed = Microsoft.UI.Input.InputKeyboardSource
+                .GetKeyStateForCurrentThread(Windows.System.VirtualKey.Shift)
+                .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+            _logger?.LogInformation("Sort Ascending selected for column {ColumnName}, Shift={Shift}",
+                header.ColumnName, shiftKeyPressed);
+
+            _viewModel.SetSortDirection(header.ColumnName, "Ascending", shiftKeyPressed);
             flyout.Hide();
         };
         flyout.Items.Add(sortAscItem);
@@ -752,8 +759,15 @@ public sealed class HeadersRowView : UserControl
         };
         sortDescItem.Click += (s, e) =>
         {
-            _logger?.LogInformation("Sort Descending selected for column {ColumnName}", header.ColumnName);
-            _viewModel.SetSortDirection(header.ColumnName, "Descending");
+            // ✅ PROFESSIONAL FIX: Detect Shift key for multi-sort
+            var shiftKeyPressed = Microsoft.UI.Input.InputKeyboardSource
+                .GetKeyStateForCurrentThread(Windows.System.VirtualKey.Shift)
+                .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+            _logger?.LogInformation("Sort Descending selected for column {ColumnName}, Shift={Shift}",
+                header.ColumnName, shiftKeyPressed);
+
+            _viewModel.SetSortDirection(header.ColumnName, "Descending", shiftKeyPressed);
             flyout.Hide();
         };
         flyout.Items.Add(sortDescItem);
@@ -766,7 +780,8 @@ public sealed class HeadersRowView : UserControl
         sortNoneItem.Click += (s, e) =>
         {
             _logger?.LogInformation("Clear Sort selected for column {ColumnName}", header.ColumnName);
-            _viewModel.SetSortDirection(header.ColumnName, "None");
+            // ✅ Clear sort always single-mode (no multi-sort logic)
+            _viewModel.SetSortDirection(header.ColumnName, "None", false);
             flyout.Hide();
         };
         flyout.Items.Add(sortNoneItem);
@@ -782,12 +797,20 @@ public sealed class HeadersRowView : UserControl
             Text = "Filter (Select Values)...",
             Icon = new SymbolIcon(Symbol.Filter)
         };
-        filterCheckboxItem.Click += (s, e) =>
+        filterCheckboxItem.Click += async (s, e) =>
         {
             _logger?.LogInformation("Filter (Checkbox mode) selected for column {ColumnName}", header.ColumnName);
-            // TODO: Trigger existing FilterFlyoutService checkbox mode
-            // This requires access to FilterFlyoutService via DI or ViewModel
             flyout.Hide();
+
+            // ✅ PROFESSIONAL FIX: Trigger checkbox filter via FilterFlyoutService
+            if (_viewModel?.FilterFlyoutService != null)
+            {
+                await ShowCheckboxFilterFlyoutAsync(header.ColumnName);
+            }
+            else
+            {
+                _logger?.LogWarning("FilterFlyoutService not available - cannot show checkbox filter");
+            }
         };
         flyout.Items.Add(filterCheckboxItem);
 
@@ -796,11 +819,20 @@ public sealed class HeadersRowView : UserControl
             Text = "Filter (Regex Pattern)...",
             Icon = new SymbolIcon(Symbol.Find)
         };
-        filterRegexItem.Click += (s, e) =>
+        filterRegexItem.Click += async (s, e) =>
         {
             _logger?.LogInformation("Filter (Regex mode) selected for column {ColumnName}", header.ColumnName);
-            // TODO: Trigger existing FilterFlyoutService regex mode
             flyout.Hide();
+
+            // ✅ PROFESSIONAL FIX: Trigger regex filter via FilterFlyoutService
+            if (_viewModel?.FilterFlyoutService != null)
+            {
+                await ShowRegexFilterDialogAsync(header.ColumnName);
+            }
+            else
+            {
+                _logger?.LogWarning("FilterFlyoutService not available - cannot show regex filter");
+            }
         };
         flyout.Items.Add(filterRegexItem);
 
@@ -841,5 +873,185 @@ public sealed class HeadersRowView : UserControl
             }
         }
         return null;
+    }
+
+    /// <summary>
+    /// ✅ PROFESSIONAL FIX: Shows checkbox filter flyout for a column
+    /// ARCHITECTURE:
+    /// - Loads unique values from FilterFlyoutService.LoadUniqueValuesAsync()
+    /// - Displays ContentDialog with ListBox of CheckBoxes (one per unique value)
+    /// - Includes "Select All" checkbox for bulk selection
+    /// - Apply button triggers FilterFlyoutService.ApplyCheckboxFilterAsync()
+    /// </summary>
+    private async Task ShowCheckboxFilterFlyoutAsync(string columnName)
+    {
+        if (_viewModel?.FilterFlyoutService == null)
+        {
+            _logger?.LogError("FilterFlyoutService not available");
+            return;
+        }
+
+        try
+        {
+            // Load unique values for this column
+            var uniqueValues = await _viewModel.FilterFlyoutService.LoadUniqueValuesAsync(columnName);
+
+            if (uniqueValues.Count == 0)
+            {
+                _logger?.LogWarning("No unique values found for column {ColumnName}", columnName);
+                return;
+            }
+
+            // Create dictionary to track checkbox states
+            var checkboxes = new Dictionary<string, CheckBox>();
+            var selectAllCheckbox = new CheckBox
+            {
+                Content = "Select All",
+                IsChecked = true,
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+
+            // Create ListBox with checkboxes
+            var listBox = new ListBox
+            {
+                MaxHeight = 300,
+                MinWidth = 250
+            };
+
+            foreach (var value in uniqueValues)
+            {
+                var checkbox = new CheckBox
+                {
+                    Content = value,
+                    IsChecked = true
+                };
+                checkboxes[value] = checkbox;
+                listBox.Items.Add(checkbox);
+            }
+
+            // Select All logic
+            selectAllCheckbox.Checked += (s, e) =>
+            {
+                foreach (var cb in checkboxes.Values)
+                    cb.IsChecked = true;
+            };
+            selectAllCheckbox.Unchecked += (s, e) =>
+            {
+                foreach (var cb in checkboxes.Values)
+                    cb.IsChecked = false;
+            };
+
+            // Create StackPanel with Select All + ListBox
+            var stackPanel = new StackPanel();
+            stackPanel.Children.Add(selectAllCheckbox);
+            stackPanel.Children.Add(listBox);
+
+            // Create ContentDialog
+            var dialog = new ContentDialog
+            {
+                Title = $"Filter: {columnName}",
+                Content = stackPanel,
+                PrimaryButtonText = "Apply",
+                CloseButtonText = "Cancel",
+                XamlRoot = this.XamlRoot
+            };
+
+            var result = await dialog.ShowAsync();
+
+            if (result == ContentDialogResult.Primary)
+            {
+                // Get selected values
+                var selectedValues = checkboxes
+                    .Where(kvp => kvp.Value.IsChecked == true)
+                    .Select(kvp => kvp.Key)
+                    .ToList();
+
+                _logger?.LogInformation("Applying checkbox filter: {Count} values selected", selectedValues.Count);
+
+                // Apply filter
+                await _viewModel.FilterFlyoutService.ApplyCheckboxFilterAsync(columnName, selectedValues);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Failed to show checkbox filter for column {ColumnName}", columnName);
+        }
+    }
+
+    /// <summary>
+    /// ✅ PROFESSIONAL FIX: Shows regex filter dialog for a column
+    /// ARCHITECTURE:
+    /// - Displays ContentDialog with TextBox for regex pattern input
+    /// - Includes "Case Sensitive" checkbox
+    /// - Apply button triggers FilterFlyoutService.ApplyRegexFilterAsync()
+    /// </summary>
+    private async Task ShowRegexFilterDialogAsync(string columnName)
+    {
+        if (_viewModel?.FilterFlyoutService == null)
+        {
+            _logger?.LogError("FilterFlyoutService not available");
+            return;
+        }
+
+        try
+        {
+            // Create TextBox for regex pattern
+            var textBox = new TextBox
+            {
+                PlaceholderText = "Enter regex pattern (e.g., ^test.*|.*data$)",
+                MinWidth = 300,
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+
+            // Create Case Sensitive checkbox
+            var caseSensitiveCheckbox = new CheckBox
+            {
+                Content = "Case Sensitive",
+                IsChecked = false
+            };
+
+            // Create StackPanel
+            var stackPanel = new StackPanel();
+            stackPanel.Children.Add(textBox);
+            stackPanel.Children.Add(caseSensitiveCheckbox);
+
+            // Create ContentDialog
+            var dialog = new ContentDialog
+            {
+                Title = $"Regex Filter: {columnName}",
+                Content = stackPanel,
+                PrimaryButtonText = "Apply",
+                CloseButtonText = "Cancel",
+                XamlRoot = this.XamlRoot
+            };
+
+            var result = await dialog.ShowAsync();
+
+            if (result == ContentDialogResult.Primary)
+            {
+                var pattern = textBox.Text;
+
+                if (string.IsNullOrWhiteSpace(pattern))
+                {
+                    _logger?.LogWarning("Regex pattern is empty - ignoring");
+                    return;
+                }
+
+                // Add case-insensitive flag if needed
+                if (caseSensitiveCheckbox.IsChecked == false)
+                {
+                    pattern = "(?i)" + pattern;
+                }
+
+                _logger?.LogInformation("Applying regex filter: Pattern={Pattern}", pattern);
+
+                // Apply filter
+                await _viewModel.FilterFlyoutService.ApplyRegexFilterAsync(columnName, pattern);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Failed to show regex filter for column {ColumnName}", columnName);
+        }
     }
 }

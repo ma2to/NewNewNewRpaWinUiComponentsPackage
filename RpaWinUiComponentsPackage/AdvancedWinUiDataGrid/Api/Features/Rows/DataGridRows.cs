@@ -227,7 +227,8 @@ internal sealed class DataGridRows : IDataGridRows
 
             // Create empty row data with all columns set to null
             // Get column names from first existing row (if available)
-            var firstRow = _rowStore.GetRow(0);
+            // ✅ DEADLOCK FIX: Use GetRowAsync instead of GetRow
+            var firstRow = await _rowStore.GetRowAsync(0, cancellationToken);
             var emptyRowData = new Dictionary<string, object?>();
 
             if (firstRow != null)
@@ -374,7 +375,8 @@ internal sealed class DataGridRows : IDataGridRows
         try
         {
             _logger?.LogInformation("Clearing all rows via Rows module");
-            var currentCount = _rowStore.GetRowCount();
+            // ✅ DEADLOCK FIX: Use async method instead of sync
+            var currentCount = (int)await _rowStore.GetRowCountAsync(cancellationToken);
             await _rowStore.ClearAllRowsAsync(cancellationToken);
 
             // Trigger automatic UI refresh in Interactive mode
@@ -753,10 +755,13 @@ internal sealed class DataGridRows : IDataGridRows
             }
 
             var insertAtIndex = referenceIndex.Value + 1;
-            var oldRowCount = _rowStore.GetRowCount();
+
+            // ✅ DEADLOCK FIX: Use async methods instead of sync (avoid .GetAwaiter().GetResult())
+            var oldRowCount = (int)await _rowStore.GetRowCountAsync(cancellationToken);
 
             // 2. Get template for empty row (all columns = null)
-            var firstRow = _rowStore.GetRow(0);
+            // ✅ DEADLOCK FIX: Use GetRowAsync instead of GetRow
+            var firstRow = await _rowStore.GetRowAsync(0, cancellationToken);
             if (firstRow == null)
             {
                 return PublicResult.Failure("Cannot determine column structure - no rows exist");
@@ -778,7 +783,8 @@ internal sealed class DataGridRows : IDataGridRows
             // - Return RowId (for logging/debugging)
             var newRowId = await _rowStore.InsertRowAtIndexAsync(insertAtIndex, emptyRowData, cancellationToken);
 
-            var newRowCount = _rowStore.GetRowCount();
+            // ✅ DEADLOCK FIX: Use async method instead of sync
+            var newRowCount = (int)await _rowStore.GetRowCountAsync(cancellationToken);
 
             _logger?.LogInformation("PHYSICAL INSERT: Added empty row at index {Index} (RowId={RowId}), RowCount: {OldCount}→{NewCount}",
                 insertAtIndex, newRowId, oldRowCount, newRowCount);
@@ -815,6 +821,101 @@ internal sealed class DataGridRows : IDataGridRows
     }
 
     /// <summary>
+    /// ✅ PROFESSIONAL SOLUTION: Virtuálne vloží prázdny riadok PRED zadaný riadok (FIXED UI POOL).
+    /// ARCHITECTURE:
+    /// - Shifts all rows with __rowNumber >= target down by 1 (__rowNumber++)
+    /// - Creates new empty row at target's original __rowNumber position
+    /// - PHYSICALLY increases RowCount by 1 (real insert operation)
+    /// - UI: FIXED pool of PageSize ViewModels (always 15, never changes)
+    ///   - UpdateViewModelsInPlace() updates existing ViewModels IN-PLACE
+    ///   - Invisible rows become VISIBLE when data count increases
+    ///   - NO new UI objects created (pool size constant)
+    /// PARAMETERS:
+    /// - referenceRowId: RowId BEFORE which to insert (this row will be shifted down)
+    /// EXAMPLE: PageSize=15, Page 1 has 15 visible rows
+    ///   - User right-clicks row 5 (RowId="R5") → "Insert 2 rows above"
+    ///   - VirtualInsertEmptyRowBeforeAsync("R5") called 2 times
+    ///   - First call: Row 5-15 shift to 6-16, new empty row inserted at position 5
+    ///   - Second call: Row 5-16 shift to 6-17, new empty row inserted at position 5
+    ///   - Result: 2 empty rows at positions 5-6, original row 5 is now row 7
+    /// </summary>
+    public async Task<PublicResult> VirtualInsertEmptyRowBeforeAsync(string referenceRowId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger?.LogInformation("PHYSICAL INSERT BEFORE (FIXED UI POOL): Starting for rowId {RowId}", referenceRowId);
+
+            // 1. Find reference row index BY RowId (STABLE identifier)
+            var referenceIndex = _rowStore.GetRowIndexById(referenceRowId);
+            if (referenceIndex == null)
+            {
+                return PublicResult.Failure($"Reference row {referenceRowId} not found");
+            }
+
+            var insertAtIndex = referenceIndex.Value; // Insert BEFORE reference = insert AT reference index
+
+            // ✅ DEADLOCK FIX: Use async methods instead of sync
+            var oldRowCount = (int)await _rowStore.GetRowCountAsync(cancellationToken);
+
+            // 2. Get template for empty row (all columns = null)
+            var firstRow = await _rowStore.GetRowAsync(0, cancellationToken);
+            if (firstRow == null)
+            {
+                return PublicResult.Failure("Cannot determine column structure - no rows exist");
+            }
+
+            var emptyRowData = new Dictionary<string, object?>();
+            foreach (var colName in firstRow.Keys)
+            {
+                if (colName == "__rowId" || colName == "__createdAt")
+                    continue;  // System columns added by InsertRowAtIndexAsync
+                emptyRowData[colName] = null;
+            }
+
+            // ✅ STEP 3: PHYSICALLY INSERT row at position BEFORE reference (RowCount++)
+            // IRowStore.InsertRowAtIndexAsync will:
+            // - Shift all rows at insertAtIndex and after DOWN by 1
+            // - Generate new RowId (STABLE identifier)
+            // - Calculate ULID timestamp for correct sort order
+            // - Add row to dictionary
+            // - Return RowId (for logging/debugging)
+            var newRowId = await _rowStore.InsertRowAtIndexAsync(insertAtIndex, emptyRowData, cancellationToken);
+
+            // ✅ DEADLOCK FIX: Use async method instead of sync
+            var newRowCount = (int)await _rowStore.GetRowCountAsync(cancellationToken);
+
+            _logger?.LogInformation("PHYSICAL INSERT BEFORE: Added empty row at index {Index} (RowId={RowId}), reference row {RefRowId} shifted down, RowCount: {OldCount}→{NewCount}",
+                insertAtIndex, newRowId, referenceRowId, oldRowCount, newRowCount);
+
+            // ✅ STEP 4: Trigger UI refresh (calls UpdateViewModelsInPlace)
+            // UI BEHAVIOR (FIXED POOL):
+            // - GetRowsRangeAsync() returns new data count (e.g., 10→11 rows)
+            // - UpdateViewModelsInPlace() updates EXISTING ViewModels (pool size=15, UNCHANGED)
+            // - IF page had invisible rows (e.g., 10 visible + 5 invisible):
+            //   → One invisible row becomes VISIBLE (11 visible + 4 invisible)
+            //   → NO new UI objects created!
+            // - IF page was full (15 visible):
+            //   → Last row shifts to next page
+            //   → Still 15 visible (data updated IN-PLACE)
+            // NOTE: PageManager.TotalDataRows will be auto-updated in UiNotificationService.NotifyDataRefreshAsync
+            await TriggerUIRefreshIfNeededAsync("VirtualInsertBefore", 1);
+
+            _logger?.LogInformation("PHYSICAL INSERT BEFORE (FIXED UI POOL): Completed - dataset grew by 1 row");
+
+            return new PublicResult
+            {
+                IsSuccess = true,
+                Message = $"Empty row inserted BEFORE position {insertAtIndex}, dataset now has {newRowCount} rows (RowId={newRowId})"
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "PHYSICAL INSERT BEFORE failed for rowId {RowId}", referenceRowId);
+            throw;
+        }
+    }
+
+    /// <summary>
     /// ✅ PROFESSIONAL SOLUTION: Physically deletes row (FIXED UI POOL).
     /// ARCHITECTURE:
     /// - Uses IRowStore.DeleteRowByIdAsync() to PHYSICALLY remove row (RowCount--)
@@ -845,7 +946,8 @@ internal sealed class DataGridRows : IDataGridRows
                 return PublicResult.Failure($"Row {rowId} not found");
             }
 
-            var oldRowCount = _rowStore.GetRowCount();
+            // ✅ DEADLOCK FIX: Use async method instead of sync
+            var oldRowCount = (int)await _rowStore.GetRowCountAsync(cancellationToken);
 
             // ✅ STEP 2: PHYSICALLY DELETE row BY RowId (RowCount--)
             // CRITICAL: Uses RowId (STABLE), not RowIndex (unstable)!
@@ -855,7 +957,8 @@ internal sealed class DataGridRows : IDataGridRows
             // - Clear caches
             await _rowStore.DeleteRowByIdAsync(rowId, cancellationToken);
 
-            var newRowCount = _rowStore.GetRowCount();
+            // ✅ DEADLOCK FIX: Use async method instead of sync
+            var newRowCount = (int)await _rowStore.GetRowCountAsync(cancellationToken);
 
             _logger?.LogInformation("PHYSICAL DELETE: Deleted row at index {Index} (RowId={RowId}), RowCount: {OldCount}→{NewCount}",
                 deleteIndex.Value, rowId, oldRowCount, newRowCount);

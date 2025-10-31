@@ -378,6 +378,20 @@ internal sealed class InternalUIUpdateHandler : IDisposable
             _viewModel.InvalidateRowIdCache();
             _viewModel.ViewportManager?.InvalidateCache();
 
+            // ✅ CRITICAL FIX #1: Force UI refresh after INSERT/DELETE (same as OnPageChanged)
+            // PROBLEM: UI shows stale data until user manually changes page (page 6 → page 7)
+            // ROOT CAUSE: WinUI ItemsRepeater requires PropertyChanged(Rows) to re-render viewport
+            // SOLUTION: Notify Rows collection changed to trigger ItemsRepeater refresh
+            // CONSISTENCY: Same mechanism as OnPageManagerPageChanged() line 1915
+            _viewModel.NotifyRowsCollectionChanged();
+
+            // ✅ CRITICAL FIX #2: Force COMPLETE ItemsRepeater refresh (beyond cache invalidation)
+            // PROBLEM: Page 7 has 10 rows → user adds 5 rows → UI still shows only 10 rows
+            // ROOT CAUSE: ItemsRepeater caches collapsed elements (rows 10-14) and doesn't re-render when IsVisible changes
+            // SOLUTION: ForceCompleteUIRefresh() triggers ItemsSource rebind (null → recreate) in DataGridCellsView
+            // RESULT: ALL elements recreated, IsVisible changes reflected immediately
+            _viewModel.ForceCompleteUIRefresh();
+
             _logger.LogInformation("✅ INCREMENTAL UPDATE completed - reloaded {Count} ViewModels for current page (VirtualInsert/Delete shifted data now visible)",
                 pageRows.Count);
         }

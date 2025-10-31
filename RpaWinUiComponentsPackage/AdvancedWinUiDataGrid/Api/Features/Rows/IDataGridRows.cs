@@ -205,7 +205,7 @@ public interface IDataGridRows
 
     /// <summary>
     /// PROFESSIONAL SOLUTION: Virtuálne vloží prázdny riadok na pozíciu (posunie data smerom nadol v rámci page).
-    /// NEZMENÍ celkový počet riadkov - posledný riadok page sa prepisuje prázdnymi hodnotami.
+    /// NEZMENÍ celkový počet riadkov - posledný riadok page sa prepisuje prázdnými hodnotami.
     /// USE CASE: Fixed page size grids where insert should shift data down without changing row count.
     /// VIRTUAL OPERATION: Does not physically add row to dataset, only shifts existing data.
     /// </summary>
@@ -213,6 +213,22 @@ public interface IDataGridRows
     /// <param name="cancellationToken">Cancellation token for operation</param>
     /// <returns>Result of the operation</returns>
     Task<PublicResult> VirtualInsertEmptyRowAfterAsync(string referenceRowId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// PROFESSIONAL SOLUTION: Virtuálne vloží prázdny riadok PRED zadaný riadok (posunie data smerom nadol v rámci page).
+    /// NEZMENÍ celkový počet riadkov - posledný riadok page sa prepisuje prázdnymi hodnotami.
+    /// USE CASE: Fixed page size grids where "Insert Above" should shift data down without changing row count.
+    /// VIRTUAL OPERATION: Does not physically add row to dataset, only shifts existing data.
+    /// ALGORITHM:
+    ///   1. Find target row by RowId, get its __rowNumber (e.g., 5)
+    ///   2. Shift all rows with __rowNumber >= 5 down by 1 (__rowNumber++)
+    ///   3. Create new empty row with __rowNumber = 5
+    ///   4. Trigger UI refresh to update DataGridViewModel
+    /// </summary>
+    /// <param name="referenceRowId">Stable row identifier to insert before (this row will be shifted down)</param>
+    /// <param name="cancellationToken">Cancellation token for operation</param>
+    /// <returns>Result of the operation</returns>
+    Task<PublicResult> VirtualInsertEmptyRowBeforeAsync(string referenceRowId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// PROFESSIONAL SOLUTION: Virtuálne zmaže riadok na pozícii (posunie data smerom nahor v rámci page).

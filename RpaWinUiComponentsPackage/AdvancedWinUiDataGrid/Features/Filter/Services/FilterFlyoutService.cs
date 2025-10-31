@@ -16,13 +16,16 @@ internal sealed class FilterFlyoutService
 {
     private readonly ILogger<FilterFlyoutService>? _logger;
     private readonly IRowStore _rowStore;
+    private readonly UIAdapters.WinUI.UiNotificationService? _uiNotificationService;
 
     public FilterFlyoutService(
         ILogger<FilterFlyoutService>? logger,
-        IRowStore rowStore)
+        IRowStore rowStore,
+        UIAdapters.WinUI.UiNotificationService? uiNotificationService)
     {
         _logger = logger;
         _rowStore = rowStore;
+        _uiNotificationService = uiNotificationService;
     }
 
     /// <summary>
@@ -102,6 +105,18 @@ internal sealed class FilterFlyoutService
             _logger?.LogInformation(
                 "Checkbox filter applied successfully: {Count} values selected",
                 selectedValues.Count);
+
+            // ✅ PROFESSIONAL FIX: Trigger UI refresh to update DataGridViewModel
+            if (_uiNotificationService != null)
+            {
+                var filteredCount = (int)await _rowStore.GetRowCountAsync(onlyFiltered: true, cancellationToken);
+                _logger?.LogInformation("Triggering UI refresh after checkbox filter: {FilteredCount} rows", filteredCount);
+                await _uiNotificationService.NotifyDataRefreshAsync(filteredCount, "CheckboxFilter");
+            }
+            else
+            {
+                _logger?.LogWarning("UiNotificationService not available - UI will not auto-refresh after filter");
+            }
         }
         catch (Exception ex)
         {
@@ -141,7 +156,18 @@ internal sealed class FilterFlyoutService
             _rowStore.SetFilterCriteria(new List<object> { filterCriteria });
 
             _logger?.LogInformation("Regex filter applied successfully: Pattern={Pattern}", regexPattern);
-            await Task.CompletedTask;
+
+            // ✅ PROFESSIONAL FIX: Trigger UI refresh to update DataGridViewModel
+            if (_uiNotificationService != null)
+            {
+                var filteredCount = (int)await _rowStore.GetRowCountAsync(onlyFiltered: true, cancellationToken);
+                _logger?.LogInformation("Triggering UI refresh after regex filter: {FilteredCount} rows", filteredCount);
+                await _uiNotificationService.NotifyDataRefreshAsync(filteredCount, "RegexFilter");
+            }
+            else
+            {
+                _logger?.LogWarning("UiNotificationService not available - UI will not auto-refresh after filter");
+            }
         }
         catch (Exception ex)
         {
@@ -168,11 +194,58 @@ internal sealed class FilterFlyoutService
             _rowStore.ClearFilterCriteria();
 
             _logger?.LogInformation("Filter cleared successfully for column {ColumnName}", columnName);
-            await Task.CompletedTask;
+
+            // ✅ PROFESSIONAL FIX: Trigger UI refresh to show all rows
+            if (_uiNotificationService != null)
+            {
+                var totalCount = (int)await _rowStore.GetRowCountAsync(onlyFiltered: false, cancellationToken);
+                _logger?.LogInformation("Triggering UI refresh after clear filter: {TotalCount} rows", totalCount);
+                await _uiNotificationService.NotifyDataRefreshAsync(totalCount, "ClearFilter");
+            }
+            else
+            {
+                _logger?.LogWarning("UiNotificationService not available - UI will not auto-refresh after clear");
+            }
         }
         catch (Exception ex)
         {
             _logger?.LogError(ex, "Failed to clear filter for column {ColumnName}", columnName);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// ✅ PROFESSIONAL FIX: Clear all filters (for all columns)
+    /// Removes all filtering, shows all rows
+    /// This is a wrapper around ClearFilterAsync() for consistency with FilterService API
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token</param>
+    public async Task ClearAllFiltersAsync(CancellationToken cancellationToken = default)
+    {
+        _logger?.LogInformation("Clearing all filters");
+
+        try
+        {
+            // Clear all filter criteria (clears all columns)
+            _rowStore.ClearFilterCriteria();
+
+            _logger?.LogInformation("All filters cleared successfully");
+
+            // ✅ PROFESSIONAL FIX: Trigger UI refresh to show all rows
+            if (_uiNotificationService != null)
+            {
+                var totalCount = (int)await _rowStore.GetRowCountAsync(onlyFiltered: false, cancellationToken);
+                _logger?.LogInformation("Triggering UI refresh after clear all filters: {TotalCount} rows", totalCount);
+                await _uiNotificationService.NotifyDataRefreshAsync(totalCount, "ClearAllFilters");
+            }
+            else
+            {
+                _logger?.LogWarning("UiNotificationService not available - UI will not auto-refresh after clear");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Failed to clear all filters");
             throw;
         }
     }

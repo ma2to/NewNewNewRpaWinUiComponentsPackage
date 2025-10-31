@@ -71,6 +71,16 @@ public sealed class DataGridViewModel : ViewModelBase
     internal Features.Viewport.ViewportManager? ViewportManager { get; set; }
 
     /// <summary>
+    /// PROFESSIONAL FIX: Filter flyout service for checkbox and regex filtering.
+    /// Injected by AdvancedDataGridFacade during initialization.
+    /// Used by HeadersRowView to trigger filter operations via header click menu.
+    /// Supports two filter modes:
+    /// 1. Checkbox mode: Select/deselect distinct values (SQL WHERE IN clause)
+    /// 2. Regex mode: Enter regular expression pattern (SQL WHERE REGEXP clause)
+    /// </summary>
+    internal Features.Filter.Services.FilterFlyoutService? FilterFlyoutService { get; set; }
+
+    /// <summary>
     /// Creates a new instance of the DataGridViewModel.
     /// This is the main view model that manages all grid state including columns, rows, filters, and search.
     /// </summary>
@@ -496,6 +506,38 @@ public sealed class DataGridViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// ✅ FIX: Force UI refresh after data changes (INSERT/DELETE operations).
+    /// CRITICAL: WinUI ItemsRepeater requires PropertyChanged(Rows) to re-render viewport.
+    /// Called by InternalUIUpdateHandler after UpdateViewModelsInPlace().
+    /// Same mechanism as OnPageChanged() - ensures UI reflects updated data immediately.
+    /// </summary>
+    public void NotifyRowsCollectionChanged()
+    {
+        ViewportManager?.InvalidateCache();
+        OnPropertyChanged(nameof(Rows));
+        _logger?.LogDebug("UI refresh triggered - Rows collection PropertyChanged notified");
+    }
+
+    /// <summary>
+    /// ✅ CRITICAL FIX: Force complete UI refresh for ItemsRepeater (beyond cache invalidation).
+    /// PROBLEM: ItemsRepeater caches collapsed elements (rows 10-14) and doesn't re-render when IsVisible changes.
+    /// SOLUTION: Trigger ItemsRepeaterRefreshRequested event that DataGridCellsView handles via ItemsSource rebind.
+    /// USE CASE: Page 7 has 10 rows → user adds 5 rows → UI should show 15 rows (not stay at 10).
+    /// </summary>
+    public event EventHandler? ItemsRepeaterRefreshRequested;
+
+    public void ForceCompleteUIRefresh()
+    {
+        ViewportManager?.InvalidateCache();
+        OnPropertyChanged(nameof(Rows));
+
+        // ✅ Trigger ItemsRepeater rebind in DataGridCellsView
+        ItemsRepeaterRefreshRequested?.Invoke(this, EventArgs.Empty);
+
+        _logger?.LogDebug("Complete UI refresh triggered - ItemsRepeater rebind requested");
+    }
+
+    /// <summary>
     /// Finds row index by RowID using O(1) cache lookup.
     /// PUBLIC API: Used by wrappers (DataGridRows, DataGridSelection, etc.)
     /// </summary>
@@ -591,6 +633,8 @@ public sealed class DataGridViewModel : ViewModelBase
                 {
                     // RowNumber - computed from rowIndex (1-based)
                     cellVm.Value = rowIndex + 1;
+                    // ✅ CRITICAL: RowNumber is ALWAYS read-only (cannot be edited)
+                    cellVm.IsReadOnly = true;
                 }
                 else if (header.SpecialType == SpecialColumnType.Checkbox)
                 {
@@ -779,6 +823,8 @@ public sealed class DataGridViewModel : ViewModelBase
                     {
                         // RowNumber - computed from rowIndex (1-based)
                         cell.Value = i + 1;
+                        // ✅ CRITICAL: RowNumber is ALWAYS read-only (cannot be edited)
+                        cell.IsReadOnly = true;
                     }
                     else if (cell.SpecialType == SpecialColumnType.Checkbox)
                     {
@@ -1780,13 +1826,15 @@ public sealed class DataGridViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// SENIOR ADDITION: Sets column sort direction to a specific value (used by Header Flyout)
-    /// Clears sort indicators on other columns (single-column sort only)
+    /// ✅ PROFESSIONAL FIX: Sets column sort direction with multi-sort support (Shift key detection)
+    /// Click = Single-sort (clears all other sort indicators)
+    /// Shift+Click = Multi-sort (preserves other sort indicators, adds/updates current column)
     /// Fires SortRequested event for facade to handle actual sorting via SortService
     /// </summary>
     /// <param name="columnName">Name of the column to sort</param>
     /// <param name="direction">Desired sort direction ("Ascending", "Descending", or "None")</param>
-    public void SetSortDirection(string columnName, string direction)
+    /// <param name="isShiftKeyPressed">If true, multi-sort mode (preserve other columns). If false, single-sort (clear others)</param>
+    public void SetSortDirection(string columnName, string direction, bool isShiftKeyPressed = false)
     {
         var header = ColumnHeaders.FirstOrDefault(h => h.ColumnName == columnName);
         if (header == null)
@@ -1799,23 +1847,32 @@ public sealed class DataGridViewModel : ViewModelBase
         var validDirections = new[] { "Ascending", "Descending", "None" };
         var newDirection = validDirections.Contains(direction) ? direction : "None";
 
-        _logger?.LogInformation("Sort direction set: {Column} → {NewDir}",
-            columnName, newDirection);
+        _logger?.LogInformation("Sort direction set: {Column} → {NewDir}, ShiftKey={Shift} (Multi-sort={Multi})",
+            columnName, newDirection, isShiftKeyPressed, isShiftKeyPressed ? "YES" : "NO");
 
-        // Clear sort indicators on other columns (single-column sort)
-        foreach (var otherHeader in ColumnHeaders.Where(h => h != header))
+        // ✅ PROFESSIONAL FIX: Clear other columns ONLY if NOT multi-sort mode
+        if (!isShiftKeyPressed)
         {
-            if (otherHeader.SortDirection != "None")
+            // Single-sort mode: Clear sort indicators on other columns
+            foreach (var otherHeader in ColumnHeaders.Where(h => h != header))
             {
-                otherHeader.SortDirection = "None";
+                if (otherHeader.SortDirection != "None")
+                {
+                    _logger?.LogInformation("Clearing sort on column {Column} (single-sort mode)", otherHeader.ColumnName);
+                    otherHeader.SortDirection = "None";
+                }
             }
+        }
+        else
+        {
+            _logger?.LogInformation("Multi-sort mode: Preserving other column sort indicators");
         }
 
         // Update current column
         header.SortDirection = newDirection;
 
         // Fire event for facade to handle actual sorting
-        SortRequested?.Invoke(this, new SortRequestedEventArgs(columnName, newDirection));
+        SortRequested?.Invoke(this, new SortRequestedEventArgs(columnName, newDirection, isShiftKeyPressed));
     }
 
     #endregion
@@ -1970,10 +2027,18 @@ public sealed class SortRequestedEventArgs : EventArgs
     /// </summary>
     public string SortDirection { get; }
 
-    public SortRequestedEventArgs(string columnName, string sortDirection)
+    /// <summary>
+    /// ✅ PROFESSIONAL FIX: Indicates if Shift key was pressed during sort request
+    /// Shift+Click = Multi-sort (add column to existing sort criteria)
+    /// Click = Single-sort (replace all existing sort criteria)
+    /// </summary>
+    public bool IsShiftKeyPressed { get; }
+
+    public SortRequestedEventArgs(string columnName, string sortDirection, bool isShiftKeyPressed = false)
     {
         ColumnName = columnName;
         SortDirection = sortDirection;
+        IsShiftKeyPressed = isShiftKeyPressed;
     }
 }
 
