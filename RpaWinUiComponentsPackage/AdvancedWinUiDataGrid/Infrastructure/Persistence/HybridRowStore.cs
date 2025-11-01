@@ -984,12 +984,29 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
             whereClause += $" AND ({_activeFilterSql})";
         }
 
-        cmd.CommandText = $"SELECT COUNT(*) FROM grid_rows WHERE {whereClause}";
+        // ✅ PROBLEM 2 FIX (HybridRowStore): Count only non-empty data rows
+        // REASON: Auto-expanded empty rows should not be counted in display statistics
+        // BEHAVIOR: Must match InMemoryStorageStrategy behavior for consistency
+        // SQL LOGIC: Check if JSON data has at least one non-internal key with non-null, non-empty value
+        // Uses json_each to iterate JSON keys and checks if any data column (not starting with '__') has value
+        cmd.CommandText = $@"
+            SELECT COUNT(*)
+            FROM grid_rows
+            WHERE {whereClause}
+            AND EXISTS (
+                SELECT 1
+                FROM json_each(data)
+                WHERE json_each.key NOT LIKE '__%'
+                AND json_each.value IS NOT NULL
+                AND json_each.value != ''
+                AND TRIM(json_each.value) != ''
+            )";
 
         var result = await cmd.ExecuteScalarAsync(cancellationToken);
         var count = result != null ? Convert.ToInt64(result) : 0;
 
-        _logger.LogDebug("GetRowCountAsync: {Count} rows (onlyFiltered={OnlyFiltered})", count, onlyFiltered);
+        _logger.LogDebug("✅ PROBLEM 2 FIX (Hybrid): GetRowCountAsync returning {Count} non-empty rows (onlyFiltered={OnlyFiltered})",
+            count, onlyFiltered);
         return count;
     }
 

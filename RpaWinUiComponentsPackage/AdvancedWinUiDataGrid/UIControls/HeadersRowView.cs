@@ -24,6 +24,10 @@ public sealed class HeadersRowView : UserControl
     private readonly DataGridViewModel _viewModel;
     private readonly ILogger<HeadersRowView>? _logger;
     private readonly ILoggerFactory? _loggerFactory;
+
+    // ✅ PROBLEM 1 FIX: Track Shift key state when menu opens (not when menu item clicks)
+    private bool _shiftKeyPressedOnMenuOpen = false;
+
     private ColumnHeaderViewModel? _resizingColumn; // Column currently being resized
     private double _resizeStartWidth; // Original width when resize started
     private double _resizeStartX; // SENIOR FIX: Starting X position for pointer-based resize
@@ -729,6 +733,17 @@ public sealed class HeadersRowView : UserControl
     /// <param name="anchorElement">UI element to anchor the flyout (typically header border)</param>
     private void ShowHeaderFlyout(ColumnHeaderViewModel header, FrameworkElement anchorElement)
     {
+        // ✅ PROBLEM 1 FIX: Capture Shift key state WHEN MENU OPENS, not when item clicks
+        // USER WORKFLOW: (1) Hold Shift → (2) Click header (menu opens) → (3) Release Shift → (4) Click menu item
+        // PROBLEM: Shift is released before menu item click → always detected as false
+        // SOLUTION: Capture Shift state at menu open time and use that value in all menu item handlers
+        _shiftKeyPressedOnMenuOpen = Microsoft.UI.Input.InputKeyboardSource
+            .GetKeyStateForCurrentThread(Windows.System.VirtualKey.Shift)
+            .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+        _logger?.LogInformation("✅ PROBLEM 1 FIX: Menu opened for column {ColumnName}, Shift={Shift} (captured at menu open)",
+            header.ColumnName, _shiftKeyPressedOnMenuOpen);
+
         var flyout = new MenuFlyout();
 
         // ===== SORT OPTIONS =====
@@ -739,15 +754,11 @@ public sealed class HeadersRowView : UserControl
         };
         sortAscItem.Click += (s, e) =>
         {
-            // ✅ PROFESSIONAL FIX: Detect Shift key for multi-sort
-            var shiftKeyPressed = Microsoft.UI.Input.InputKeyboardSource
-                .GetKeyStateForCurrentThread(Windows.System.VirtualKey.Shift)
-                .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+            // ✅ PROBLEM 1 FIX: Use SAVED Shift state from menu open (not current state)
+            _logger?.LogInformation("Sort Ascending selected for column {ColumnName}, Shift={Shift} (using saved state from menu open)",
+                header.ColumnName, _shiftKeyPressedOnMenuOpen);
 
-            _logger?.LogInformation("Sort Ascending selected for column {ColumnName}, Shift={Shift}",
-                header.ColumnName, shiftKeyPressed);
-
-            _viewModel.SetSortDirection(header.ColumnName, "Ascending", shiftKeyPressed);
+            _viewModel.SetSortDirection(header.ColumnName, "Ascending", _shiftKeyPressedOnMenuOpen);
             flyout.Hide();
         };
         flyout.Items.Add(sortAscItem);
@@ -759,15 +770,11 @@ public sealed class HeadersRowView : UserControl
         };
         sortDescItem.Click += (s, e) =>
         {
-            // ✅ PROFESSIONAL FIX: Detect Shift key for multi-sort
-            var shiftKeyPressed = Microsoft.UI.Input.InputKeyboardSource
-                .GetKeyStateForCurrentThread(Windows.System.VirtualKey.Shift)
-                .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+            // ✅ PROBLEM 1 FIX: Use SAVED Shift state from menu open (not current state)
+            _logger?.LogInformation("Sort Descending selected for column {ColumnName}, Shift={Shift} (using saved state from menu open)",
+                header.ColumnName, _shiftKeyPressedOnMenuOpen);
 
-            _logger?.LogInformation("Sort Descending selected for column {ColumnName}, Shift={Shift}",
-                header.ColumnName, shiftKeyPressed);
-
-            _viewModel.SetSortDirection(header.ColumnName, "Descending", shiftKeyPressed);
+            _viewModel.SetSortDirection(header.ColumnName, "Descending", _shiftKeyPressedOnMenuOpen);
             flyout.Hide();
         };
         flyout.Items.Add(sortDescItem);

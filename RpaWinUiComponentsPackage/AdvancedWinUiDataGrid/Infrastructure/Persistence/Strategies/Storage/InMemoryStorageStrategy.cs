@@ -299,7 +299,39 @@ internal sealed class InMemoryStorageStrategy : IStorageStrategy
 
     public async Task<long> GetRowCountAsync(bool onlyFiltered, CancellationToken ct)
     {
-        return await Task.Run(() => (long)_rows.Count, ct);
+        return await Task.Run(() =>
+        {
+            lock (_modificationLock)
+            {
+                var sortedKeys = GetSortedRowKeys();
+
+                // ✅ PROBLEM 2 FIX (InMemoryStorageStrategy): Count only non-empty data rows
+                // REASON: Auto-expanded empty rows should not be counted in display statistics
+                // BEHAVIOR: Must match HybridRowStore behavior for consistency
+                long count = 0;
+                foreach (var rowId in sortedKeys)
+                {
+                    if (_rows.TryGetValue(rowId, out var row))
+                    {
+                        // Check if row has at least one non-empty data column
+                        bool hasData = row.Any(kvp =>
+                            !kvp.Key.StartsWith("__") &&  // Skip internal columns (__rowId, __rowNumber, etc.)
+                            kvp.Value != null &&
+                            !string.IsNullOrWhiteSpace(kvp.Value.ToString()));
+
+                        if (hasData)
+                        {
+                            count++;
+                        }
+                    }
+                }
+
+                _logger?.LogDebug("✅ PROBLEM 2 FIX (InMemory): GetRowCountAsync returning {Count} non-empty rows (total in store: {Total})",
+                    count, sortedKeys.Count);
+
+                return count;
+            }
+        }, ct);
     }
 
     public async Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> GetAllRowsAsync(

@@ -63,6 +63,9 @@ internal sealed class UnifiedRowStore : IRowStore
 
     public Task<long> GetFilteredRowCountAsync(CancellationToken cancellationToken = default)
     {
+        // ✅ PROBLEM 2 FIX: Delegate to storage strategy which implements empty row filtering
+        // Both InMemoryStorageStrategy and HybridRowStore implement GetRowCountAsync with empty row exclusion
+        // This ensures consistent behavior: InMemory filters in-memory, Hybrid filters via SQL
         return GetRowCountAsync(onlyFiltered: true, cancellationToken);
     }
 

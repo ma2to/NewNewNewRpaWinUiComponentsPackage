@@ -173,9 +173,26 @@ public sealed class CellControl : UserControl
 
     private void OnCellPointerPressed(object sender, PointerRoutedEventArgs e)
     {
+        // ✅ PROBLEM 3 FIX: Detect right-click and skip selection modification
+        // Right-click should show context menu WITHOUT changing current selection state
+        // This preserves multi-cell selection when user right-clicks to access context menu
+        var pointerPoint = e.GetCurrentPoint(this);
+        if (pointerPoint.Properties.IsRightButtonPressed)
+        {
+            _logger?.LogTrace("CellControl[{Row},{Col}]: Right-click detected, preserving selection state",
+                ViewModel.RowIndex, ViewModel.ColumnIndex);
+            // Right-click detected - do NOT modify selection state
+            // Let RightTapped handler show context menu without changing selection
+            return;
+        }
+
         // Check if Ctrl key is pressed
         var isCtrlPressed = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
             .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+        _logger?.LogTrace("CellControl[{Row},{Col}]: PointerPressed, LeftButton={Left}, Ctrl={Ctrl}",
+            ViewModel.RowIndex, ViewModel.ColumnIndex,
+            pointerPoint.Properties.IsLeftButtonPressed, isCtrlPressed);
 
         // Fire selection event with Ctrl state and pointer args (for drag selection capture)
         CellSelected?.Invoke(this, new CellSelectionEventArgs

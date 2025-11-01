@@ -116,6 +116,26 @@ internal sealed class InternalUISortHandler : IDisposable
                 if (result.IsSuccess)
                 {
                     _logger.LogInformation("✅ AUTO-SORT (MULTI-SORT): Sort completed successfully");
+
+                    // ✅ PROBLEM 1 FIX: Restore column header sort indicators after multi-sort
+                    // ReplaceAllRowsAsync invalidates viewport cache → UI refresh clears indicators
+                    // Solution: Explicitly restore visual sort state from sort descriptors
+                    foreach (var descriptor in currentDescriptors)
+                    {
+                        var header = _viewModel.ColumnHeaders.FirstOrDefault(h =>
+                            h.ColumnName.Equals(descriptor.ColumnName, StringComparison.OrdinalIgnoreCase));
+                        if (header != null)
+                        {
+                            var directionString = descriptor.Direction == PublicSortDirection.Ascending
+                                ? "Ascending"
+                                : "Descending";
+                            header.SortDirection = directionString;
+                            _logger.LogDebug("Restored sort indicator for column {ColumnName}: {Direction}",
+                                descriptor.ColumnName, directionString);
+                        }
+                    }
+                    _logger.LogInformation("✅ PROBLEM 1 FIX: Restored {Count} column header sort indicators",
+                        currentDescriptors.Count);
                 }
                 else
                 {
@@ -135,6 +155,19 @@ internal sealed class InternalUISortHandler : IDisposable
                 {
                     _logger.LogInformation("✅ AUTO-SORT (SINGLE-SORT): Sort completed successfully for column '{ColumnName}'",
                         args.ColumnName);
+
+                    // ✅ PROBLEM 1 FIX: Restore column header sort indicator after single-sort
+                    var header = _viewModel.ColumnHeaders.FirstOrDefault(h =>
+                        h.ColumnName.Equals(args.ColumnName, StringComparison.OrdinalIgnoreCase));
+                    if (header != null)
+                    {
+                        var directionString = publicDirection == PublicSortDirection.Ascending
+                            ? "Ascending"
+                            : "Descending";
+                        header.SortDirection = directionString;
+                        _logger.LogDebug("✅ PROBLEM 1 FIX: Restored sort indicator for column {ColumnName}: {Direction}",
+                            args.ColumnName, directionString);
+                    }
                 }
                 else
                 {
