@@ -1632,13 +1632,18 @@ public sealed class DataGridViewModel : ViewModelBase
 
         _logger?.LogInformation("Applying {ErrorCount} validation errors to grid UI", validationErrors.Count);
 
+        // ✅ DIAGNOSTIC 1: Log validation error rowIds
+        var errorRowIds = validationErrors.Select(e => e.RowId).Distinct().ToList();
+        _logger?.LogWarning("📋 VALIDATION ERRORS contain {Count} unique rowIds: {RowIds}",
+            errorRowIds.Count, string.Join(", ", errorRowIds.Take(5)));
+
         // Group errors by (RowId, ColumnName) for O(1) lookup
         var errorsByCell = validationErrors
             .Where(e => !string.IsNullOrEmpty(e.RowId) && !string.IsNullOrEmpty(e.ColumnName))
             .GroupBy(e => (e.RowId, e.ColumnName))
             .ToDictionary(g => g.Key, g => g.ToList());
 
-        _logger?.LogTrace("Grouped into {CellErrorCount} unique cell errors", errorsByCell.Count);
+        _logger?.LogDebug("Grouped into {CellErrorCount} unique cell errors", errorsByCell.Count);
 
         // Clear ALL existing validation errors first
         foreach (var row in Rows)
@@ -1652,8 +1657,19 @@ public sealed class DataGridViewModel : ViewModelBase
 
         _logger?.LogDebug("Cleared all existing validation errors from cells");
 
+        // ✅ DIAGNOSTIC 2: Log ViewModel rowIds
+        var viewModelRowIds = Rows
+            .Select(r => r.Cells.FirstOrDefault(c => c.SpecialType == Common.SpecialColumnType.None)?.RowId)
+            .Where(id => !string.IsNullOrEmpty(id))
+            .Distinct()
+            .ToList();
+        _logger?.LogWarning("🖥️ VIEWMODELS contain {Count} unique rowIds: {RowIds}",
+            viewModelRowIds.Count, string.Join(", ", viewModelRowIds.Take(5)));
+
         // Apply new validation errors to cells
         int appliedCount = 0;
+        int mismatchCount = 0;
+
         foreach (var row in Rows)
         {
             // ✅ PROFESSIONAL FIX: Get rowId from first DATA cell (skip special columns)
@@ -1661,6 +1677,13 @@ public sealed class DataGridViewModel : ViewModelBase
             //         but DATA cells always have correct rowId from backend
             // FALLBACK: If no data cell found, use row.RowId property directly
             var rowId = row.Cells.FirstOrDefault(c => c.SpecialType == Common.SpecialColumnType.None)?.RowId;
+
+            // ✅ DIAGNOSTIC: Log first 3 ViewModel rowIds for debugging
+            if (row.RowIndex < 3)
+            {
+                _logger?.LogDebug("ViewModel row {RowIndex} has rowId: {RowId}", row.RowIndex, rowId ?? "NULL");
+            }
+
             if (string.IsNullOrEmpty(rowId))
             {
                 // Fallback: try to get rowId from row itself
@@ -1678,13 +1701,18 @@ public sealed class DataGridViewModel : ViewModelBase
                 var key = (rowId, cell.ColumnName);
                 if (errorsByCell.TryGetValue(key, out var cellErrors) && cellErrors.Any())
                 {
-                    _logger?.LogTrace("Setting IsValidationError=true for cell [{RowIndex},{ColumnIndex}] '{ColumnName}'",
-                        cell.RowIndex, cell.ColumnIndex, cell.ColumnName);
+                    _logger?.LogDebug("✅ MATCH FOUND: Row {RowIndex}, Column {ColumnName}, RowId {RowId}",
+                        cell.RowIndex, cell.ColumnName, rowId);
                     cell.IsValidationError = true;
                     cell.ValidationMessage = string.Join("; ", cellErrors.Select(e => e.Message));
                     appliedCount++;
-                    _logger?.LogDebug("Applied validation error to cell [{RowIndex}, {ColumnName}]: {Message}",
-                        cell.RowIndex, cell.ColumnName, cell.ValidationMessage);
+                }
+                else if (row.RowIndex < 3)
+                {
+                    // ✅ DIAGNOSTIC: Log first 3 row mismatches for debugging
+                    mismatchCount++;
+                    _logger?.LogWarning("❌ MISMATCH: Row {RowIndex}, Column {ColumnName}, RowId {RowId} - no error found",
+                        cell.RowIndex, cell.ColumnName, rowId);
                 }
             }
 
@@ -1741,8 +1769,24 @@ public sealed class DataGridViewModel : ViewModelBase
             }
         }
 
-        _logger?.LogInformation("Applied {AppliedCount} validation errors to {TotalCells} cells",
-            appliedCount, Rows.Sum(r => r.Cells.Count));
+        _logger?.LogWarning("Applied {AppliedCount} validation errors to {TotalCells} cells (Mismatches in first 3 rows: {MismatchCount})",
+            appliedCount, Rows.Sum(r => r.Cells.Where(c => c.SpecialType == Common.SpecialColumnType.None).Count()), mismatchCount);
+
+        // ✅ DIAGNOSTIC 3: Compare rowIds to identify mismatch patterns
+        var unmatchedErrorRowIds = errorRowIds.Except(viewModelRowIds).ToList();
+        var unmatchedViewModelRowIds = viewModelRowIds.Except(errorRowIds).ToList();
+
+        if (unmatchedErrorRowIds.Any())
+        {
+            _logger?.LogError("❌ UNMATCHED ERROR ROWIDS ({Count}): {RowIds}",
+                unmatchedErrorRowIds.Count, string.Join(", ", unmatchedErrorRowIds.Take(5)));
+        }
+
+        if (unmatchedViewModelRowIds.Any())
+        {
+            _logger?.LogError("❌ UNMATCHED VIEWMODEL ROWIDS ({Count}): {RowIds}",
+                unmatchedViewModelRowIds.Count, string.Join(", ", unmatchedViewModelRowIds.Take(5)));
+        }
 
         // CRITICAL FIX: Force UI refresh by invalidating viewport cache on UI thread
         // This ensures validation error borders appear immediately in virtualized ItemsRepeater

@@ -943,12 +943,22 @@ public sealed class HeadersRowView : UserControl
                 return;
             }
 
+            // ✅ NEW: Get currently selected values for checkbox synchronization
+            var currentlySelected = _viewModel.FilterFlyoutService.GetCurrentFilterValues(columnName);
+            _logger?.LogInformation("✅ SYNCHRONIZATION: {Count} values currently selected for column {Column}",
+                currentlySelected.Count, columnName);
+
+            // Determine if all should be selected initially
+            // If no filter active (currentlySelected empty), select all by default
+            // If filter active, only select the filtered values
+            bool selectAllInitially = currentlySelected.Count == 0;
+
             // Create dictionary to track checkbox states
             var checkboxes = new Dictionary<string, CheckBox>();
             var selectAllCheckbox = new CheckBox
             {
                 Content = "Select All",
-                IsChecked = true,
+                IsChecked = selectAllInitially,
                 Margin = new Thickness(0, 0, 0, 10)
             };
 
@@ -961,14 +971,20 @@ public sealed class HeadersRowView : UserControl
 
             foreach (var value in uniqueValues)
             {
+                // ✅ CHECKBOX SYNCHRONIZATION: Check if this value is in currentlySelected
+                bool isSelected = selectAllInitially || currentlySelected.Contains(value);
+
                 var checkbox = new CheckBox
                 {
                     Content = value,
-                    IsChecked = true
+                    IsChecked = isSelected
                 };
                 checkboxes[value] = checkbox;
                 listBox.Items.Add(checkbox);
             }
+
+            _logger?.LogDebug("Created {Total} checkboxes, {Selected} pre-selected",
+                checkboxes.Count, checkboxes.Count(cb => cb.Value.IsChecked == true));
 
             // Select All logic
             selectAllCheckbox.Checked += (s, e) =>

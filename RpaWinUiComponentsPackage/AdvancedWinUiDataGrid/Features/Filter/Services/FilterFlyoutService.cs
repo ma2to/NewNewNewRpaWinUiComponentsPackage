@@ -249,4 +249,43 @@ internal sealed class FilterFlyoutService
             throw;
         }
     }
+
+    /// <summary>
+    /// ✅ NEW: Get currently selected filter values for a column
+    /// Used for checkbox synchronization when reopening filter flyout
+    /// </summary>
+    /// <param name="columnName">Column to get filter values for</param>
+    /// <returns>List of currently selected values (empty if no filter active)</returns>
+    public List<string> GetCurrentFilterValues(string columnName)
+    {
+        try
+        {
+            // Get current filter criteria from row store
+            var activeCriteria = _rowStore.GetFilterCriteria();
+
+            // Find filter for this column
+            var columnFilter = activeCriteria
+                .OfType<FilterCriteria>()
+                .FirstOrDefault(f => f.ColumnName.Equals(columnName, StringComparison.OrdinalIgnoreCase));
+
+            if (columnFilter != null && columnFilter.Operator == FilterOperator.In)
+            {
+                // Extract selected values from List<string>
+                if (columnFilter.Value is List<string> selectedValues)
+                {
+                    _logger?.LogDebug("Retrieved {Count} selected values for column {Column}: {Values}",
+                        selectedValues.Count, columnName, string.Join(", ", selectedValues.Take(5)));
+                    return selectedValues;
+                }
+            }
+
+            _logger?.LogDebug("No active checkbox filter found for column {Column}", columnName);
+            return new List<string>();
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Failed to get current filter values for column {ColumnName}", columnName);
+            return new List<string>();
+        }
+    }
 }

@@ -129,12 +129,27 @@ internal sealed class InMemoryStorageStrategy : IStorageStrategy
                     var rowData = new Dictionary<string, object?>(rowsList[i]);
                     rowData["__rowNumber"] = startIndex + i + 1;
 
-                    if (!rowData.ContainsKey("__rowId") || rowData["__rowId"] == null)
+                    // ✅ CRITICAL FIX: Preserve existing __rowId to maintain validation error references
+                    // REASON: Validation errors store rowId - if we regenerate rowId after validation,
+                    //         the errors become orphaned and cannot be applied to cells
+                    string rowId;
+                    if (rowData.ContainsKey("__rowId") && rowData["__rowId"] != null && !string.IsNullOrEmpty(rowData["__rowId"].ToString()))
                     {
-                        rowData["__rowId"] = Ulid.NewUlid().ToString();
+                        // PRESERVE existing rowId (from previous load or import)
+                        rowId = rowData["__rowId"].ToString()!;
+                        _logger?.LogTrace("✅ PRESERVED rowId: {RowId} for row {Index}", rowId, i);
+                    }
+                    else
+                    {
+                        // Generate NEW rowId ONLY for brand new rows (first import)
+                        rowId = Ulid.NewUlid().ToString();
+                        rowData["__rowId"] = rowId;
+                        _logger?.LogTrace("🆕 GENERATED rowId: {RowId} for row {Index}", rowId, i);
                     }
 
-                    _rows.TryAdd((string)rowData["__rowId"]!, rowData);
+                    // ⚠️ IMPORTANT: Use indexer instead of TryAdd to UPDATE existing rows with same rowId
+                    // REASON: During reload after filter/sort, we want to UPDATE existing row with same rowId
+                    _rows[rowId] = rowData;
                 }
 
                 InvalidateSortedRowKeysCache();
