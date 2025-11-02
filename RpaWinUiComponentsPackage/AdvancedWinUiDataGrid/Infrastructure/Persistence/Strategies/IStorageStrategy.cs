@@ -97,6 +97,22 @@ internal interface IStorageStrategy
     // ========== FILTER & SORT ==========
 
     /// <summary>
+    /// ✅ PROBLEM 2 FIX: Set filter criteria for data filtering.
+    /// InMemory: Builds filtered row IDs cache (_filteredRowIds).
+    /// Hybrid: Builds SQL WHERE clause (_activeFilterSql).
+    /// CRITICAL: This enables consistent filtered row count/data retrieval.
+    /// </summary>
+    /// <param name="filterCriteria">Filter criteria objects (checkbox/regex filters)</param>
+    void SetFilterCriteria(IReadOnlyList<object>? filterCriteria);
+
+    /// <summary>
+    /// ✅ PROBLEM 2 FIX: Clear filter criteria (show all rows).
+    /// InMemory: Clears _filteredRowIds cache.
+    /// Hybrid: Clears _activeFilterSql.
+    /// </summary>
+    void ClearFilterCriteria();
+
+    /// <summary>
     /// Set sort criteria and renumber __rowNumber.
     /// InMemory: LINQ OrderBy + renumber loop.
     /// Hybrid: SQL ROW_NUMBER() OVER + UPDATE __rowNumber.

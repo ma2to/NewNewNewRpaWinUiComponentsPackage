@@ -382,14 +382,30 @@ internal sealed class UnifiedRowStore : IRowStore
     public void SetFilterCriteria(IReadOnlyList<object>? filterCriteria)
     {
         _filterCriteria = filterCriteria;
-        _logger?.LogInformation("SetFilterCriteria: Setting filter criteria (count: {Count})", filterCriteria?.Count ?? 0);
-        // TODO: Implement filter SQL building and delegation to storage strategy
+        _logger?.LogInformation("✅ PROBLEM 2 FIX: SetFilterCriteria - delegating to storage strategy (count: {Count})", filterCriteria?.Count ?? 0);
+
+        // ✅ PROBLEM 2 FIX: Delegate to storage strategy (InMemory builds _filteredRowIds, Hybrid builds SQL WHERE clause)
+        _storageStrategy.SetFilterCriteria(filterCriteria);
     }
 
     public void ClearFilterCriteria()
     {
         _filterCriteria = null;
-        _logger?.LogInformation("ClearFilterCriteria: Clearing filter criteria");
+        _logger?.LogInformation("✅ PROBLEM 2 FIX: ClearFilterCriteria - delegating to storage strategy");
+
+        // ✅ PROBLEM 2 FIX: Delegate to storage strategy
+        _storageStrategy.ClearFilterCriteria();
+    }
+
+    /// <summary>
+    /// ✅ PROBLEM 2 FIX: Check if any filter is currently active
+    /// </summary>
+    public bool HasActiveFilter()
+    {
+        bool hasFilter = _filterCriteria != null && _filterCriteria.Count > 0;
+        _logger?.LogDebug("✅ PROBLEM 2 FIX (UnifiedRowStore): HasActiveFilter={HasFilter} (criteria count: {Count})",
+            hasFilter, _filterCriteria?.Count ?? 0);
+        return hasFilter;
     }
 
     public IReadOnlyList<object> GetFilterCriteria()

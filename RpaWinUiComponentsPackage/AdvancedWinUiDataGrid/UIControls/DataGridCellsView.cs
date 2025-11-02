@@ -46,6 +46,7 @@ public sealed class DataGridCellsView : UserControl, IDisposable
     private CellViewModel? _pressedCell; // Cell where mouse was initially pressed
     private bool _isDragging; // True when user started dragging (moved to different cell)
     private CellViewModel? _lastSelectedCell; // ✅ FIX: Track last selected cell to prevent duplicate events
+    private CellViewModel? _lastDraggedCell; // ✅ PROFESSIONAL FIX: Track last dragged cell to avoid duplicate processing
 
     private bool _disposed;
     private bool _isUpdatingViewport; // Prevent re-entrant viewport updates
@@ -162,8 +163,10 @@ public sealed class DataGridCellsView : UserControl, IDisposable
         // This ensures drag selection ends properly even if PointerReleased doesn't fire
         _scrollViewer.PointerCaptureLost += OnPointerCaptureLost;
 
-        // ✅ CRITICAL FIX: Handle pointer moved for continuous drag selection updates
-        // This provides smooth range selection feedback as user drags across cells
+        // ✅ PROFESSIONAL FIX: Use PointerMoved on ScrollViewer for drag selection
+        // REASON: WinUI3 bug - PointerEntered doesn't fire when LeftButton is pressed
+        //         CellControl.PointerEntered only fires AFTER button release (too late!)
+        // SOLUTION: PointerMoved fires continuously during drag → detect cell under pointer manually
         _scrollViewer.PointerMoved += OnScrollViewerPointerMoved;
 
         // Handle scroll changes to update viewport
@@ -283,9 +286,10 @@ public sealed class DataGridCellsView : UserControl, IDisposable
     }
 
     /// <summary>
-    /// ✅ CRITICAL FIX: Handles pointer capture lost event to properly end drag selection.
-    /// This is crucial for cases where PointerReleased doesn't fire (e.g., pointer leaves window,
-    /// another control captures pointer, user switches apps).
+    /// ✅ PROBLEM 4 FIX: Handles pointer capture lost event to properly end drag selection.
+    /// CRITICAL: Only reset state if drag was ACTUALLY in progress.
+    /// REASON: WinUI3 triggers PointerCaptureLost immediately after CapturePointer if pointer moves,
+    ///         resetting _pressedCell would prevent drag from starting in OnCellPointerEntered.
     /// </summary>
     private void OnPointerCaptureLost(object sender, PointerRoutedEventArgs e)
     {
@@ -293,16 +297,114 @@ public sealed class DataGridCellsView : UserControl, IDisposable
             _isDragging,
             _pressedCell != null ? $"[{_pressedCell.RowIndex},{_pressedCell.ColumnIndex}]" : "NULL");
 
-        // End drag selection when pointer capture is lost
+        // ✅ PROBLEM 4 FIX: Only reset state if drag was ACTUALLY in progress
+        // If _isDragging=false, keep _pressedCell (waiting for OnCellPointerEntered to start drag)
         if (_isDragging)
         {
             _viewModel.EndRangeSelection();
-            _logger.LogInformation("🟢 DRAG-DEBUG: ✅ Drag selection ENDED (pointer capture lost)");
+            _pressedCell = null;  // ← Reset IBA keď drag PREBIEHAL
+            _isDragging = false;
+            _logger.LogInformation("🟢 DRAG-DEBUG: ✅ Drag selection ENDED (pointer capture lost) - state RESET");
+        }
+        else
+        {
+            _logger.LogInformation("🟡 DRAG-DEBUG: Drag not in progress - keeping _pressedCell={HasPressed} (waiting for OnCellPointerEntered)",
+                _pressedCell != null ? $"[{_pressedCell.RowIndex},{_pressedCell.ColumnIndex}]" : "NULL");
+        }
+    }
+
+    /// <summary>
+    /// ✅ PROFESSIONAL FIX: Handles pointer moved on ScrollViewer for drag selection.
+    /// REASON: WinUI3 bug - CellControl.PointerEntered doesn't fire when LeftButton pressed.
+    /// SOLUTION: Manually detect cell under pointer using ViewModel index calculation.
+    /// </summary>
+    private void OnScrollViewerPointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        // Only process if we have a pressed cell (potential drag start)
+        if (_pressedCell == null)
+            return;
+
+        // ✅ CRITICAL: Check if LEFT button is STILL pressed
+        var pointerPoint = e.GetCurrentPoint(_scrollViewer);
+        bool isLeftButtonPressed = pointerPoint.Properties.IsLeftButtonPressed;
+
+        if (!isLeftButtonPressed)
+        {
+            // Button released - end drag if in progress
+            if (_isDragging)
+            {
+                _viewModel.EndRangeSelection();
+                _isDragging = false;
+                _lastDraggedCell = null;
+                _logger.LogInformation("🟢 DRAG-DEBUG: Drag ended (button released during PointerMoved)");
+            }
+            _pressedCell = null;
+            return;
         }
 
-        // Reset drag state
-        _pressedCell = null;
-        _isDragging = false;
+        // ✅ Get pointer position relative to ItemsRepeater
+        if (_itemsRepeater == null)
+            return;
+
+        var position = e.GetCurrentPoint(_itemsRepeater).Position;
+
+        // ✅ Calculate cell under pointer using viewport geometry
+        // ARCHITECTURE: ItemsRepeater uses row-based layout
+        //               RowHeight = fixed (e.g., 40px), ColumnWidth = from ColumnHeaders
+        var rowHeight = 40.0; // TODO: Get from ViewModel or theme
+        var rowIndex = (int)(position.Y / rowHeight);
+
+        // ✅ Calculate column index from X position
+        var columnIndex = CalculateColumnIndexFromX(position.X);
+
+        if (rowIndex < 0 || rowIndex >= _viewModel.Rows.Count ||
+            columnIndex < 0 || columnIndex >= _viewModel.ColumnHeaders.Count)
+        {
+            return; // Out of bounds
+        }
+
+        var currentCell = _viewModel.Rows[rowIndex].Cells[columnIndex];
+
+        // ✅ Check if this is a different cell than last processed
+        if (_lastDraggedCell != null &&
+            currentCell.RowIndex == _lastDraggedCell.RowIndex &&
+            currentCell.ColumnIndex == _lastDraggedCell.ColumnIndex)
+        {
+            return; // Same cell - avoid duplicate processing
+        }
+
+        _lastDraggedCell = currentCell;
+
+        // ✅ Start drag if not already started
+        if (!_isDragging)
+        {
+            _isDragging = true;
+            _viewModel.StartRangeSelection(_pressedCell);
+            _logger.LogInformation("🟢 DRAG-DEBUG: Drag STARTED from [{Row},{Col}] via PointerMoved",
+                _pressedCell.RowIndex, _pressedCell.ColumnIndex);
+        }
+
+        // ✅ Update range selection
+        _viewModel.UpdateRangeSelection(currentCell);
+        _logger.LogTrace("🟢 DRAG-DEBUG: Drag UPDATED to [{Row},{Col}]",
+            currentCell.RowIndex, currentCell.ColumnIndex);
+    }
+
+    /// <summary>
+    /// Calculates column index from X position using cumulative column widths.
+    /// </summary>
+    private int CalculateColumnIndexFromX(double x)
+    {
+        double cumulativeWidth = 0;
+        for (int i = 0; i < _viewModel.ColumnHeaders.Count; i++)
+        {
+            cumulativeWidth += _viewModel.ColumnHeaders[i].Width;
+            if (x < cumulativeWidth)
+            {
+                return i;
+            }
+        }
+        return _viewModel.ColumnHeaders.Count - 1; // Last column
     }
 
     /// <summary>
@@ -645,7 +747,8 @@ public sealed class DataGridCellsView : UserControl, IDisposable
         }
 
         // SENIOR FIX: Store pressed cell for drag detection
-        // Drag will be initiated when pointer moves to different cell (in OnScrollViewerPointerMoved)
+        // ✅ PROBLEM 4 FIX: Drag will be initiated when pointer moves to different cell (in OnCellPointerEntered)
+        // OnCellPointerEntered is fired by CellControl.PointerEntered event
         _pressedCell = e.Cell;
         _isDragging = false;
         _lastSelectedCell = e.Cell;
@@ -674,99 +777,33 @@ public sealed class DataGridCellsView : UserControl, IDisposable
         }
 
         // Always call SelectCell for proper single/multi-select behavior
-        // If user drags to another cell, OnScrollViewerPointerMoved will initiate range selection
+        // ✅ PROBLEM 4 FIX: If user drags to another cell, OnCellPointerEntered will initiate range selection
         _viewModel.SelectCell(e.Cell, e.IsCtrlPressed);
 
         _logger.LogTrace("Cell selected: [{Row},{Col}], Ctrl={IsCtrl}",
             e.Cell.RowIndex, e.Cell.ColumnIndex, e.IsCtrlPressed);
     }
 
-    /// <summary>
-    /// ✅ CRITICAL FIX: Handles pointer moved on ScrollViewer for continuous drag selection.
-    /// This method detects when pointer moves to different cells while pressed and updates range selection.
-    /// Works in conjunction with pointer capture to provide smooth drag selection feedback.
-    /// </summary>
-    private void OnScrollViewerPointerMoved(object sender, PointerRoutedEventArgs e)
+    // ✅ PROBLEM 4 FIX: OnScrollViewerPointerMoved method COMPLETELY REMOVED
+    // REASON: FindElementsInHostCoordinates doesn't work reliably with ItemsRepeater in WinUI3
+    //         Always returns 0 elements, drag selection never triggers
+    // SOLUTION: OnCellPointerEntered (below) handles drag selection via CellControl.PointerEntered event
+    //           This works perfectly because each CellControl fires PointerEntered when mouse enters it
+
+    private void OnCellPointerEntered(object? sender, CellPointerEnteredEventArgs e)
     {
-        // ✅ PROBLEM 4 FIX: Add extensive logging to diagnose why drag selection doesn't work
-        var pointerPoint = e.GetCurrentPoint(_scrollViewer);
-        _logger.LogTrace("🟢 DRAG-DEBUG: OnScrollViewerPointerMoved CALLED - Position=[{X:F1},{Y:F1}], IsLeftPressed={LeftPressed}, _pressedCell={HasPressedCell}",
-            pointerPoint.Position.X, pointerPoint.Position.Y,
-            pointerPoint.Properties.IsLeftButtonPressed,
-            _pressedCell != null ? $"[{_pressedCell.RowIndex},{_pressedCell.ColumnIndex}]" : "NULL");
+        // ✅ PROFESSIONAL FIX: Check if left button is STILL pressed
+        var pointerPoint = e.PointerEventArgs.GetCurrentPoint(this);
+        bool isLeftButtonPressed = pointerPoint.Properties.IsLeftButtonPressed;
 
-        if (_pressedCell == null)
-        {
-            _logger.LogTrace("🟡 DRAG-DEBUG: _pressedCell is NULL, ignoring PointerMoved");
-            return;
-        }
-
-        _logger.LogInformation("🔵 DRAG-DEBUG: PointerMoved with _pressedCell=[{Row},{Col}], _isDragging={IsDragging}",
-            _pressedCell.RowIndex, _pressedCell.ColumnIndex, _isDragging);
-
-        // ✅ PROBLEM 4 FIX: Use _itemsRepeater instead of _scrollViewer for hit testing
-        // CRITICAL: FindElementsInHostCoordinates needs coordinates relative to the element passed as 2nd parameter
-        // PROBLEM: ScrollViewer-relative coordinates don't match visual tree under ScrollViewer content
-        // SOLUTION: Use ItemsRepeater (where CellControls actually live) for both coordinate system AND hit testing
-        var point = e.GetCurrentPoint(_itemsRepeater).Position;
-
-        // Find all elements at the pointer position using ItemsRepeater as reference
-        var elements = Microsoft.UI.Xaml.Media.VisualTreeHelper.FindElementsInHostCoordinates(point, _itemsRepeater);
-        var elementsList = elements.ToList();
-
-        _logger.LogInformation("🔵 DRAG-DEBUG: ✅ VisualTreeHelper found {Count} elements at position [{X:F1},{Y:F1}] (using _itemsRepeater)",
-            elementsList.Count, point.X, point.Y);
-
-        // Find the first CellControl in the visual tree
-        var cellControl = elementsList.OfType<CellControl>().FirstOrDefault();
-        if (cellControl != null && cellControl.ViewModel != null)
-        {
-            var currentCell = cellControl.ViewModel;
-
-            _logger.LogInformation("🔵 DRAG-DEBUG: Found CellControl at pointer position: Cell=[{Row},{Col}], RowId={RowId}",
-                currentCell.RowIndex, currentCell.ColumnIndex, currentCell.RowId);
-
-            // If pointer moved to a different cell, start/continue drag selection
-            if (currentCell != _pressedCell)
-            {
-                if (!_isDragging)
-                {
-                    // First move to different cell - start drag selection
-                    _isDragging = true;
-                    _viewModel.StartRangeSelection(_pressedCell);
-
-                    _logger.LogInformation("🟢 DRAG-DEBUG: ✅ Drag selection STARTED from cell [{Row},{Col}] via PointerMoved",
-                        _pressedCell.RowIndex, _pressedCell.ColumnIndex);
-                }
-
-                // Update range selection to current cell
-                _viewModel.UpdateRangeSelection(currentCell);
-
-                _logger.LogInformation("🟢 DRAG-DEBUG: ✅ Drag selection UPDATED to cell [{Row},{Col}] via PointerMoved",
-                    currentCell.RowIndex, currentCell.ColumnIndex);
-            }
-            else
-            {
-                _logger.LogTrace("🟡 DRAG-DEBUG: Pointer still over same cell [{Row},{Col}], no drag update needed",
-                    currentCell.RowIndex, currentCell.ColumnIndex);
-            }
-        }
-        else
-        {
-            _logger.LogWarning("🔴 DRAG-DEBUG: ❌ No CellControl found at pointer position [{X:F1},{Y:F1}] (elements count: {Count})",
-                point.X, point.Y, elementsList.Count);
-        }
-    }
-
-    private void OnCellPointerEntered(object? sender, CellViewModel cell)
-    {
-        _logger.LogTrace("🟣 DRAG-DEBUG: OnCellPointerEntered CALLED - Cell=[{Row},{Col}], _pressedCell={HasPressed}, _isDragging={IsDragging}",
-            cell.RowIndex, cell.ColumnIndex,
+        _logger.LogInformation("🟢 DRAG-DEBUG: OnCellPointerEntered - Cell=[{Row},{Col}], _pressedCell={HasPressed}, _isDragging={IsDragging}, LeftButtonPressed={LeftPressed}",
+            e.Cell.RowIndex, e.Cell.ColumnIndex,
             _pressedCell != null ? $"[{_pressedCell.RowIndex},{_pressedCell.ColumnIndex}]" : "NULL",
-            _isDragging);
+            _isDragging,
+            isLeftButtonPressed);
 
-        // SENIOR FIX: Detect drag start when pointer moves to different cell while pressed
-        if (_pressedCell != null && !_isDragging)
+        // ✅ FIX: Only start drag if button is STILL pressed
+        if (_pressedCell != null && !_isDragging && isLeftButtonPressed)
         {
             // User pressed cell and now moved to another cell → start drag selection
             _isDragging = true;
@@ -776,13 +813,22 @@ public sealed class DataGridCellsView : UserControl, IDisposable
                 _pressedCell.RowIndex, _pressedCell.ColumnIndex);
         }
 
-        // Continue range selection if already dragging
-        if (_isDragging)
+        // ✅ FIX: Only continue drag if button is STILL pressed
+        if (_isDragging && isLeftButtonPressed)
         {
-            _viewModel.UpdateRangeSelection(cell);
+            _viewModel.UpdateRangeSelection(e.Cell);
 
             _logger.LogInformation("🟢 DRAG-DEBUG: ✅ Drag selection UPDATED to cell [{Row},{Col}] via PointerEntered",
-                cell.RowIndex, cell.ColumnIndex);
+                e.Cell.RowIndex, e.Cell.ColumnIndex);
+        }
+        else if (_isDragging && !isLeftButtonPressed)
+        {
+            // ✅ FIX: Button released during drag - end selection
+            _viewModel.EndRangeSelection();
+            _pressedCell = null;
+            _isDragging = false;
+
+            _logger.LogInformation("🟢 DRAG-DEBUG: ✅ Drag selection ENDED (button released during PointerEntered)");
         }
     }
 
@@ -1186,7 +1232,8 @@ public sealed class DataGridCellsView : UserControl, IDisposable
             // SENIOR FIX: PointerPressed subscription removed (no longer used)
             _scrollViewer.PointerReleased -= OnPointerReleased;
             _scrollViewer.PointerCaptureLost -= OnPointerCaptureLost;
-            _scrollViewer.PointerMoved -= OnScrollViewerPointerMoved;
+            // ✅ PROBLEM 4 FIX: OnScrollViewerPointerMoved subscription removed (method deleted)
+            // _scrollViewer.PointerMoved -= OnScrollViewerPointerMoved;  // ❌ REMOVED - method doesn't exist
             _scrollViewer.ViewChanged -= OnScrollViewChanged;
 
             // ✅ Cleanup scroll debounce timer

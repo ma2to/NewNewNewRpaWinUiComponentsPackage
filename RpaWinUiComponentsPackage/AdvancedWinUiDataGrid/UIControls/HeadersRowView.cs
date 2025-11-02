@@ -843,6 +843,40 @@ public sealed class HeadersRowView : UserControl
         };
         flyout.Items.Add(filterRegexItem);
 
+        // ✅ PROFESSIONAL FIX: Add "Clear Filter" menu item
+        // REASON: User needs way to remove active filter from column
+        //         Currently must manually apply empty filter or reload data
+        // RESULT: One-click filter removal
+        var clearFilterItem = new MenuFlyoutItem
+        {
+            Text = "Clear Filter ✖",
+            Icon = new SymbolIcon(Symbol.ClearSelection)
+        };
+        clearFilterItem.Click += async (s, e) =>
+        {
+            _logger?.LogInformation("Clear Filter selected for column {ColumnName}", header.ColumnName);
+            flyout.Hide();
+
+            try
+            {
+                // Clear filter for this column using FilterFlyoutService
+                if (_viewModel?.FilterFlyoutService != null)
+                {
+                    await _viewModel.FilterFlyoutService.ClearFilterAsync(header.ColumnName);
+                    _logger?.LogInformation("Filter cleared successfully for column {ColumnName}", header.ColumnName);
+                }
+                else
+                {
+                    _logger?.LogWarning("FilterFlyoutService not available - cannot clear filter");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Failed to clear filter for column {ColumnName}", header.ColumnName);
+            }
+        };
+        flyout.Items.Add(clearFilterItem);
+
         // ===== SHOW FLYOUT =====
         flyout.Placement = FlyoutPlacementMode.Bottom;
         flyout.ShowAt(anchorElement);

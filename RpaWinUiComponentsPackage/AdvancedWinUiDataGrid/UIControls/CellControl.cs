@@ -39,7 +39,7 @@ public sealed class CellControl : UserControl
     /// <summary>
     /// Fired when the mouse pointer enters this cell (used for drag selection).
     /// </summary>
-    public event EventHandler<CellViewModel>? CellPointerEntered;
+    public event EventHandler<CellPointerEnteredEventArgs>? CellPointerEntered;
 
     /// <summary>
     /// Fired when the cell value changes during editing (real-time as user types).
@@ -214,8 +214,12 @@ public sealed class CellControl : UserControl
 
     private void OnPointerEntered(object sender, PointerRoutedEventArgs e)
     {
-        // Fire pointer entered event for range selection
-        CellPointerEntered?.Invoke(this, ViewModel);
+        // Fire pointer entered event for range selection with pointer args for button state checking
+        CellPointerEntered?.Invoke(this, new CellPointerEnteredEventArgs
+        {
+            Cell = ViewModel,
+            PointerEventArgs = e
+        });
     }
 
     private void OnCellKeyDown(object sender, KeyRoutedEventArgs e)
@@ -493,4 +497,20 @@ public class CellValueChangedEventArgs : EventArgs
     /// Gets the new value after the change.
     /// </summary>
     public object? NewValue { get; init; }
+}
+
+/// <summary>
+/// Event arguments for cell pointer entered events, including pointer state for drag selection.
+/// </summary>
+public class CellPointerEnteredEventArgs : EventArgs
+{
+    /// <summary>
+    /// Gets the cell that the pointer entered.
+    /// </summary>
+    public CellViewModel Cell { get; init; } = null!;
+
+    /// <summary>
+    /// Gets the pointer event args for checking button state (required for drag selection).
+    /// </summary>
+    public PointerRoutedEventArgs PointerEventArgs { get; init; } = null!;
 }

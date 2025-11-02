@@ -97,6 +97,13 @@ internal interface IRowStore
     Task<long> GetFilteredRowCountAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// ✅ PROBLEM 2 FIX: Check if any filter is currently active
+    /// Used by UI to determine whether to show total count or filtered count
+    /// </summary>
+    /// <returns>True if filter criteria is set and active; false otherwise</returns>
+    bool HasActiveFilter();
+
+    /// <summary>
     /// Persist rows to the store
     /// Supports batch operations for better performance
     /// </summary>

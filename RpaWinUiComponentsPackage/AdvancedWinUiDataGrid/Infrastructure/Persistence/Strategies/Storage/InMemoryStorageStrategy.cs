@@ -27,6 +27,11 @@ internal sealed class InMemoryStorageStrategy : IStorageStrategy
     private string? _sortColumnName;
     private SortDirection _sortDirection = SortDirection.None;
 
+    // ✅ PROBLEM 2 FIX: FILTER SUPPORT (copied from InMemoryRowStore.cs)
+    private IReadOnlyList<object>? _filterCriteria;
+    private List<string>? _filteredRowIds;  // Cached filtered row IDs (ULID strings)
+    private readonly object _filterLock = new();  // Thread-safe filter operations
+
     // ========== CONSTRUCTOR ==========
 
     public InMemoryStorageStrategy(ILogger<InMemoryStorageStrategy>? logger)
@@ -281,16 +286,31 @@ internal sealed class InMemoryStorageStrategy : IStorageStrategy
         {
             lock (_modificationLock)
             {
-                var sortedKeys = GetSortedRowKeys();
+                // ✅ PROBLEM 2 FIX: Use filtered row IDs if filter is active
+                IReadOnlyList<string> rowIdsToGet;
+                if (onlyFiltered && _filteredRowIds != null)
+                {
+                    // Filtered view - use cached filtered row IDs
+                    rowIdsToGet = _filteredRowIds;
+                }
+                else
+                {
+                    // All rows view - use sorted keys
+                    rowIdsToGet = GetSortedRowKeys();
+                }
+
                 var result = new List<IReadOnlyDictionary<string, object?>>();
 
-                for (long i = startIndex; i < Math.Min(startIndex + count, sortedKeys.Count); i++)
+                for (long i = startIndex; i < Math.Min(startIndex + count, rowIdsToGet.Count); i++)
                 {
-                    if (_rows.TryGetValue(sortedKeys[(int)i], out var row))
+                    if (_rows.TryGetValue(rowIdsToGet[(int)i], out var row))
                     {
                         result.Add(row);
                     }
                 }
+
+                _logger?.LogDebug("✅ PROBLEM 2 FIX (InMemory): GetRowsRangeAsync returning {Count} rows from index {Start} (onlyFiltered={OnlyFiltered})",
+                    result.Count, startIndex, onlyFiltered);
 
                 return (IReadOnlyList<IReadOnlyDictionary<string, object?>>)result;
             }
@@ -303,13 +323,24 @@ internal sealed class InMemoryStorageStrategy : IStorageStrategy
         {
             lock (_modificationLock)
             {
-                var sortedKeys = GetSortedRowKeys();
+                // ✅ PROBLEM 2 FIX: Use filtered row IDs if filter is active
+                IEnumerable<string> rowIdsToCount;
+                if (onlyFiltered && _filteredRowIds != null)
+                {
+                    // Filtered view - use cached filtered row IDs
+                    rowIdsToCount = _filteredRowIds;
+                    _logger?.LogDebug("✅ PROBLEM 2 FIX (InMemory): Using filtered view ({Count} filtered rows)",
+                        _filteredRowIds.Count);
+                }
+                else
+                {
+                    // All rows view - use sorted keys
+                    rowIdsToCount = GetSortedRowKeys();
+                }
 
-                // ✅ PROBLEM 2 FIX (InMemoryStorageStrategy): Count only non-empty data rows
-                // REASON: Auto-expanded empty rows should not be counted in display statistics
-                // BEHAVIOR: Must match HybridRowStore behavior for consistency
+                // Count only non-empty data rows
                 long count = 0;
-                foreach (var rowId in sortedKeys)
+                foreach (var rowId in rowIdsToCount)
                 {
                     if (_rows.TryGetValue(rowId, out var row))
                     {
@@ -326,8 +357,8 @@ internal sealed class InMemoryStorageStrategy : IStorageStrategy
                     }
                 }
 
-                _logger?.LogDebug("✅ PROBLEM 2 FIX (InMemory): GetRowCountAsync returning {Count} non-empty rows (total in store: {Total})",
-                    count, sortedKeys.Count);
+                _logger?.LogDebug("✅ PROBLEM 2 FIX (InMemory): GetRowCountAsync returning {Count} non-empty rows (onlyFiltered={OnlyFiltered}, total in store: {Total})",
+                    count, onlyFiltered, _rows.Count);
 
                 return count;
             }
@@ -342,16 +373,31 @@ internal sealed class InMemoryStorageStrategy : IStorageStrategy
         {
             lock (_modificationLock)
             {
-                var sortedKeys = GetSortedRowKeys();
+                // ✅ PROBLEM 2 FIX: Use filtered row IDs if filter is active
+                IEnumerable<string> rowIdsToGet;
+                if (onlyFiltered && _filteredRowIds != null)
+                {
+                    // Filtered view - use cached filtered row IDs
+                    rowIdsToGet = _filteredRowIds;
+                }
+                else
+                {
+                    // All rows view - use sorted keys
+                    rowIdsToGet = GetSortedRowKeys();
+                }
+
                 var result = new List<IReadOnlyDictionary<string, object?>>();
 
-                foreach (var key in sortedKeys)
+                foreach (var key in rowIdsToGet)
                 {
                     if (_rows.TryGetValue(key, out var row))
                     {
                         result.Add(row);
                     }
                 }
+
+                _logger?.LogDebug("✅ PROBLEM 2 FIX (InMemory): GetAllRowsAsync returning {Count} rows (onlyFiltered={OnlyFiltered})",
+                    result.Count, onlyFiltered);
 
                 return (IReadOnlyList<IReadOnlyDictionary<string, object?>>)result;
             }
@@ -391,6 +437,63 @@ internal sealed class InMemoryStorageStrategy : IStorageStrategy
                 _logger?.LogInformation("ReplaceAllRowsAsync: Replaced with {Count} rows", rowNumber);
             }
         }, ct);
+    }
+
+    // ========== FILTER CRITERIA (✅ PROBLEM 2 FIX - copied from InMemoryRowStore.cs) ==========
+
+    /// <summary>
+    /// ✅ PROBLEM 2 FIX: Set filter criteria and build filtered view index.
+    /// IDENTICAL logic to InMemoryRowStore.SetFilterCriteria (lines 742-790).
+    /// PERFORMANCE: O(n) where n = total rows. Builds index once, subsequent filtered access is O(1) per row.
+    /// </summary>
+    public void SetFilterCriteria(IReadOnlyList<object>? filterCriteria)
+    {
+        lock (_filterLock)
+        {
+            _filterCriteria = filterCriteria;
+
+            if (filterCriteria == null || filterCriteria.Count == 0)
+            {
+                // No filters - clear filtered view index
+                _filteredRowIds = null;
+                _logger?.LogInformation("✅ PROBLEM 2 FIX (InMemoryStrategy): Filter criteria cleared - no active filters");
+                return;
+            }
+
+            // Build filtered view index - O(n) operation but cached for subsequent O(1) access
+            _logger?.LogInformation("✅ PROBLEM 2 FIX (InMemoryStrategy): Building filtered view index for {FilterCount} filters over {TotalRows} rows",
+                filterCriteria.Count, _rows.Count);
+
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+            _filteredRowIds = new List<string>();
+
+            // Get all rows as ordered list (need deterministic ordering for index mapping)
+            var sortedKeys = GetSortedRowKeys();
+
+            for (int originalIdx = 0; originalIdx < sortedKeys.Count; originalIdx++)
+            {
+                var rowId = sortedKeys[originalIdx];
+                if (_rows.TryGetValue(rowId, out var row))
+                {
+                    // Check if row matches ALL filter criteria (AND logic)
+                    if (RowMatchesAllFilters(row, filterCriteria))
+                    {
+                        _filteredRowIds.Add(rowId);
+                    }
+                }
+            }
+
+            stopwatch.Stop();
+
+            _logger?.LogInformation("✅ PROBLEM 2 FIX (InMemoryStrategy): Filtered view index built: {FilteredCount}/{TotalCount} rows match filters (took {Duration}ms)",
+                _filteredRowIds.Count, _rows.Count, stopwatch.ElapsedMilliseconds);
+        }
+    }
+
+    public void ClearFilterCriteria()
+    {
+        SetFilterCriteria(null);
     }
 
     // ========== SORT CRITERIA (renumber __rowNumber) ==========
@@ -546,5 +649,139 @@ internal sealed class InMemoryStorageStrategy : IStorageStrategy
         {
             _sortedRowKeysInvalid = true;
         }
+    }
+
+    // ========== FILTER HELPER METHODS (✅ PROBLEM 2 FIX - simplified from InMemoryRowStore.cs) ==========
+
+    /// <summary>
+    /// ✅ PROBLEM 2 FIX: Checks if row matches ALL active filter criteria (AND logic).
+    /// Simplified version - supports basic operators using reflection (same as InMemoryRowStore).
+    /// </summary>
+    private bool RowMatchesAllFilters(IReadOnlyDictionary<string, object?> row, IReadOnlyList<object> filterCriteria)
+    {
+        foreach (var criteriaObj in filterCriteria)
+        {
+            // Extract filter properties using reflection (duck typing)
+            var criteriaType = criteriaObj.GetType();
+            var columnNameProp = criteriaType.GetProperty("ColumnName");
+            var operatorProp = criteriaType.GetProperty("Operator");
+            var valueProp = criteriaType.GetProperty("Value");
+
+            if (columnNameProp == null || operatorProp == null || valueProp == null)
+            {
+                _logger?.LogWarning("Invalid filter criteria object - missing required properties");
+                continue;
+            }
+
+            var columnName = columnNameProp.GetValue(criteriaObj) as string;
+            var operatorValue = operatorProp.GetValue(criteriaObj); // Enum value
+            var filterValue = valueProp.GetValue(criteriaObj);
+
+            if (string.IsNullOrEmpty(columnName))
+                continue;
+
+            // Get cell value from row
+            if (!row.TryGetValue(columnName, out var cellValue))
+            {
+                cellValue = null; // Column doesn't exist - treat as null
+            }
+
+            // ✅ PROFESSIONAL FIX: Apply filter operator with In and Regex support
+            var operatorName = operatorValue?.ToString() ?? "";
+            bool matches = operatorName switch
+            {
+                "Equals" => ValuesAreEqual(cellValue, filterValue),
+                "Contains" => StringContains(cellValue, filterValue),
+                "IsTrue" => cellValue is bool b && b,
+                "IsFalse" => cellValue is bool bf && !bf,
+                "In" => ValueInList(cellValue, filterValue),           // ✅ CHECKBOX FILTER FIX
+                "Regex" => ValueMatchesRegex(cellValue, filterValue),  // ✅ REGEX FILTER FIX
+                _ => false // ✅ FIX: Unknown operator should EXCLUDE row (not include)
+            };
+
+            if (!matches)
+            {
+                return false; // Row doesn't match this filter → exclude row
+            }
+        }
+
+        return true; // Row matches all filters
+    }
+
+    /// <summary>
+    /// ✅ PROFESSIONAL FIX: Checks if cell value is in list (for FilterOperator.In / checkbox filter).
+    /// Used by checkbox filter mode - filterValue is List<string> of selected values.
+    /// </summary>
+    private bool ValueInList(object? cellValue, object? filterValue)
+    {
+        if (filterValue == null)
+            return false;
+
+        // filterValue should be List<string> (from checkbox filter)
+        if (filterValue is not IEnumerable<string> selectedValues)
+        {
+            _logger?.LogWarning("FilterOperator.In expects List<string>, got {Type}", filterValue.GetType().Name);
+            return false;
+        }
+
+        var cellString = cellValue?.ToString() ?? string.Empty;
+
+        // Case-insensitive match for user-friendly behavior
+        var selectedSet = new HashSet<string>(selectedValues, StringComparer.OrdinalIgnoreCase);
+        return selectedSet.Contains(cellString);
+    }
+
+    /// <summary>
+    /// ✅ PROFESSIONAL FIX: Checks if cell value matches regex pattern (for FilterOperator.Regex).
+    /// Used by regex filter mode - filterValue is string regex pattern.
+    /// Supports case-insensitive mode via (?i) prefix.
+    /// </summary>
+    private bool ValueMatchesRegex(object? cellValue, object? filterValue)
+    {
+        if (filterValue == null)
+            return false;
+
+        var pattern = filterValue.ToString();
+        if (string.IsNullOrEmpty(pattern))
+            return false;
+
+        var cellString = cellValue?.ToString() ?? string.Empty;
+
+        try
+        {
+            var regex = new System.Text.RegularExpressions.Regex(pattern);
+            return regex.IsMatch(cellString);
+        }
+        catch (System.Text.RegularExpressions.RegexParseException ex)
+        {
+            _logger?.LogWarning(ex, "Invalid regex pattern: {Pattern}", pattern);
+            return false; // Invalid regex = no match
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Regex matching failed for pattern: {Pattern}", pattern);
+            return false;
+        }
+    }
+
+    private bool ValuesAreEqual(object? cellValue, object? filterValue)
+    {
+        if (cellValue == null && filterValue == null) return true;
+        if (cellValue == null || filterValue == null) return false;
+        if (cellValue.Equals(filterValue)) return true;
+
+        // String comparison (case-insensitive)
+        var cellStr = cellValue.ToString();
+        var filterStr = filterValue.ToString();
+        return string.Equals(cellStr, filterStr, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool StringContains(object? cellValue, object? filterValue)
+    {
+        if (cellValue == null || filterValue == null) return false;
+
+        var cellStr = cellValue.ToString() ?? "";
+        var filterStr = filterValue.ToString() ?? "";
+        return cellStr.Contains(filterStr, StringComparison.OrdinalIgnoreCase);
     }
 }

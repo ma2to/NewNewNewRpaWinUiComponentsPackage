@@ -39,7 +39,7 @@ internal sealed class DataGridElementFactory : IElementFactory
     public event EventHandler<CellSelectionEventArgs>? OnCellSelected;
     public event EventHandler<CellViewModel>? OnCellEditStarted;
     public event EventHandler<CellViewModel>? OnCellEditCompleted;
-    public event EventHandler<CellViewModel>? OnCellPointerEntered;
+    public event EventHandler<CellPointerEnteredEventArgs>? OnCellPointerEntered;
     public event EventHandler<CellValueChangedEventArgs>? OnCellValueChanged;
 
     public DataGridElementFactory(
@@ -299,9 +299,9 @@ internal sealed class DataGridElementFactory : IElementFactory
             OnCellEditCompleted?.Invoke(sender, vm);
         };
 
-        EventHandler<CellViewModel> cellPointerEnteredHandler = (sender, vm) =>
+        EventHandler<CellPointerEnteredEventArgs> cellPointerEnteredHandler = (sender, e) =>
         {
-            OnCellPointerEntered?.Invoke(sender, vm);
+            OnCellPointerEntered?.Invoke(sender, e);
         };
 
         EventHandler<CellValueChangedEventArgs> cellValueChangedHandler = (sender, args) =>

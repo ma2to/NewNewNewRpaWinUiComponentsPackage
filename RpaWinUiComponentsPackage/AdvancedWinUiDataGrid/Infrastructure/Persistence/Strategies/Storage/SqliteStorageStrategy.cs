@@ -32,6 +32,10 @@ internal sealed class SqliteStorageStrategy : IStorageStrategy, IAsyncDisposable
     private readonly Task _writerTask;
     private readonly CancellationTokenSource _disposeCts = new();
 
+    // ✅ PROBLEM 2 FIX: Filter support (consistent with HybridRowStore)
+    private IReadOnlyList<object>? _filterCriteria;
+    private string? _activeFilterSql; // SQL WHERE clause for active filters
+
     // Sort support
     private string? _activeSortSql; // SQL ORDER BY clause for active sort
 
@@ -676,8 +680,12 @@ internal sealed class SqliteStorageStrategy : IStorageStrategy, IAsyncDisposable
             using var cmd = connection.CreateCommand();
 
             // Build WHERE clause
+            // ✅ PROBLEM 2 FIX: Build WHERE clause with filter support
             var whereClause = "__isDeleted = 0";
-            // TODO: Add filter support when needed
+            if (onlyFiltered && !string.IsNullOrEmpty(_activeFilterSql))
+            {
+                whereClause += $" AND ({_activeFilterSql})";
+            }
 
             // Build ORDER BY clause (primary: __rowNumber, fallback: __createdAt)
             var orderByClause = !string.IsNullOrEmpty(_activeSortSql)
@@ -727,16 +735,20 @@ internal sealed class SqliteStorageStrategy : IStorageStrategy, IAsyncDisposable
 
         using var cmd = connection.CreateCommand();
 
-        // Build WHERE clause
+        // ✅ PROBLEM 2 FIX: Build WHERE clause with filter support
         var whereClause = "__isDeleted = 0";
-        // TODO: Add filter support when needed
+        if (onlyFiltered && !string.IsNullOrEmpty(_activeFilterSql))
+        {
+            whereClause += $" AND ({_activeFilterSql})";
+        }
 
         cmd.CommandText = $"SELECT COUNT(*) FROM grid_rows WHERE {whereClause}";
 
         var result = await cmd.ExecuteScalarAsync(ct);
         var count = result != null ? Convert.ToInt64(result) : 0;
 
-        _logger?.LogDebug("GetRowCountAsync: {Count} rows (onlyFiltered={OnlyFiltered})", count, onlyFiltered);
+        _logger?.LogDebug("✅ PROBLEM 2 FIX (SqliteStrategy): GetRowCountAsync: {Count} rows (onlyFiltered={OnlyFiltered})",
+            count, onlyFiltered);
         return count;
     }
 
@@ -753,9 +765,12 @@ internal sealed class SqliteStorageStrategy : IStorageStrategy, IAsyncDisposable
 
         using var cmd = connection.CreateCommand();
 
-        // Build WHERE clause
+        // ✅ PROBLEM 2 FIX: Build WHERE clause with filter support
         var whereClause = "__isDeleted = 0";
-        // TODO: Add filter support when needed
+        if (onlyFiltered && !string.IsNullOrEmpty(_activeFilterSql))
+        {
+            whereClause += $" AND ({_activeFilterSql})";
+        }
 
         // Build ORDER BY clause
         var orderByClause = !string.IsNullOrEmpty(_activeSortSql)
@@ -775,7 +790,8 @@ internal sealed class SqliteStorageStrategy : IStorageStrategy, IAsyncDisposable
             rows.Add(rowData);
         }
 
-        _logger?.LogDebug("GetAllRowsAsync returned {Count} rows (onlyFiltered={OnlyFiltered})", rows.Count, onlyFiltered);
+        _logger?.LogDebug("✅ PROBLEM 2 FIX (SqliteStrategy): GetAllRowsAsync returned {Count} rows (onlyFiltered={OnlyFiltered})",
+            rows.Count, onlyFiltered);
         return rows;
     }
 
@@ -831,6 +847,134 @@ internal sealed class SqliteStorageStrategy : IStorageStrategy, IAsyncDisposable
         await FlushWriterQueueAsync(ct);
 
         _logger?.LogInformation("ReplaceAllRowsAsync: Replaced with {Count} rows (writer queue flushed)", rowNumber);
+    }
+
+    // ========== FILTER CRITERIA (✅ PROBLEM 2 FIX - consistent with HybridRowStore) ==========
+
+    /// <summary>
+    /// ✅ PROBLEM 2 FIX: Set filter criteria and build SQL WHERE clause.
+    /// SIMPLIFIED: Uses reflection-based duck typing (same as InMemoryStorageStrategy).
+    /// REASON: FilterCriteria type may not be available in this namespace.
+    /// </summary>
+    public void SetFilterCriteria(IReadOnlyList<object>? filterCriteria)
+    {
+        _logger?.LogInformation("✅ PROBLEM 2 FIX (SqliteStrategy): SetFilterCriteria called (count: {Count})",
+            filterCriteria?.Count ?? 0);
+
+        _filterCriteria = filterCriteria;
+
+        if (filterCriteria == null || filterCriteria.Count == 0)
+        {
+            _activeFilterSql = null;
+            _logger?.LogInformation("✅ PROBLEM 2 FIX (SqliteStrategy): Filter criteria cleared");
+            return;
+        }
+
+        // Build SQL WHERE clause from filter criteria (using reflection for duck typing)
+        var whereConditions = new List<string>();
+
+        foreach (var criteriaObj in filterCriteria)
+        {
+            try
+            {
+                // Extract filter properties using reflection
+                var criteriaType = criteriaObj.GetType();
+                var columnNameProp = criteriaType.GetProperty("ColumnName");
+                var operatorProp = criteriaType.GetProperty("Operator");
+                var valueProp = criteriaType.GetProperty("Value");
+
+                if (columnNameProp == null || operatorProp == null || valueProp == null)
+                {
+                    _logger?.LogWarning("Invalid filter criteria object - missing required properties");
+                    continue;
+                }
+
+                var columnName = columnNameProp.GetValue(criteriaObj) as string;
+                var operatorValue = operatorProp.GetValue(criteriaObj);
+                var filterValue = valueProp.GetValue(criteriaObj);
+
+                if (string.IsNullOrEmpty(columnName))
+                    continue;
+
+                // Build SQL condition for this filter
+                var sqlCondition = BuildSqlFilterConditionReflection(columnName, operatorValue?.ToString() ?? "", filterValue);
+                if (!string.IsNullOrEmpty(sqlCondition))
+                {
+                    whereConditions.Add(sqlCondition);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Error building SQL filter condition for criteria");
+            }
+        }
+
+        if (whereConditions.Count > 0)
+        {
+            _activeFilterSql = string.Join(" AND ", whereConditions);
+            _logger?.LogInformation("✅ PROBLEM 2 FIX (SqliteStrategy): Active filter SQL: {FilterSql}", _activeFilterSql);
+        }
+        else
+        {
+            _activeFilterSql = null;
+        }
+    }
+
+    public void ClearFilterCriteria()
+    {
+        _logger?.LogInformation("✅ PROBLEM 2 FIX (SqliteStrategy): ClearFilterCriteria called");
+        SetFilterCriteria(null);
+    }
+
+    /// <summary>
+    /// ✅ PROBLEM 2 FIX: Build SQL filter condition using reflection (simplified version).
+    /// </summary>
+    private string BuildSqlFilterConditionReflection(string columnName, string operatorName, object? filterValue)
+    {
+        var columnPath = $"$.{columnName}";
+        var sqlValue = FormatSqlValue(filterValue);
+
+        return operatorName switch
+        {
+            "Equals" => $"json_extract(data, '{columnPath}') = {sqlValue}",
+            "NotEquals" => $"json_extract(data, '{columnPath}') != {sqlValue}",
+            "Contains" => $"json_extract(data, '{columnPath}') LIKE '%' || {sqlValue} || '%'",
+            "NotContains" => $"json_extract(data, '{columnPath}') NOT LIKE '%' || {sqlValue} || '%'",
+            "StartsWith" => $"json_extract(data, '{columnPath}') LIKE {sqlValue} || '%'",
+            "EndsWith" => $"json_extract(data, '{columnPath}') LIKE '%' || {sqlValue}",
+            "GreaterThan" => $"CAST(json_extract(data, '{columnPath}') AS REAL) > {sqlValue}",
+            "GreaterThanOrEqual" => $"CAST(json_extract(data, '{columnPath}') AS REAL) >= {sqlValue}",
+            "LessThan" => $"CAST(json_extract(data, '{columnPath}') AS REAL) < {sqlValue}",
+            "LessThanOrEqual" => $"CAST(json_extract(data, '{columnPath}') AS REAL) <= {sqlValue}",
+            "IsNull" => $"json_extract(data, '{columnPath}') IS NULL",
+            "IsNotNull" => $"json_extract(data, '{columnPath}') IS NOT NULL",
+            "IsEmpty" => $"(json_extract(data, '{columnPath}') IS NULL OR TRIM(json_extract(data, '{columnPath}')) = '')",
+            "IsNotEmpty" => $"(json_extract(data, '{columnPath}') IS NOT NULL AND TRIM(json_extract(data, '{columnPath}')) != '')",
+            "IsTrue" => $"json_extract(data, '{columnPath}') = 1",
+            "IsFalse" => $"json_extract(data, '{columnPath}') = 0",
+            _ => ""  // Unknown operator - ignore
+        };
+    }
+
+    /// <summary>
+    /// Format C# value to SQL-safe string literal.
+    /// </summary>
+    private string FormatSqlValue(object? value)
+    {
+        if (value == null)
+            return "NULL";
+
+        if (value is string str)
+            return $"'{str.Replace("'", "''")}'";  // Escape single quotes for SQL
+
+        if (value is bool b)
+            return b ? "1" : "0";
+
+        if (value is int || value is long || value is double || value is float || value is decimal)
+            return value.ToString() ?? "NULL";
+
+        // Default: convert to string and escape
+        return $"'{value.ToString()?.Replace("'", "''")}'";
     }
 
     // ========== SORT CRITERIA (renumber __rowNumber) ==========

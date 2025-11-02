@@ -1786,6 +1786,17 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
         _filteredIndexMap.Clear();
     }
 
+    /// <summary>
+    /// ✅ PROBLEM 2 FIX: Check if any filter is currently active
+    /// </summary>
+    public bool HasActiveFilter()
+    {
+        bool hasFilter = !string.IsNullOrEmpty(_activeFilterSql);
+        _logger.LogDebug("✅ PROBLEM 2 FIX (HybridRowStore): HasActiveFilter={HasFilter} (filter SQL length: {Length})",
+            hasFilter, _activeFilterSql?.Length ?? 0);
+        return hasFilter;
+    }
+
     public IReadOnlyList<object> GetFilterCriteria()
     {
         return _filterCriteria ?? Array.Empty<object>();

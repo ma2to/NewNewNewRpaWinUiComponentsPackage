@@ -191,6 +191,13 @@ internal sealed class ImportService : IImportService
                     _logger.LogInformation("Post-import validation successful for operation {OperationId}", operationId);
                 }
 
+                // ✅ PROFESSIONAL FIX: Fire ValidationChanged event to trigger UI update
+                // REASON: Batch validation completed and errors stored in ValidationStore
+                //         but UI doesn't know → must fire event to trigger ApplyValidationErrors()
+                // RESULT: Validation borders and alerts appear immediately after import
+                _validationService.FireValidationChanged();
+                _logger.LogDebug("Fired ValidationChanged event after post-import validation");
+
                 _importLogger.LogValidationResults(operationId, processedRows.Count, validRows, errorCount, validationTime);
             }
             else

@@ -1656,10 +1656,20 @@ public sealed class DataGridViewModel : ViewModelBase
         int appliedCount = 0;
         foreach (var row in Rows)
         {
-            var rowId = row.Cells.FirstOrDefault()?.RowId;
+            // ✅ PROFESSIONAL FIX: Get rowId from first DATA cell (skip special columns)
+            // REASON: Special columns (RowNumber, Checkbox, etc.) may have different or NULL rowId
+            //         but DATA cells always have correct rowId from backend
+            // FALLBACK: If no data cell found, use row.RowId property directly
+            var rowId = row.Cells.FirstOrDefault(c => c.SpecialType == Common.SpecialColumnType.None)?.RowId;
             if (string.IsNullOrEmpty(rowId))
             {
-                continue;
+                // Fallback: try to get rowId from row itself
+                rowId = row.RowId;
+                if (string.IsNullOrEmpty(rowId))
+                {
+                    _logger?.LogWarning("Cannot apply validation errors to row {RowIndex} - no rowId found", row.RowIndex);
+                    continue;
+                }
             }
 
             // Apply errors to data cells

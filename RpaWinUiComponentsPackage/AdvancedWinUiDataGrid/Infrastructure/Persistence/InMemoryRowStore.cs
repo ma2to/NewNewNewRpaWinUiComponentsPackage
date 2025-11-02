@@ -807,6 +807,21 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
         SetFilterCriteria(null);
     }
 
+    /// <summary>
+    /// ✅ PROBLEM 2 FIX: Check if any filter is currently active
+    /// Returns true if either filter criteria or filter expression is active
+    /// </summary>
+    public bool HasActiveFilter()
+    {
+        lock (_filterLock)
+        {
+            bool hasFilter = (_filterCriteria != null && _filterCriteria.Count > 0) || _filterExpression != null;
+            _logger.LogDebug("✅ PROBLEM 2 FIX (InMemoryRowStore): HasActiveFilter={HasFilter} (criteria count: {Count}, expression: {HasExpression})",
+                hasFilter, _filterCriteria?.Count ?? 0, _filterExpression != null);
+            return hasFilter;
+        }
+    }
+
     public void SetFilterExpression(Features.Filter.Models.FilterExpression? expression)
     {
         lock (_filterLock)

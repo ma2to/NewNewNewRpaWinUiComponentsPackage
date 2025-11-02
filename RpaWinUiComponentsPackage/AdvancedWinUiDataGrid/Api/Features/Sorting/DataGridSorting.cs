@@ -74,6 +74,29 @@ internal sealed class DataGridSorting : IDataGridSorting
 
             var internalDescriptors = sortDescriptors.Select(d => d.ToInternal()).ToList();
             var internalResult = await _sortService.SortByMultipleColumnsAsync(internalDescriptors, cancellationToken);
+
+            // ✅ PROFESSIONAL FIX: Check if sort succeeded before triggering UI refresh
+            if (!internalResult.IsSuccess)
+            {
+                return internalResult.ToPublic();
+            }
+
+            // ✅ PROFESSIONAL FIX: Trigger UI refresh after successful multi-column sort
+            // This ensures InternalUIUpdateHandler detects changes and updates DataGridViewModel
+            if (_uiNotificationService != null && _rowStore != null)
+            {
+                // Get current row count to pass to notification
+                var allRows = await _rowStore.GetAllRowsAsync(cancellationToken);
+                var rowCount = allRows.Count();
+
+                _logger?.LogInformation("Triggering UI refresh after multi-column sort: {RowCount} rows", rowCount);
+                await _uiNotificationService.NotifyDataRefreshAsync(rowCount, "MultiSort");
+            }
+            else
+            {
+                _logger?.LogDebug("UiNotificationService or RowStore not available - skipping UI refresh notification");
+            }
+
             return internalResult.ToPublic();
         }
         catch (Exception ex)

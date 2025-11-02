@@ -364,6 +364,13 @@ internal sealed class AdaptiveRowStore : IRowStore, IAsyncDisposable
     public IReadOnlyList<object> GetFilterCriteria() =>
         _activeStore.GetFilterCriteria();
 
+    /// <summary>
+    /// ✅ PROBLEM 2 FIX: Check if any filter is currently active
+    /// Delegates to active store (InMemory or Hybrid)
+    /// </summary>
+    public bool HasActiveFilter() =>
+        _activeStore.HasActiveFilter();
+
     public void SetFilterExpression(Features.Filter.Models.FilterExpression? expression) =>
         _activeStore.SetFilterExpression(expression);
 

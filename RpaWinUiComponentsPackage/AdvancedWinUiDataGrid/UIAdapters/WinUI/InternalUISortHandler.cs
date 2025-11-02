@@ -136,6 +136,11 @@ internal sealed class InternalUISortHandler : IDisposable
                     }
                     _logger.LogInformation("✅ PROBLEM 1 FIX: Restored {Count} column header sort indicators",
                         currentDescriptors.Count);
+
+                    // ✅ PROFESSIONAL FIX: Force UI refresh to ensure sort indicators are visible
+                    // REASON: ReplaceAllRowsAsync triggers UI virtualization refresh which may clear indicators
+                    // SOLUTION: Yield control to UI thread after setting indicators to ensure binding updates
+                    await Task.Delay(1);
                 }
                 else
                 {
@@ -167,6 +172,9 @@ internal sealed class InternalUISortHandler : IDisposable
                         header.SortDirection = directionString;
                         _logger.LogDebug("✅ PROBLEM 1 FIX: Restored sort indicator for column {ColumnName}: {Direction}",
                             args.ColumnName, directionString);
+
+                        // ✅ PROFESSIONAL FIX: Force UI refresh to ensure sort indicator is visible
+                        await Task.Delay(1);
                     }
                 }
                 else
