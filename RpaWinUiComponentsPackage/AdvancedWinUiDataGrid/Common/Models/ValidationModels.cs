@@ -8,8 +8,11 @@ internal enum ValidationMode
     /// <summary>Batch validation - for import, export, paste operations</summary>
     Batch,
 
-    /// <summary>Real-time validation - for cell editing operations</summary>
-    RealTime
+    /// <summary>Real-time validation - for cell editing operations (committed to storage)</summary>
+    RealTime,
+
+    /// <summary>Preview real-time validation - for live keystroke validation (NOT committed to storage)</summary>
+    PreviewRealTime
 }
 
 /// <summary>
@@ -126,4 +129,61 @@ internal sealed record EditResult
     /// </summary>
     internal static EditResult Failure(string errorMessage, ValidationResult? validationResult = null) =>
         new() { IsSuccess = false, ErrorMessage = errorMessage, ValidationResult = validationResult };
+}
+
+/// <summary>
+/// ✅ NEW: Result of preview validation during live cell editing (keystroke validation).
+/// PREVIEW MODE: Does NOT write to validation storage - only returns result for UI preview.
+/// USE CASE: User types in TextBox → validate on keystroke → show red border + message → no DB write.
+/// PERFORMANCE: Designed for high-frequency calls (300ms debounced) without storage overhead.
+/// </summary>
+public sealed record PreviewValidationResult
+{
+    /// <summary>
+    /// Gets whether the preview validation passed
+    /// </summary>
+    public bool IsValid { get; init; }
+
+    /// <summary>
+    /// Gets the validation error message (null if valid)
+    /// </summary>
+    public string? ErrorMessage { get; init; }
+
+    /// <summary>
+    /// Gets the validation severity
+    /// </summary>
+    public PublicValidationSeverity Severity { get; init; } = PublicValidationSeverity.Error;
+
+    /// <summary>
+    /// Gets the affected column name
+    /// </summary>
+    public string? AffectedColumn { get; init; }
+
+    /// <summary>
+    /// Gets the timestamp when preview validation was performed
+    /// </summary>
+    public DateTime Timestamp { get; init; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// Creates a successful preview validation result
+    /// </summary>
+    public static PreviewValidationResult Success(string? affectedColumn = null) =>
+        new()
+        {
+            IsValid = true,
+            AffectedColumn = affectedColumn,
+            Severity = PublicValidationSeverity.Info
+        };
+
+    /// <summary>
+    /// Creates a failed preview validation result with error message
+    /// </summary>
+    public static PreviewValidationResult Error(string errorMessage, string? affectedColumn = null, PublicValidationSeverity severity = PublicValidationSeverity.Error) =>
+        new()
+        {
+            IsValid = false,
+            ErrorMessage = errorMessage,
+            AffectedColumn = affectedColumn,
+            Severity = severity
+        };
 }

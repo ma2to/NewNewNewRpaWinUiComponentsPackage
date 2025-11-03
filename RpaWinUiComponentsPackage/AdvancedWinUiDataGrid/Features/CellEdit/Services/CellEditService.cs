@@ -387,4 +387,95 @@ internal sealed class CellEditService : ICellEditService
     {
         return _editingEnabled;
     }
+
+    /// <summary>
+    /// ✅ NEW: Preview validation during live cell editing (keystroke validation).
+    /// PREVIEW MODE: Does NOT write to validation storage - only returns result for UI preview.
+    /// PERFORMANCE: Fast, no DB writes (critical for SQLite mode with 300ms debounce).
+    /// ARCHITECTURE: Validates in-memory preview row WITHOUT committing to IRowStore.
+    /// USE CASE: User types "123" in TextBox → validate immediately → show red border + message → no storage write.
+    /// COMMIT: When user presses Enter, UpdateCellAsync writes to storage and commits validation permanently.
+    /// </summary>
+    public async Task<PreviewValidationResult> PreviewValidateCellAsync(
+        string rowId,
+        string columnName,
+        object? currentValue,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogTrace("🔍 PREVIEW VALIDATION: rowId={RowId}, column={ColumnName}, value={Value}",
+                rowId, columnName, currentValue);
+
+            // Check if validation is enabled
+            if (!_validationService.ShouldRunAutomaticValidation("PreviewValidateCellAsync"))
+            {
+                _logger.LogTrace("Preview validation skipped - automatic validation disabled");
+                return PreviewValidationResult.Success(columnName);
+            }
+
+            // Get current row by rowId
+            var row = await _rowStore.GetRowByIdAsync(rowId, cancellationToken);
+            if (row == null)
+            {
+                _logger.LogWarning("Preview validation failed - row {RowId} not found", rowId);
+                return PreviewValidationResult.Error("Row not found", columnName);
+            }
+
+            // ✅ CRITICAL: Create preview row with new value (WITHOUT writing to storage)
+            // This is in-memory only - no IRowStore.UpdateRowByIdAsync call
+            var previewRow = new Dictionary<string, object?>(row)
+            {
+                [columnName] = currentValue
+            };
+
+            // Get row index for validation context (validation service still needs it for rule evaluation)
+            var rowIndex = _rowStore.GetRowIndexById(rowId);
+
+            // Create validation context for preview mode
+            var validationContext = new ValidationContext
+            {
+                RowIndex = rowIndex ?? -1,
+                ColumnName = columnName,
+                Properties = new Dictionary<string, object?>
+                {
+                    ["OldValue"] = row.TryGetValue(columnName, out var oldVal) ? oldVal : null,
+                    ["NewValue"] = currentValue,
+                    ["ValidationMode"] = ValidationMode.PreviewRealTime  // ← NEW enum value
+                }
+            };
+
+            // ✅ VALIDATE (in-memory only, NO storage writes)
+            var validationResult = await _validationService.ValidateRowAsync(
+                previewRow,
+                validationContext,
+                cancellationToken);
+
+            // ✅ CRITICAL: DO NOT write validation result to storage
+            // DO NOT call _validationService.CommitValidationErrorAsync()
+            // DO NOT fire ValidationChanged event
+            // REASON: This is preview mode - validation is only for UI feedback, not persistence
+
+            // Return preview result
+            if (!validationResult.IsValid)
+            {
+                _logger.LogTrace("⚠️ PREVIEW VALIDATION FAILED: {ErrorMessage}", validationResult.ErrorMessage);
+                return PreviewValidationResult.Error(
+                    validationResult.ErrorMessage ?? "Validation failed",
+                    columnName,
+                    validationResult.Severity);
+            }
+            else
+            {
+                _logger.LogTrace("✅ PREVIEW VALIDATION PASSED");
+                return PreviewValidationResult.Success(columnName);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Preview validation failed for rowId {RowId}, column {ColumnName}: {Message}",
+                rowId, columnName, ex.Message);
+            return PreviewValidationResult.Error($"Validation error: {ex.Message}", columnName);
+        }
+    }
 }

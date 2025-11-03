@@ -117,7 +117,26 @@ internal sealed class InternalUISortHandler : IDisposable
                 {
                     _logger.LogInformation("✅ AUTO-SORT (MULTI-SORT): Sort completed successfully");
 
-                    // ✅ PROBLEM 1 FIX: Restore column header sort indicators after multi-sort
+                    // ✅ CRITICAL FIX PART 1: Clear sort indicators from columns NOT in current sort criteria
+                    // REASON: User sorted by [Col1, Col2], then removed Col1 → Col1 arrow must disappear
+                    // SOLUTION: Clear all arrows first, then restore only active sort columns
+                    var activeSortColumns = new HashSet<string>(
+                        currentDescriptors.Select(d => d.ColumnName),
+                        StringComparer.OrdinalIgnoreCase);
+
+                    foreach (var header in _viewModel.ColumnHeaders)
+                    {
+                        if (!activeSortColumns.Contains(header.ColumnName))
+                        {
+                            if (header.SortDirection != "None")
+                            {
+                                header.SortDirection = "None";
+                                _logger.LogTrace("Cleared sort indicator for inactive column {ColumnName}", header.ColumnName);
+                            }
+                        }
+                    }
+
+                    // ✅ CRITICAL FIX PART 2: Restore column header sort indicators for active sort columns
                     // ReplaceAllRowsAsync invalidates viewport cache → UI refresh clears indicators
                     // Solution: Explicitly restore visual sort state from sort descriptors
                     foreach (var descriptor in currentDescriptors)
@@ -130,17 +149,19 @@ internal sealed class InternalUISortHandler : IDisposable
                                 ? "Ascending"
                                 : "Descending";
                             header.SortDirection = directionString;
-                            _logger.LogDebug("Restored sort indicator for column {ColumnName}: {Direction}",
+                            _logger.LogInformation("🔽 MULTISORT INDICATOR: Column '{ColumnName}' → {Direction}",
                                 descriptor.ColumnName, directionString);
                         }
                     }
-                    _logger.LogInformation("✅ PROBLEM 1 FIX: Restored {Count} column header sort indicators",
+                    _logger.LogInformation("✅ MULTISORT VISUAL FIX: Restored {Count} column header sort indicators",
                         currentDescriptors.Count);
 
-                    // ✅ PROFESSIONAL FIX: Force UI refresh to ensure sort indicators are visible
+                    // ✅ PROFESSIONAL FIX: Force complete UI refresh to ensure sort indicators are visible
                     // REASON: ReplaceAllRowsAsync triggers UI virtualization refresh which may clear indicators
-                    // SOLUTION: Yield control to UI thread after setting indicators to ensure binding updates
-                    await Task.Delay(1);
+                    // SOLUTION: Yield control to UI thread + force ItemsRepeater refresh
+                    await Task.Delay(1); // Yield to UI thread
+                    _viewModel.ForceCompleteUIRefresh(); // Trigger ItemsRepeater rebind
+                    _logger.LogDebug("✅ MULTISORT UI REFRESH: Forced complete UI refresh for visual indicators");
                 }
                 else
                 {

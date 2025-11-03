@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.CellEdit.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api.Mappings;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Editing;
 
@@ -147,6 +148,29 @@ internal sealed class DataGridEditing : IDataGridEditing
         catch (Exception ex)
         {
             _logger?.LogError(ex, "IsEditingEnabled check failed in Editing module");
+            throw;
+        }
+    }
+
+    public async Task<PreviewValidationResult> PreviewValidateCellAsync(string rowId, string columnName, object? currentValue, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger?.LogTrace("🔍 PREVIEW VALIDATION: Executing via Editing module for rowId={RowId}, column={ColumnName}",
+                rowId, columnName);
+
+            // Delegate to internal CellEditService (which does NOT write to storage)
+            var result = await _cellEditService.PreviewValidateCellAsync(rowId, columnName, currentValue, cancellationToken);
+
+            _logger?.LogTrace("✅ PREVIEW VALIDATION RESULT: Valid={IsValid}, Message={Message}",
+                result.IsValid, result.ErrorMessage);
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "PreviewValidateCell failed in Editing module for rowId={RowId}, column={ColumnName}",
+                rowId, columnName);
             throw;
         }
     }

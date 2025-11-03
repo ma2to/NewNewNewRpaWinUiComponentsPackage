@@ -248,10 +248,16 @@ public sealed partial class AdvancedDataGridFacade : IAdvancedDataGridFacade
                 // ✅ Inject FilterFlyoutService into ViewModel (accessible from HeadersRowView)
                 viewModel.FilterFlyoutService = filterFlyoutService;
                 _logger.LogInformation("FilterFlyoutService created and injected into DataGridViewModel (with UI refresh support)");
+
+                // ✅ PROFESSIONAL FIX: Inject Facade reference into ViewModel (accessible from DataGridCellsView)
+                // REASON: Enables realtime preview validation during edit mode (keystroke validation)
+                // USE CASE: User types in cell → DataGridCellsView calls facade.CellEdit.PreviewValidateCellAsync()
+                viewModel.Facade = this;
+                _logger.LogInformation("Facade reference injected into DataGridViewModel (enables preview validation)");
             }
             else
             {
-                _logger.LogWarning("DataGridViewModel not available - FilterFlyoutService not injected");
+                _logger.LogWarning("DataGridViewModel not available - FilterFlyoutService and Facade not injected");
             }
         }
 

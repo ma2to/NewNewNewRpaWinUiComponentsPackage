@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Input;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.ViewModels;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Viewport;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIControls.Menus;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIControls;
 
@@ -57,6 +58,10 @@ public sealed class DataGridCellsView : UserControl, IDisposable
     private const int VIEWPORT_BUFFER_ROWS = 10; // Pre-load rows above/below
     private int _pendingFirstVisibleIndex = -1;
     private int _pendingLastVisibleIndex = -1;
+
+    // ✅ PREVIEW VALIDATION: Debounce timer for keystroke validation (300ms delay)
+    private DispatcherTimer? _previewValidationDebounceTimer;
+    private (string rowId, string columnName, object? value, CellViewModel cellViewModel)? _pendingPreviewValidation;
 
     /// <summary>
     /// Event fired when user requests to delete a row via delete button.
@@ -131,6 +136,8 @@ public sealed class DataGridCellsView : UserControl, IDisposable
         _elementFactory.OnCellSelected += OnCellSelected;
         _elementFactory.OnCellPointerEntered += OnCellPointerEntered;
         _elementFactory.OnCellEditCompleted += OnCellEditCompleted;
+        // ✅ CRITICAL FIX: Subscribe to CellValueChanged for realtime preview validation
+        _elementFactory.OnCellValueChanged += OnCellValueChangedAsync;
 
         // Create ItemsRepeater with virtualization
         _itemsRepeater = new ItemsRepeater
@@ -1183,6 +1190,140 @@ public sealed class DataGridCellsView : UserControl, IDisposable
 
     #endregion
 
+    #region ✅ PREVIEW VALIDATION: Realtime keystroke validation handlers
+
+    /// <summary>
+    /// ✅ PROFESSIONAL FIX: Handles cell value changes during edit mode for realtime preview validation.
+    /// DEBOUNCE: 300ms delay to avoid spamming validation on every keystroke (user types "123" → validate once after 300ms)
+    /// PREVIEW MODE: Does NOT write to validation storage (no DB writes for SQLite mode)
+    /// UI UPDATE: Shows red border + validation message immediately without storage commit
+    /// COMMIT: When user presses Enter, CellEditCompleted handler commits validation permanently
+    /// </summary>
+    private async void OnCellValueChangedAsync(object? sender, CellValueChangedEventArgs args)
+    {
+        if (args?.Cell == null) return;
+
+        // Get facade for preview validation call
+        var facade = _viewModel.Facade;
+        if (facade?.Editing == null)
+        {
+            _logger.LogTrace("Preview validation skipped - facade not available");
+            return;
+        }
+
+        var rowId = args.Cell.RowId;
+        var columnName = args.Cell.ColumnName;
+        var currentValue = args.NewValue;
+
+        if (string.IsNullOrEmpty(rowId))
+        {
+            _logger.LogWarning("Preview validation skipped - rowId is null or empty");
+            return;
+        }
+
+        _logger.LogTrace("🔤 KEYSTROKE: rowId={RowId}, column={ColumnName}, value={Value}",
+            rowId, columnName, currentValue);
+
+        // ✅ DEBOUNCE: Store pending validation and restart timer
+        _pendingPreviewValidation = (rowId, columnName, currentValue, args.Cell);
+
+        _previewValidationDebounceTimer?.Stop();
+        _previewValidationDebounceTimer ??= new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(300) // 300ms delay
+        };
+
+        _previewValidationDebounceTimer.Tick -= OnPreviewValidationDebounceTimerTick; // Prevent duplicate subscriptions
+        _previewValidationDebounceTimer.Tick += OnPreviewValidationDebounceTimerTick;
+        _previewValidationDebounceTimer.Start();
+    }
+
+    /// <summary>
+    /// ✅ PROFESSIONAL FIX: Debounce timer tick handler - executes preview validation after 300ms delay.
+    /// REASON: User stopped typing → execute validation now (not on every keystroke)
+    /// </summary>
+    private async void OnPreviewValidationDebounceTimerTick(object? sender, object e)
+    {
+        _previewValidationDebounceTimer?.Stop();
+
+        if (_pendingPreviewValidation == null) return;
+
+        var (rowId, columnName, value, cellViewModel) = _pendingPreviewValidation.Value;
+        _pendingPreviewValidation = null; // Clear pending validation
+
+        // Get facade
+        var facade = _viewModel.Facade;
+        if (facade?.Editing == null) return;
+
+        try
+        {
+            _logger.LogDebug("🔍 PREVIEW VALIDATION: Executing for rowId={RowId}, column={ColumnName}",
+                rowId, columnName);
+
+            // ✅ CALL PREVIEW VALIDATION (does NOT write to storage)
+            var previewResult = await facade.Editing.PreviewValidateCellAsync(
+                rowId,
+                columnName,
+                value,
+                CancellationToken.None);
+
+            // ✅ UPDATE UI IMMEDIATELY (preview mode - no storage write)
+            // This runs on UI thread (DispatcherTimer.Tick is already on UI thread)
+            UpdateCellPreviewValidationUI(cellViewModel, previewResult);
+
+            _logger.LogDebug("✅ PREVIEW VALIDATION APPLIED: Valid={IsValid}, Message={Message}",
+                previewResult.IsValid, previewResult.ErrorMessage);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Preview validation failed for rowId={RowId}, column={ColumnName}",
+                rowId, columnName);
+        }
+    }
+
+    /// <summary>
+    /// ✅ PROFESSIONAL FIX: Updates cell UI with preview validation result (red border + message).
+    /// PREVIEW MODE: Does NOT write to validation storage - only visual feedback
+    /// </summary>
+    private void UpdateCellPreviewValidationUI(CellViewModel cellViewModel, PreviewValidationResult result)
+    {
+        if (cellViewModel == null) return;
+
+        // ✅ PREVIEW MODE: Update cell validation state immediately
+        cellViewModel.IsValidationError = !result.IsValid;
+        cellViewModel.ValidationMessage = result.ErrorMessage ?? string.Empty;
+
+        if (!result.IsValid)
+        {
+            _logger.LogTrace("⚠️ PREVIEW UI: Cell [{Row},{Col}] marked as invalid: {Message}",
+                cellViewModel.RowIndex, cellViewModel.ColumnName, result.ErrorMessage);
+        }
+        else
+        {
+            _logger.LogTrace("✅ PREVIEW UI: Cell [{Row},{Col}] marked as valid",
+                cellViewModel.RowIndex, cellViewModel.ColumnName);
+        }
+
+        // ✅ OPTIONAL: Update ValidationAlerts column (preview message with ⚠️ icon)
+        // NOTE: This is PREVIEW mode - not written to storage
+        var validationAlertsCell = _viewModel.Rows
+            .ElementAtOrDefault(cellViewModel.RowIndex)
+            ?.Cells
+            ?.FirstOrDefault(c => c.ColumnName == "__validationalerts");
+
+        if (validationAlertsCell != null && !result.IsValid)
+        {
+            validationAlertsCell.ValidationAlertMessage = $"⚠️ PREVIEW: {result.ErrorMessage}";
+            _logger.LogTrace("Updated ValidationAlerts column with preview message");
+        }
+        else if (validationAlertsCell != null && result.IsValid)
+        {
+            validationAlertsCell.ValidationAlertMessage = null; // Clear preview
+        }
+    }
+
+    #endregion
+
     /// <summary>
     /// Disposes the DataGridCellsView and cleans up all resources.
     /// Disposes ViewportManager and ElementFactory to release ViewModels and recycled elements.
@@ -1211,7 +1352,13 @@ public sealed class DataGridCellsView : UserControl, IDisposable
             _elementFactory.OnCellSelected -= OnCellSelected;
             _elementFactory.OnCellPointerEntered -= OnCellPointerEntered;
             _elementFactory.OnCellEditCompleted -= OnCellEditCompleted;
+            // ✅ CRITICAL FIX: Unsubscribe from CellValueChanged
+            _elementFactory.OnCellValueChanged -= OnCellValueChangedAsync;
         }
+
+        // ✅ Cleanup preview validation debounce timer
+        _previewValidationDebounceTimer?.Stop();
+        _previewValidationDebounceTimer = null;
 
         // Unsubscribe from ViewModel events
         if (_viewModel != null)

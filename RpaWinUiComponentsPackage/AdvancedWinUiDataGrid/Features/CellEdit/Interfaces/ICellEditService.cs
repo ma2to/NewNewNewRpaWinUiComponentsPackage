@@ -76,4 +76,17 @@ internal interface ICellEditService
     /// Checks if editing is enabled globally
     /// </summary>
     bool IsEditingEnabled();
+
+    /// <summary>
+    /// ✅ NEW: Preview validation during live cell editing (keystroke validation).
+    /// PREVIEW MODE: Does NOT write to validation storage - only returns result for UI preview.
+    /// PERFORMANCE: Fast, no DB writes (critical for SQLite mode with 300ms debounce).
+    /// USE CASE: TextBox.TextChanged event → validate immediately → show red border + alert message.
+    /// </summary>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
+    /// <param name="columnName">Column name being edited</param>
+    /// <param name="currentValue">Current value in TextBox (not yet committed)</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Preview validation result (NOT written to storage)</returns>
+    Task<PreviewValidationResult> PreviewValidateCellAsync(string rowId, string columnName, object? currentValue, CancellationToken cancellationToken = default);
 }

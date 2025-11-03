@@ -81,6 +81,14 @@ public sealed class DataGridViewModel : ViewModelBase
     internal Features.Filter.Services.FilterFlyoutService? FilterFlyoutService { get; set; }
 
     /// <summary>
+    /// ✅ PROFESSIONAL FIX: Facade reference for realtime preview validation.
+    /// Injected by AdvancedDataGridFacade during initialization.
+    /// Used by DataGridCellsView to call PreviewValidateCellAsync during edit mode (keystroke validation).
+    /// NULL in standalone ViewModel scenarios (testing, design-time).
+    /// </summary>
+    internal IAdvancedDataGridFacade? Facade { get; set; }
+
+    /// <summary>
     /// Creates a new instance of the DataGridViewModel.
     /// This is the main view model that manages all grid state including columns, rows, filters, and search.
     /// </summary>

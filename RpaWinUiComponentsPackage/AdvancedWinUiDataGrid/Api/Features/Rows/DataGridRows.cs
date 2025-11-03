@@ -41,6 +41,61 @@ internal sealed class DataGridRows : IDataGridRows
             _logger?.LogInformation("Adding row via Rows module");
             var rowIndex = await _rowStore.AddRowAsync(rowData, cancellationToken);
 
+            // ✅ AUTOMATIC VALIDATION: Validate newly added row if validation is enabled
+            // REASON: User adds empty row → should immediately see validation errors (e.g. required fields)
+            // PERFORMANCE: Fast - validates single row only (not entire grid)
+            // UI FEEDBACK: Red borders + ValidationAlerts column updated automatically
+            if (_validationService != null && _validationService.ShouldRunAutomaticValidation("AddRowAsync"))
+            {
+                _logger?.LogInformation("🔍 AUTO-VALIDATE: Triggering validation for newly added row at index {RowIndex}", rowIndex);
+
+                try
+                {
+                    // Get the newly added row data (with __rowId assigned by rowStore)
+                    var allRows = await _rowStore.GetAllRowsAsync(onlyFiltered: false, cancellationToken);
+                    if (rowIndex >= 0 && rowIndex < allRows.Count)
+                    {
+                        var newRow = allRows[rowIndex];
+
+                        // Create validation context for new row (use PUBLIC ValidationContext from facade)
+                        var validationContext = new ValidationContext
+                        {
+                            RowIndex = rowIndex,
+                            ColumnName = null, // Validate entire row
+                            Properties = new Dictionary<string, object?>
+                            {
+                                ["ValidationMode"] = "RealTime",
+                                ["IsNewRow"] = true
+                            }
+                        };
+
+                        // Validate the new row
+                        var validationResult = await _validationService.ValidateRowAsync(newRow, validationContext, cancellationToken);
+
+                        if (!validationResult.IsValid)
+                        {
+                            _logger?.LogWarning("⚠️ NEW ROW VALIDATION FAILED: {ErrorMessage}",
+                                validationResult.ErrorMessage ?? "Validation error");
+
+                            // Fire ValidationChanged event → InternalUIUpdateHandler applies errors to UI
+                            // This shows red borders + ValidationAlerts column automatically
+                            _validationService.FireValidationChanged();
+
+                            _logger?.LogInformation("✅ NEW ROW VALIDATION APPLIED: Errors visible in UI");
+                        }
+                        else
+                        {
+                            _logger?.LogDebug("✅ NEW ROW VALIDATION OK: No errors");
+                        }
+                    }
+                }
+                catch (Exception validationEx)
+                {
+                    _logger?.LogError(validationEx, "Failed to auto-validate new row - continuing without validation");
+                    // Don't throw - allow row add to succeed even if validation fails
+                }
+            }
+
             // Trigger automatic UI refresh in Interactive mode
             await TriggerUIRefreshIfNeededAsync("AddRow", 1);
 
