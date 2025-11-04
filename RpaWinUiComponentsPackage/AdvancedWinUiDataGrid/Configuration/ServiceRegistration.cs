@@ -54,6 +54,7 @@ internal static class ServiceRegistration
 
         // NEW FEATURES - MEDIUM PRIORITY
         Features.Color.Registration.Register(services, options);
+        Features.Schema.Registration.Register(services, options);
         Features.Performance.Registration.Register(services, options);
         Features.RowColumnCell.Registration.Register(services, options);
 

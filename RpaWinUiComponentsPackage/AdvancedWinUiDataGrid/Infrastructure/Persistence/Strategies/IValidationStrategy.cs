@@ -88,4 +88,12 @@ internal interface IValidationStrategy
     Task WriteValidationResultsBatchAsync(
         Dictionary<string, ValidationError[]> validationResults,
         CancellationToken ct);
+
+    /// <summary>
+    /// Clears all validation errors for a specific row.
+    /// Used after revalidation when all errors have been fixed.
+    /// </summary>
+    Task ClearValidationErrorsForRowAsync(
+        string rowId,
+        CancellationToken ct);
 }

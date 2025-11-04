@@ -555,6 +555,69 @@ internal sealed class InMemoryStorageStrategy : IStorageStrategy
         }
     }
 
+    public void SetMultiColumnSortCriteria(IReadOnlyList<(string columnName, SortDirection direction)> sortColumns)
+    {
+        lock (_modificationLock)
+        {
+            if (!sortColumns.Any() || sortColumns.All(s => s.direction == SortDirection.None))
+            {
+                _logger?.LogDebug("SetMultiColumnSortCriteria: Cleared multi-sort");
+                _sortColumnName = null;
+                _sortDirection = SortDirection.None;
+                return;
+            }
+
+            // ✅ PROFESSIONAL FIX: Apply multi-column sort using dynamic OrderBy/ThenBy chain
+            var rowsList = _rows.Values.ToList();
+            IOrderedEnumerable<IReadOnlyDictionary<string, object?>>? orderedData = null;
+
+            for (int i = 0; i < sortColumns.Count; i++)
+            {
+                var (columnName, direction) = sortColumns[i];
+
+                if (direction == SortDirection.None)
+                {
+                    continue;
+                }
+
+                if (i == 0 || orderedData == null)
+                {
+                    // First column - use OrderBy/OrderByDescending
+                    orderedData = direction == SortDirection.Ascending
+                        ? rowsList.OrderBy(row => row.TryGetValue(columnName, out var val) ? val : null)
+                        : rowsList.OrderByDescending(row => row.TryGetValue(columnName, out var val) ? val : null);
+                }
+                else
+                {
+                    // Subsequent columns - use ThenBy/ThenByDescending
+                    orderedData = direction == SortDirection.Ascending
+                        ? orderedData.ThenBy(row => row.TryGetValue(columnName, out var val) ? val : null)
+                        : orderedData.ThenByDescending(row => row.TryGetValue(columnName, out var val) ? val : null);
+                }
+            }
+
+            var sorted = orderedData?.ToList() ?? rowsList;
+
+            // Renumber __rowNumber sequentially (1, 2, 3, ...)
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                var row = sorted[i];
+                var mutableRow = new Dictionary<string, object?>(row);
+                mutableRow["__rowNumber"] = i + 1;
+                _rows[(string)row["__rowId"]!] = mutableRow;
+            }
+
+            // Store first sort column for GetSortedRowKeys compatibility
+            _sortColumnName = sortColumns.First().columnName;
+            _sortDirection = sortColumns.First().direction;
+
+            InvalidateSortedRowKeysCache();
+            _logger?.LogInformation("SetMultiColumnSortCriteria: Sorted by {ColumnCount} columns, renumbered {Count} rows: {Columns}",
+                sortColumns.Count, sorted.Count,
+                string.Join(", ", sortColumns.Select(s => $"{s.columnName} {s.direction}")));
+        }
+    }
+
     public void ClearSortCriteria()
     {
         _sortColumnName = null;

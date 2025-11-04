@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Controls;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.ViewModels;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIControls;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Api;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Viewport;
@@ -41,6 +42,7 @@ internal sealed class DataGridElementFactory : IElementFactory
     public event EventHandler<CellViewModel>? OnCellEditCompleted;
     public event EventHandler<CellPointerEnteredEventArgs>? OnCellPointerEntered;
     public event EventHandler<CellValueChangedEventArgs>? OnCellValueChanged;
+    public event EventHandler<(CellViewModel sourceCell, NavigationDirection direction)>? OnCellNavigationRequested;
 
     public DataGridElementFactory(
         ViewportManager viewportManager,
@@ -182,7 +184,7 @@ internal sealed class DataGridElementFactory : IElementFactory
         // All other columns use Pixel width (fixed)
         foreach (var header in _viewModel.ColumnHeaders)
         {
-            ColumnDefinition colDef;
+            Microsoft.UI.Xaml.Controls.ColumnDefinition colDef;
 
             if (header.SpecialType == Common.SpecialColumnType.ValidationAlerts)
             {
@@ -190,7 +192,7 @@ internal sealed class DataGridElementFactory : IElementFactory
                 // Min width: header.Width (e.g. 150px) - cannot shrink below this
                 // Real width: calculated as remaining space after subtracting other columns
                 // NOTE: If user resizes via drag & drop, header.Width updates and GridUnitType switches to Pixel
-                colDef = new ColumnDefinition
+                colDef = new Microsoft.UI.Xaml.Controls.ColumnDefinition
                 {
                     Width = new GridLength(1, GridUnitType.Star),  // Fills remaining space
                     MinWidth = header.Width  // Cannot go below this (e.g. 150px)
@@ -201,7 +203,7 @@ internal sealed class DataGridElementFactory : IElementFactory
             else
             {
                 // All other columns: Fixed Pixel width
-                colDef = new ColumnDefinition
+                colDef = new Microsoft.UI.Xaml.Controls.ColumnDefinition
                 {
                     Width = new GridLength(header.Width, GridUnitType.Pixel)
                 };
@@ -309,12 +311,18 @@ internal sealed class DataGridElementFactory : IElementFactory
             OnCellValueChanged?.Invoke(sender, args);
         };
 
+        EventHandler<NavigationDirection> navigationRequestedHandler = (sender, direction) =>
+        {
+            OnCellNavigationRequested?.Invoke(sender, (cellViewModel, direction));
+        };
+
         // Subscribe to events
         cellControl.CellSelected += cellSelectedHandler;
         cellControl.CellEditStarted += cellEditStartedHandler;
         cellControl.CellEditCompleted += cellEditCompletedHandler;
         cellControl.CellPointerEntered += cellPointerEnteredHandler;
         cellControl.CellValueChanged += cellValueChangedHandler;
+        cellControl.NavigationRequested += navigationRequestedHandler;
 
         // Track cleanup actions (unsubscribe handlers)
         controlData.AddCleanupAction(() =>
@@ -324,6 +332,7 @@ internal sealed class DataGridElementFactory : IElementFactory
             cellControl.CellEditCompleted -= cellEditCompletedHandler;
             cellControl.CellPointerEntered -= cellPointerEnteredHandler;
             cellControl.CellValueChanged -= cellValueChangedHandler;
+            cellControl.NavigationRequested -= navigationRequestedHandler;
         });
 
         return cellControl;

@@ -18,7 +18,9 @@
       "Bash(Select-Object -First 20)",
       "Bash(Select-String -Pattern \"error|warning CS0618|Build succeeded|Build FAILED|Error\\(s\\)\" -Context 0,1)",
       "Bash(Select-String -Pattern \"PerformFullReload|LARGE_DATASET_THRESHOLD|LoadRows\" -Context 2,2)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(Select-String -Pattern \"Build succeeded|Build FAILED|Error\\(s\\)|warning CS0618\")",
+      "Bash(Get-ChildItem \"D:\\www\\RB0120APP\\NewRpaWinUiComponentsPackage\\RpaWinUiComponentsDemo\\TempLog\")"
     ],
     "deny": [],
     "ask": []

@@ -138,6 +138,8 @@ public sealed class DataGridCellsView : UserControl, IDisposable
         _elementFactory.OnCellEditCompleted += OnCellEditCompleted;
         // ✅ CRITICAL FIX: Subscribe to CellValueChanged for realtime preview validation
         _elementFactory.OnCellValueChanged += OnCellValueChangedAsync;
+        // ✅ PROFESSIONAL FIX: Subscribe to cell navigation for arrow key support
+        _elementFactory.OnCellNavigationRequested += HandleCellNavigation;
 
         // Create ItemsRepeater with virtualization
         _itemsRepeater = new ItemsRepeater
@@ -159,7 +161,9 @@ public sealed class DataGridCellsView : UserControl, IDisposable
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             Content = _itemsRepeater,
-            ManipulationMode = ManipulationModes.None // CRITICAL FIX: Disable gesture handling to allow pointer events
+            ManipulationMode = ManipulationModes.None, // CRITICAL FIX: Disable gesture handling to allow pointer events
+            IsTabStop = false,                          // ✅ CRITICAL FIX: Prevent ScrollViewer from capturing Tab focus
+            TabNavigation = KeyboardNavigationMode.Once // ✅ CRITICAL FIX: Allow Tab to enter children (cells)
         };
 
         // SENIOR FIX: Handle pointer released for drag selection end
@@ -710,6 +714,15 @@ public sealed class DataGridCellsView : UserControl, IDisposable
                 await _viewportManager.UpdateViewportAsync(0, rowsToLoad - 1);
                 _logger.LogTrace("Pre-loaded {Count} rows into viewport cache after collection change", rowsToLoad);
             }
+
+            // ✅ CRITICAL FIX: Set initial selection after first data load
+            // REQUIREMENT: Enable keyboard navigation (Tab/Arrow keys) without requiring user click
+            // CONDITION: Only on first data load (_lastSelectedCell == null)
+            if (_lastSelectedCell == null && _viewModel.Rows.Count > 0)
+            {
+                _logger.LogDebug("First data load detected - setting initial selection");
+                SetInitialSelection();
+            }
         }
         catch (Exception ex)
         {
@@ -734,6 +747,177 @@ public sealed class DataGridCellsView : UserControl, IDisposable
     private void HandleInsertRowRequested(object? sender, InsertRowRequestedEventArgs args)
     {
         InsertRowRequested?.Invoke(this, args);
+    }
+
+    /// <summary>
+    /// Handles arrow key navigation requests from cells in NORMAL mode.
+    /// ARCHITECTURE: User presses arrow key → CellControl fires NavigationRequested → this handler finds target cell and updates selection.
+    /// FEATURES:
+    /// - Calculates target cell coordinates based on direction (Up/Down/Left/Right)
+    /// - Validates bounds (prevents navigation outside grid)
+    /// - Skips special columns (Checkbox, RowNumber, etc.) in horizontal navigation
+    /// - Updates selection state (deselect source, select target)
+    /// - Triggers focus on target cell via FocusRequested property
+    /// </summary>
+    private void HandleCellNavigation(object? sender, (CellViewModel sourceCell, NavigationDirection direction) args)
+    {
+        var (sourceCell, direction) = args;
+
+        _logger.LogInformation("🔵 NAVIGATION: Arrow key {Direction} from Cell=[{SourceRow},{SourceCol}], RowId={SourceRowId}, Column={SourceColumn}",
+            direction, sourceCell.RowIndex, sourceCell.ColumnIndex, sourceCell.RowId, sourceCell.ColumnName);
+
+        // Calculate target cell coordinates
+        int targetRowIndex = sourceCell.RowIndex;
+        int targetColumnIndex = sourceCell.ColumnIndex;
+
+        switch (direction)
+        {
+            case NavigationDirection.Up:
+                targetRowIndex--;
+                break;
+            case NavigationDirection.Down:
+                targetRowIndex++;
+                break;
+            case NavigationDirection.Left:
+                targetColumnIndex--;
+                break;
+            case NavigationDirection.Right:
+                targetColumnIndex++;
+                break;
+            case NavigationDirection.TabForward:
+                // ✅ PROFESSIONAL FIX: Tab moves right, wraps to next row at end
+                targetColumnIndex++;
+                // Wrap to next row if at end of current row
+                if (targetColumnIndex >= _viewModel.Rows[sourceCell.RowIndex].Cells.Count)
+                {
+                    targetColumnIndex = 0; // First column
+                    targetRowIndex++;      // Next row
+                }
+                break;
+            case NavigationDirection.TabBackward:
+                // ✅ PROFESSIONAL FIX: Shift+Tab moves left, wraps to previous row at start
+                targetColumnIndex--;
+                // Wrap to previous row if at start of current row
+                if (targetColumnIndex < 0)
+                {
+                    targetRowIndex--; // Previous row
+                    if (targetRowIndex >= 0 && targetRowIndex < _viewModel.Rows.Count)
+                    {
+                        targetColumnIndex = _viewModel.Rows[targetRowIndex].Cells.Count - 1; // Last column
+                    }
+                }
+                break;
+        }
+
+        // Validate vertical bounds
+        if (targetRowIndex < 0 || targetRowIndex >= _viewModel.Rows.Count)
+        {
+            _logger.LogTrace("Navigation blocked - target row {TargetRow} out of bounds (total rows: {TotalRows})",
+                targetRowIndex, _viewModel.Rows.Count);
+            return;
+        }
+
+        var targetRow = _viewModel.Rows[targetRowIndex];
+
+        // Validate horizontal bounds
+        if (targetColumnIndex < 0 || targetColumnIndex >= targetRow.Cells.Count)
+        {
+            _logger.LogTrace("Navigation blocked - target column {TargetCol} out of bounds (total columns: {TotalCols})",
+                targetColumnIndex, targetRow.Cells.Count);
+            return;
+        }
+
+        // Get target cell
+        var targetCell = targetRow.Cells[targetColumnIndex];
+
+        // ✅ PROFESSIONAL FIX: Skip special columns in horizontal navigation
+        // Special columns (Checkbox, RowNumber, ValidationAlerts, DeleteRow, InsertRow) are not navigable
+        // ARCHITECTURE: Only normal data columns can receive keyboard focus
+        if (direction == NavigationDirection.Left ||
+            direction == NavigationDirection.Right ||
+            direction == NavigationDirection.TabForward ||
+            direction == NavigationDirection.TabBackward)
+        {
+            // Find next non-special column in same direction
+            int searchColumnIndex = targetColumnIndex;
+            int searchDirection = (direction == NavigationDirection.Right || direction == NavigationDirection.TabForward) ? 1 : -1;
+
+            while (targetRow.Cells[searchColumnIndex].IsSpecialColumn)
+            {
+                searchColumnIndex += searchDirection;
+
+                // Check bounds during search
+                if (searchColumnIndex < 0 || searchColumnIndex >= targetRow.Cells.Count)
+                {
+                    _logger.LogTrace("Navigation blocked - no more normal columns in {Direction} direction",
+                        direction);
+                    return;
+                }
+            }
+
+            targetCell = targetRow.Cells[searchColumnIndex];
+            targetColumnIndex = searchColumnIndex;
+        }
+        else
+        {
+            // Vertical navigation (Up/Down) - if landing on special column, it's OK (user stays in same column)
+            // But if current column IS special, cannot navigate vertically
+            if (targetCell.IsSpecialColumn)
+            {
+                _logger.LogTrace("Navigation blocked - target cell [{TargetRow},{TargetCol}] is special column",
+                    targetRowIndex, targetColumnIndex);
+                return;
+            }
+        }
+
+        _logger.LogInformation("✅ NAVIGATION: Moving from [{SourceRow},{SourceCol}] to [{TargetRow},{TargetCol}], TargetRowId={TargetRowId}, TargetColumn={TargetColumn}",
+            sourceCell.RowIndex, sourceCell.ColumnIndex, targetRowIndex, targetColumnIndex, targetCell.RowId, targetCell.ColumnName);
+
+        // ✅ PROFESSIONAL FIX: Update selection state
+        // Deselect source cell
+        sourceCell.IsSelected = false;
+
+        // Select target cell
+        targetCell.IsSelected = true;
+
+        // ✅ CRITICAL: Trigger focus on target cell via MVVM property
+        // ARCHITECTURE: FocusRequested property change triggers OnViewModelPropertyChanged in CellControl → applies focus
+        targetCell.FocusRequested = true;
+
+        _logger.LogTrace("Navigation complete - target cell [{TargetRow},{TargetCol}] selected and focused",
+            targetRowIndex, targetColumnIndex);
+    }
+
+    /// <summary>
+    /// ✅ CRITICAL FIX: Select first cell on initial load (enables keyboard navigation from start)
+    /// ARCHITECTURE: Called after first data load to establish focus point
+    /// REQUIREMENT: Without initial selection, Tab/Arrow keys don't work until user clicks a cell
+    /// </summary>
+    private void SetInitialSelection()
+    {
+        if (_viewModel.Rows.Count == 0)
+        {
+            _logger.LogTrace("SetInitialSelection skipped - no rows available");
+            return;
+        }
+
+        var firstRow = _viewModel.Rows[0];
+
+        // Find first non-special column (skip Checkbox, RowNumber, ValidationAlerts, etc.)
+        var firstCell = firstRow.Cells.FirstOrDefault(c => !c.IsSpecialColumn);
+        if (firstCell != null)
+        {
+            firstCell.IsSelected = true;
+            firstCell.FocusRequested = true;
+            _lastSelectedCell = firstCell;
+
+            _logger.LogInformation("✅ INITIAL SELECTION: First cell [{Row},{Col}] (RowId={RowId}, Column={Column}) selected and focused",
+                firstCell.RowIndex, firstCell.ColumnIndex, firstCell.RowId, firstCell.ColumnName);
+        }
+        else
+        {
+            _logger.LogWarning("SetInitialSelection failed - no non-special columns found in first row");
+        }
     }
 
     private void OnCellSelected(object? sender, CellSelectionEventArgs e)
@@ -839,11 +1023,51 @@ public sealed class DataGridCellsView : UserControl, IDisposable
         }
     }
 
-    private void OnCellEditCompleted(object? sender, CellViewModel cell)
+    private async void OnCellEditCompleted(object? sender, CellViewModel cell)
     {
+        // ✅ PROFESSIONAL FIX: Forward event to parent control
+        // ARCHITECTURE: InternalUIOperationHandler will catch this event and call UpdateCellAsync
+        // UpdateCellAsync already handles realtime validation and row store updates
+        // REMOVED: CommitEditAsync call (was failing with "No active edit session")
+        // REASON: TwoWay binding writes directly to ViewModel, no session management needed
+        _logger.LogInformation("🔑 Cell edit completed: rowId {RowId}, column {ColumnName} - forwarding to handlers",
+            cell.RowId, cell.ColumnName);
+
         // Forward cell edit completion to parent control
         // This allows the application layer to trigger auto-expand when last row is edited
         CellEditCompleted?.Invoke(this, cell);
+
+        // ✅ CRITICAL FIX: Re-validate cell after commit to clear/update preview validation state
+        // REASON: Preview validation shows temporary errors during edit.
+        //         After commit, we need to validate against the FINAL value to update UI correctly.
+        // ARCHITECTURE: This ensures validation state reflects the committed value, not mid-edit preview.
+        var facade = _viewModel.Facade;
+        if (facade?.Editing != null && !string.IsNullOrEmpty(cell.RowId))
+        {
+            try
+            {
+                _logger.LogDebug("🔄 POST-COMMIT VALIDATION: Re-validating cell after edit completion (RowId={RowId}, Column={Column})",
+                    cell.RowId, cell.ColumnName);
+
+                // Execute preview validation with the committed value
+                var validationResult = await facade.Editing.PreviewValidateCellAsync(
+                    cell.RowId,
+                    cell.ColumnName,
+                    cell.Value,
+                    CancellationToken.None);
+
+                // Update UI with post-commit validation result
+                UpdateCellPreviewValidationUI(cell, validationResult);
+
+                _logger.LogDebug("✅ POST-COMMIT VALIDATION: Completed for {Column} - Valid={IsValid}",
+                    cell.ColumnName, validationResult.IsValid);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Post-commit validation failed for RowId={RowId}, Column={Column}",
+                    cell.RowId, cell.ColumnName);
+            }
+        }
     }
 
     #region SENIOR IMPLEMENTATION: Row Context Menu Handlers (Excel-like Insert/Delete)
@@ -1282,14 +1506,15 @@ public sealed class DataGridCellsView : UserControl, IDisposable
     }
 
     /// <summary>
-    /// ✅ PROFESSIONAL FIX: Updates cell UI with preview validation result (red border + message).
-    /// PREVIEW MODE: Does NOT write to validation storage - only visual feedback
+    /// ✅ PROFESSIONAL FIX: Updates cell UI with preview validation result (red border + ValidationAlerts).
+    /// PREVIEW MODE: Shows temporary validation feedback WITHOUT writing to storage.
+    /// CRITICAL: Merges preview error with existing permanent errors from other columns.
     /// </summary>
-    private void UpdateCellPreviewValidationUI(CellViewModel cellViewModel, PreviewValidationResult result)
+    private async void UpdateCellPreviewValidationUI(CellViewModel cellViewModel, PreviewValidationResult result)
     {
         if (cellViewModel == null) return;
 
-        // ✅ PREVIEW MODE: Update cell validation state immediately
+        // ✅ STEP 1: Update current cell validation state (red border)
         cellViewModel.IsValidationError = !result.IsValid;
         cellViewModel.ValidationMessage = result.ErrorMessage ?? string.Empty;
 
@@ -1304,21 +1529,109 @@ public sealed class DataGridCellsView : UserControl, IDisposable
                 cellViewModel.RowIndex, cellViewModel.ColumnName);
         }
 
-        // ✅ OPTIONAL: Update ValidationAlerts column (preview message with ⚠️ icon)
-        // NOTE: This is PREVIEW mode - not written to storage
-        var validationAlertsCell = _viewModel.Rows
-            .ElementAtOrDefault(cellViewModel.RowIndex)
-            ?.Cells
-            ?.FirstOrDefault(c => c.ColumnName == "__validationalerts");
+        // ✅ STEP 2: Update ValidationAlerts column with MERGED errors (preview + permanent)
+        if (_viewModel != null)
+        {
+            var rowViewModel = _viewModel.Rows.FirstOrDefault(r => r.RowIndex == cellViewModel.RowIndex);
+            if (rowViewModel != null)
+            {
+                var alertsCell = rowViewModel.Cells.FirstOrDefault(c =>
+                    c.SpecialType == Common.SpecialColumnType.ValidationAlerts);
 
-        if (validationAlertsCell != null && !result.IsValid)
-        {
-            validationAlertsCell.ValidationAlertMessage = $"⚠️ PREVIEW: {result.ErrorMessage}";
-            _logger.LogTrace("Updated ValidationAlerts column with preview message");
-        }
-        else if (validationAlertsCell != null && result.IsValid)
-        {
-            validationAlertsCell.ValidationAlertMessage = null; // Clear preview
+                if (alertsCell != null)
+                {
+                    try
+                    {
+                        // ✅ STEP 2A: Get existing PERMANENT validation errors for this row (all columns)
+                        // These are errors stored in validation storage from previous commits
+                        var facade = _viewModel.Facade;
+                        if (facade?.Validation != null)
+                        {
+                            var rowId = cellViewModel.RowId;
+                            if (!string.IsNullOrEmpty(rowId))
+                            {
+                                // Get ALL validation errors for this row from storage
+                                var allRowErrors = await facade.Validation.GetValidationErrorsAsync(
+                                    onlyFiltered: false,
+                                    onlyChecked: false,
+                                    cancellationToken: default);
+
+                                // Filter errors for current row
+                                var permanentRowErrors = allRowErrors
+                                    .Where(e => e.RowId == rowId)
+                                    .ToList();
+
+                                // ✅ PROFESSIONAL FIX 4.1: Sort errors by column order (left-to-right)
+                                // REASON: ValidationAlerts should show errors in same order as columns appear in grid
+                                // USER REQUEST: "tie validacne chyby by sa mohli vypisovat postupne po tych stlpcoch"
+                                var columnOrder = _viewModel.Rows.FirstOrDefault()?.Cells
+                                    .Where(c => !c.IsSpecialColumn)
+                                    .Select((c, index) => new { c.ColumnName, Order = index })
+                                    .ToDictionary(x => x.ColumnName, x => x.Order, StringComparer.OrdinalIgnoreCase);
+
+                                if (columnOrder != null && columnOrder.Count > 0)
+                                {
+                                    permanentRowErrors = permanentRowErrors
+                                        .OrderBy(e => columnOrder.TryGetValue(e.ColumnName, out var order) ? order : int.MaxValue)
+                                        .ToList();
+
+                                    _logger.LogTrace("Sorted {Count} validation errors by column order for row {RowIndex}",
+                                        permanentRowErrors.Count, cellViewModel.RowIndex);
+                                }
+
+                                // ✅ STEP 2B: Build merged message: preview error + permanent errors
+                                var alertMessages = new List<string>();
+
+                                // Add preview error if validation failed (temporary, not in storage)
+                                if (!result.IsValid && !string.IsNullOrEmpty(result.ErrorMessage))
+                                {
+                                    alertMessages.Add($"⚠️ PREVIEW: {result.AffectedColumn}: {result.ErrorMessage}");
+                                    _logger.LogTrace("📝 PREVIEW: Added temporary alert for {Column}", result.AffectedColumn);
+                                }
+
+                                // Add permanent errors from OTHER columns (skip current column to avoid duplication)
+                                foreach (var error in permanentRowErrors)
+                                {
+                                    // Skip current column if it has permanent error (we show preview instead)
+                                    if (error.ColumnName.Equals(cellViewModel.ColumnName, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        // Only add permanent error if preview is valid (no override)
+                                        if (result.IsValid)
+                                        {
+                                            alertMessages.Add($"{error.ColumnName}: {error.Message}");
+                                        }
+                                    }
+                                    else
+                                    {
+                                        // Add permanent errors from other columns
+                                        alertMessages.Add($"{error.ColumnName}: {error.Message}");
+                                    }
+                                }
+
+                                // ✅ STEP 2C: Set merged alert message
+                                if (alertMessages.Any())
+                                {
+                                    alertsCell.ValidationAlertMessage = string.Join("; ", alertMessages);
+                                    _logger.LogTrace("📝 MERGED ALERTS: Row {RowIndex} ValidationAlerts updated: {Message}",
+                                        cellViewModel.RowIndex, alertsCell.ValidationAlertMessage);
+                                }
+                                else
+                                {
+                                    // No errors at all - clear ValidationAlerts
+                                    alertsCell.ValidationAlertMessage = null;
+                                    _logger.LogTrace("✅ CLEARED ALERTS: Row {RowIndex} has no validation errors",
+                                        cellViewModel.RowIndex);
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to update ValidationAlerts during preview validation for row {RowIndex}",
+                            cellViewModel.RowIndex);
+                    }
+                }
+            }
         }
     }
 
@@ -1354,6 +1667,8 @@ public sealed class DataGridCellsView : UserControl, IDisposable
             _elementFactory.OnCellEditCompleted -= OnCellEditCompleted;
             // ✅ CRITICAL FIX: Unsubscribe from CellValueChanged
             _elementFactory.OnCellValueChanged -= OnCellValueChangedAsync;
+            // ✅ PROFESSIONAL FIX: Unsubscribe from cell navigation
+            _elementFactory.OnCellNavigationRequested -= HandleCellNavigation;
         }
 
         // ✅ Cleanup preview validation debounce timer

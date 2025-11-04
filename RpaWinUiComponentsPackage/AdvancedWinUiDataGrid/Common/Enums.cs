@@ -186,7 +186,7 @@ internal enum ValidationLogicalOperator
 /// <summary>
 /// Defines sort directions
 /// </summary>
-internal enum SortDirection
+public enum SortDirection
 {
     /// <summary>No sorting</summary>
     None,

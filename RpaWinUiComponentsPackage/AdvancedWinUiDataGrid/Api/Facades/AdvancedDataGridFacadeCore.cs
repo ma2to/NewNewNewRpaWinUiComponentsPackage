@@ -1,6 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Logging.NullPattern;
 
@@ -24,6 +26,7 @@ public sealed partial class AdvancedDataGridFacade : IAdvancedDataGridFacade
     private readonly UIAdapters.WinUI.InternalUIOperationHandler? _internalUIOperationHandler;
     private readonly UIAdapters.WinUI.InternalUISortHandler? _internalUISortHandler;
     private readonly Features.Color.ThemeService _themeService;
+    private readonly Features.Schema.ColumnSchemaService _columnSchemaService;
     private bool _disposed;
 
     // Feature module dependencies
@@ -264,6 +267,9 @@ public sealed partial class AdvancedDataGridFacade : IAdvancedDataGridFacade
         // Obtain ThemeService (always available)
         _themeService = serviceProvider.GetRequiredService<Features.Color.ThemeService>();
 
+        // Obtain ColumnSchemaService (always available)
+        _columnSchemaService = serviceProvider.GetRequiredService<Features.Schema.ColumnSchemaService>();
+
         // Obtain feature modules via DI
         _columns = serviceProvider.GetRequiredService<Columns.IDataGridColumns>();
         _editing = serviceProvider.GetRequiredService<Editing.IDataGridEditing>();
@@ -395,6 +401,58 @@ public sealed partial class AdvancedDataGridFacade : IAdvancedDataGridFacade
         {
             throw new ObjectDisposedException(nameof(AdvancedDataGridFacade));
         }
+    }
+
+    #endregion
+
+    #region Column Schema Management
+
+    /// <summary>
+    /// Defines column schema with type information and validation rules.
+    /// BREAKING CHANGE v4.0: Enables typed columns with DataType enforcement.
+    /// </summary>
+    public async Task<PublicResult> DefineColumnsAsync(
+        IEnumerable<ColumnDefinition> columns,
+        CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+
+        try
+        {
+            _logger.LogInformation("Defining column schema...");
+
+            // Validate and normalize schema via ColumnSchemaService
+            var result = _columnSchemaService.DefineColumns(columns);
+            if (!result.IsSuccess)
+            {
+                _logger.LogError("Column schema definition failed: {Error}",
+                    result.ErrorMessage);
+                return PublicResult.Failure(result.ErrorMessage ?? "Unknown error");
+            }
+
+            _logger.LogInformation("✓ Column schema defined successfully: {ColumnCount} columns",
+                result.Value.Count);
+
+            // Return on background thread (async operation)
+            await Task.CompletedTask;
+
+            return PublicResult.Success();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Exception during column schema definition");
+            return PublicResult.Failure($"Exception: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Gets the current column schema (read-only).
+    /// Returns empty list if no schema has been defined via DefineColumnsAsync.
+    /// </summary>
+    public IReadOnlyList<ColumnDefinition> GetColumnSchema()
+    {
+        ThrowIfDisposed();
+        return _columnSchemaService.GetSchema();
     }
 
     #endregion

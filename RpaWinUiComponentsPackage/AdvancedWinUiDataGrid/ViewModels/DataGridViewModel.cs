@@ -1653,17 +1653,13 @@ public sealed class DataGridViewModel : ViewModelBase
 
         _logger?.LogDebug("Grouped into {CellErrorCount} unique cell errors", errorsByCell.Count);
 
-        // Clear ALL existing validation errors first
-        foreach (var row in Rows)
-        {
-            foreach (var cell in row.Cells)
-            {
-                cell.IsValidationError = false;
-                cell.ValidationMessage = string.Empty;
-            }
-        }
-
-        _logger?.LogDebug("Cleared all existing validation errors from cells");
+        // ✅ PROFESSIONAL FIX: DO NOT clear existing validation errors
+        // CRITICAL: Prevents realtime validation from clearing errors in OTHER rows
+        // REASON: UpdateCellAsync validates only CURRENT row, but ApplyValidationErrors
+        //         was clearing errors from ALL rows, causing errors to disappear
+        // ARCHITECTURE: Only update/add errors from errorsByCell, leave others unchanged
+        // REMOVED: foreach loop that cleared all cells (lines 1656-1664)
+        _logger?.LogDebug("Skipping clear of existing errors - will only update/add new errors");
 
         // ✅ DIAGNOSTIC 2: Log ViewModel rowIds
         var viewModelRowIds = Rows
@@ -1711,17 +1707,35 @@ public sealed class DataGridViewModel : ViewModelBase
                 {
                     _logger?.LogDebug("✅ MATCH FOUND: Row {RowIndex}, Column {ColumnName}, RowId {RowId}",
                         cell.RowIndex, cell.ColumnName, rowId);
-                    cell.IsValidationError = true;
-                    cell.ValidationMessage = string.Join("; ", cellErrors.Select(e => e.Message));
+
+                    // ✅ PROFESSIONAL FIX: Pre-compute ValidationMessage BEFORE TryEnqueue
+                    // CRITICAL: Prevents IsValidationError setter from logging empty ValidationMessage
+                    // ARCHITECTURE: ValidationMessage must be set BEFORE IsValidationError triggers UpdateCellAppearance()
+                    var validationMessage = string.Join("; ", cellErrors.Select(e => e.Message));
+
+                    // ✅ PROFESSIONAL FIX: Update on UI thread to ensure PropertyChanged propagates
+                    if (_dispatcherQueue != null)
+                    {
+                        _dispatcherQueue.TryEnqueue(() =>
+                        {
+                            // Set ValidationMessage FIRST (before IsValidationError triggers UpdateCellAppearance)
+                            cell.ValidationMessage = validationMessage;
+                            cell.IsValidationError = true;
+                        });
+                    }
+                    else
+                    {
+                        cell.ValidationMessage = validationMessage;
+                        cell.IsValidationError = true;
+                    }
+
                     appliedCount++;
                 }
-                else if (row.RowIndex < 3)
-                {
-                    // ✅ DIAGNOSTIC: Log first 3 row mismatches for debugging
-                    mismatchCount++;
-                    _logger?.LogWarning("❌ MISMATCH: Row {RowIndex}, Column {ColumnName}, RowId {RowId} - no error found",
-                        cell.RowIndex, cell.ColumnName, rowId);
-                }
+                // ✅ PROFESSIONAL FIX: DO NOT clear errors for cells not in errorsByCell
+                // CRITICAL: errorsByCell may contain only CURRENT row errors (realtime validation)
+                // REASON: Clearing here would remove errors from OTHER rows that were not validated
+                // ARCHITECTURE: Leave existing errors unchanged - batch validation will clear them later
+                // REMOVED: else block that cleared cell.ValidationMessage and cell.IsValidationError
             }
 
             // Update ValidationAlerts special column

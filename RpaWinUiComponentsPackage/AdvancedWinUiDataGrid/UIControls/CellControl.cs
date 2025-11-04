@@ -4,7 +4,9 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Media;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.ViewModels;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
 using Microsoft.Extensions.Logging;
+using System.ComponentModel;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIControls;
 
@@ -45,6 +47,11 @@ public sealed class CellControl : UserControl
     /// Fired when the cell value changes during editing (real-time as user types).
     /// </summary>
     public event EventHandler<CellValueChangedEventArgs>? CellValueChanged;
+
+    /// <summary>
+    /// Fired when the user requests navigation to another cell via arrow keys in NORMAL mode.
+    /// </summary>
+    public event EventHandler<NavigationDirection>? NavigationRequested;
 
     private readonly Border _rootBorder;
     private readonly Grid _rootGrid;
@@ -126,7 +133,9 @@ public sealed class CellControl : UserControl
         // Edit TextBox (visible when editing)
         _editTextBox = new TextBox
         {
-            VerticalAlignment = VerticalAlignment.Center
+            VerticalAlignment = VerticalAlignment.Center,
+            AcceptsReturn = false,          // ✅ CRITICAL FIX: Disable auto-newline (prevent Enter from inserting \n before handler)
+            TextWrapping = TextWrapping.Wrap // ✅ CRITICAL FIX: Wrap long text for visibility
         };
 
         var editTextBinding = new Binding
@@ -166,6 +175,10 @@ public sealed class CellControl : UserControl
         // Enable keyboard navigation (Tab/Shift+Tab)
         _rootBorder.IsTabStop = true;
         _rootBorder.KeyDown += OnCellKeyDown;
+
+        // ✅ PROFESSIONAL FIX: Subscribe to ViewModel property changes for FocusRequested handling
+        // ARCHITECTURE: Arrow key navigation sets FocusRequested=true → this handler applies focus
+        ViewModel.PropertyChanged += OnViewModelPropertyChanged;
 
         // Set Border as UserControl content
         Content = _rootBorder;
@@ -222,6 +235,25 @@ public sealed class CellControl : UserControl
         });
     }
 
+    /// <summary>
+    /// Handles ViewModel property changes for focus management.
+    /// CRITICAL: Applies programmatic focus when FocusRequested property is set to true.
+    /// </summary>
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(CellViewModel.FocusRequested))
+        {
+            if (ViewModel.FocusRequested)
+            {
+                _rootBorder.Focus(FocusState.Keyboard);
+                ViewModel.FocusRequested = false; // Reset to prevent infinite loops
+
+                _logger?.LogTrace("CellControl[{Row},{Col}]: Focus applied via FocusRequested property",
+                    ViewModel.RowIndex, ViewModel.ColumnIndex);
+            }
+        }
+    }
+
     private void OnCellKeyDown(object sender, KeyRoutedEventArgs e)
     {
         // ✅ MEDIUM FIX: Enter key starts edit mode when cell is selected but not editing
@@ -247,11 +279,48 @@ public sealed class CellControl : UserControl
             return;
         }
 
-        // Tab/Shift+Tab navigation support - allow focus to move naturally
-        if (e.Key == Windows.System.VirtualKey.Tab)
+        // ✅ PROFESSIONAL FIX: Arrow key navigation in NORMAL mode (when cell is selected but NOT editing)
+        // CRITICAL: Only navigate when NOT editing - editing mode blocks arrow keys (see OnEditTextBoxKeyDown)
+        // ARCHITECTURE:
+        //   - NORMAL MODE: Arrow keys navigate between cells → fires NavigationRequested event
+        //   - EDIT MODE: Arrow keys blocked → cursor moves within TextBox
+        if (!ViewModel.IsEditing && ViewModel.IsSelected)
         {
-            // Don't handle Tab - let WinUI move focus naturally through IsTabStop controls
-            // This allows Tab to work for both normal and special columns
+            NavigationDirection? direction = e.Key switch
+            {
+                Windows.System.VirtualKey.Up => NavigationDirection.Up,
+                Windows.System.VirtualKey.Down => NavigationDirection.Down,
+                Windows.System.VirtualKey.Left => NavigationDirection.Left,
+                Windows.System.VirtualKey.Right => NavigationDirection.Right,
+                _ => null
+            };
+
+            if (direction != null)
+            {
+                _logger?.LogTrace("CellControl[{Row},{Col}]: Arrow key {Direction} in NORMAL mode - requesting navigation",
+                    ViewModel.RowIndex, ViewModel.ColumnIndex, direction.Value);
+
+                NavigationRequested?.Invoke(this, direction.Value);
+                e.Handled = true;
+                return;
+            }
+        }
+
+        // ✅ PROFESSIONAL FIX: Tab/Shift+Tab for Excel-like cell navigation
+        // ARCHITECTURE: Tab moves right and wraps to next row, Shift+Tab moves left and wraps to previous row
+        // REQUIREMENT: Prevent WinUI default Tab behavior (jumping to pages/buttons)
+        if (e.Key == Windows.System.VirtualKey.Tab && !ViewModel.IsEditing)
+        {
+            var isShiftPressed = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Shift)
+                .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+            var direction = isShiftPressed ? NavigationDirection.TabBackward : NavigationDirection.TabForward;
+
+            _logger?.LogTrace("CellControl[{Row},{Col}]: Tab key ({Direction}) in NORMAL mode - requesting navigation",
+                ViewModel.RowIndex, ViewModel.ColumnIndex, direction);
+
+            NavigationRequested?.Invoke(this, direction);
+            e.Handled = true; // CRITICAL: Block default Tab behavior (prevent jumping to pages)
             return;
         }
     }
@@ -315,6 +384,44 @@ public sealed class CellControl : UserControl
 
     private void OnEditTextBoxKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        // ✅ PROFESSIONAL FIX: Block arrow key navigation during edit mode
+        // CRITICAL: User must explicitly commit (Enter) or cancel (Escape) before leaving cell
+        // REASON: Arrow keys should NEVER navigate to other cells during edit mode
+        // REQUIREMENT: User feedback - prevent accidental cell navigation while editing
+        if (e.Key == Windows.System.VirtualKey.Left ||
+            e.Key == Windows.System.VirtualKey.Right ||
+            e.Key == Windows.System.VirtualKey.Up ||
+            e.Key == Windows.System.VirtualKey.Down)
+        {
+            // Always block navigation during edit mode - require explicit commit/cancel
+            // NOTE: Cursor movement within TextBox still works (handled by TextBox internally)
+            _logger?.LogTrace("CellControl[{Row},{Col}]: Arrow key {Key} blocked during edit mode - use Enter to commit or Escape to cancel",
+                ViewModel.RowIndex, ViewModel.ColumnIndex, e.Key);
+            e.Handled = true;
+            return;
+        }
+
+        // ✅ PROFESSIONAL FIX: Tab key inserts tab character instead of navigating
+        // CRITICAL: Prevents focus loss and edit cancellation during multiline text editing
+        // REASON: Excel-like behavior - Tab during edit = insert tab, NOT navigate
+        // ARCHITECTURE:
+        //   - NORMAL MODE (OnCellKeyDown line 225): Tab navigates → e.Handled = FALSE
+        //   - EDIT MODE (here): Tab inserts \t → e.Handled = TRUE
+        if (e.Key == Windows.System.VirtualKey.Tab)
+        {
+            _logger?.LogTrace("CellControl[{Row},{Col}]: Tab pressed in edit mode - inserting tab character",
+                ViewModel.RowIndex, ViewModel.ColumnIndex);
+
+            // Insert tab character at current cursor position
+            var selectionStart = _editTextBox.SelectionStart;
+            var currentText = _editTextBox.Text ?? string.Empty;
+            var newText = currentText.Insert(selectionStart, "\t");
+            _editTextBox.Text = newText;
+            _editTextBox.SelectionStart = selectionStart + 1; // Move cursor after tab
+            e.Handled = true; // CRITICAL: Prevents event bubbling → no navigation
+            return;
+        }
+
         if (e.Key == Windows.System.VirtualKey.Enter)
         {
             // Check if Shift key is pressed

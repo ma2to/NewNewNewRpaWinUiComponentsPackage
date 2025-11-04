@@ -233,6 +233,37 @@ internal sealed class InternalUIOperationHandler : IDisposable
                     {
                         _logger.LogDebug("Cell value synced to backend successfully: row {RowIndex}, column {ColumnName}",
                             currentRowIndex, cell.ColumnName);
+
+                        // ✅ PROFESSIONAL FIX: Trigger batch validation to persist errors to row store
+                        // CRITICAL: UpdateCellAsync runs realtime validation but doesn't save to row store
+                        // ARCHITECTURE: ValidateAllAsync triggers batch validation → row store write
+                        // NOTE: Await this to ensure validation completes before UI refresh
+                        await Task.Run(async () =>
+                        {
+                            try
+                            {
+                                _logger.LogInformation("🔍 COMMIT VALIDATION: Triggering batch validation after cell commit for rowId {RowId}",
+                                    cell.RowId);
+
+                                // Trigger batch validation to persist errors to row store
+                                // This will validate ALL rows and write errors to row store
+                                await _facade.Validation.ValidateAllAsync(
+                                    onlyFiltered: false,
+                                    onlyChecked: false,
+                                    CancellationToken.None);
+
+                                _logger.LogInformation("✅ COMMIT VALIDATION: Batch validation completed after cell commit");
+
+                                // ✅ PROFESSIONAL FIX: Refresh UI to show persisted validation errors
+                                // CRITICAL: This clears old errors and shows fresh errors from row store
+                                // REASON: Fixes multi-sort + pagination mismatch (errors on wrong pages)
+                                _facade.Validation.RefreshValidationResultsToUI();
+                            }
+                            catch (Exception validationEx)
+                            {
+                                _logger.LogError(validationEx, "❌ COMMIT VALIDATION: Failed to run batch validation after cell commit");
+                            }
+                        });
                     }
                     else
                     {

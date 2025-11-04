@@ -742,6 +742,92 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
     }
 
     /// <summary>
+    /// ✅ PROFESSIONAL FIX: Sorts rows by MULTIPLE columns and RENUMBERS __rowNumber.
+    /// CRITICAL: Fixes multi-sort where second column was ignored
+    /// ARCHITECTURE:
+    /// - Builds SQL ORDER BY clause with multiple columns (e.g., Column_2 ASC, Column_3 DESC)
+    /// - SQL CTE: Calculates new __rowNumber using ROW_NUMBER() OVER (ORDER BY col1, col2, ...)
+    /// - SQL UPDATE: Updates __rowNumber for all rows
+    /// EXAMPLE: sortColumns = [(Column_2, Ascending), (Column_3, Descending)]
+    ///   → ORDER BY Column_2 ASC, Column_3 DESC (with type-aware sorting)
+    /// </summary>
+    public void SetMultiColumnSortCriteria(IReadOnlyList<(string columnName, SortDirection direction)> sortColumns)
+    {
+        _logger.LogInformation("SetMultiColumnSortCriteria: {Count} columns: {Columns}",
+            sortColumns.Count,
+            string.Join(", ", sortColumns.Select(s => $"{s.columnName} {s.direction}")));
+
+        if (!sortColumns.Any() || sortColumns.All(s => s.direction == SortDirection.None))
+        {
+            _activeSortSql = null;
+            _logger.LogInformation("Multi-sort cleared - reverted to current __rowNumber order");
+            return;
+        }
+
+        // ✅ PROFESSIONAL FIX: Build SQL ORDER BY clause for MULTIPLE columns
+        var orderByClauses = new List<string>();
+
+        foreach (var (columnName, direction) in sortColumns)
+        {
+            if (direction == SortDirection.None)
+            {
+                continue;
+            }
+
+            var columnPath = $"$.{columnName}";
+            var directionStr = direction == SortDirection.Ascending ? "ASC" : "DESC";
+
+            // Type-aware sorting (try numeric first, fallback to text)
+            var orderByClause = $@"
+                CASE
+                    WHEN json_type(json_extract(data, '{columnPath}')) IN ('integer', 'real')
+                    THEN CAST(json_extract(data, '{columnPath}') AS REAL)
+                    ELSE NULL
+                END {directionStr},
+                json_extract(data, '{columnPath}') {directionStr}";
+
+            orderByClauses.Add(orderByClause);
+        }
+
+        var fullOrderBy = string.Join(",", orderByClauses);
+
+        // Execute SQL UPDATE to renumber __rowNumber using ROW_NUMBER()
+        var connection = _databaseLifecycleManager.GetConnection();
+        if (connection != null)
+        {
+            try
+            {
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = $@"
+                    WITH sorted_rows AS (
+                        SELECT __rowId,
+                               ROW_NUMBER() OVER (ORDER BY {fullOrderBy}) as new_rn
+                        FROM grid_rows
+                        WHERE __isDeleted = 0
+                    )
+                    UPDATE grid_rows
+                    SET data = json_set(data, '$.__rowNumber', (
+                        SELECT new_rn
+                        FROM sorted_rows
+                        WHERE sorted_rows.__rowId = grid_rows.__rowId
+                    ))
+                    WHERE __isDeleted = 0";
+
+                var updatedCount = cmd.ExecuteNonQuery();
+                _logger.LogInformation("Multi-sort completed: {Count} rows renumbered by {ColumnCount} columns",
+                    updatedCount, sortColumns.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "SetMultiColumnSortCriteria failed for {ColumnCount} columns", sortColumns.Count);
+            }
+        }
+
+        // Set active sort SQL for future queries
+        _activeSortSql = $"CAST(json_extract(data, '$.__rowNumber') AS INTEGER) ASC";
+    }
+
+    /// <summary>
     /// Clear sort criteria (revert to default __createdAt ordering).
     /// </summary>
     public void ClearSortCriteria()
@@ -1457,6 +1543,17 @@ internal sealed class HybridRowStore : IRowStore, IAsyncDisposable
         var errors = JsonSerializer.Deserialize<ValidationError[]>(validationJson!);
 
         return errors ?? Array.Empty<ValidationError>();
+    }
+
+    public Task ClearValidationErrorsForRowAsync(string rowId, CancellationToken cancellationToken = default)
+    {
+        // Clear from cache
+        _validationCache.TryRemove(rowId, out _);
+
+        // Note: Keeping row marked as validated in cache (it was just validated)
+        // SQLite cleanup not needed - validation queries filter by existence
+
+        return Task.CompletedTask;
     }
 
     /// <summary>

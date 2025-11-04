@@ -23,6 +23,7 @@ public sealed class CellViewModel : ViewModelBase, IDisposable
     private bool _isValidationError;
     private bool _isValidationSuccess;
     private bool _isEditing;
+    private bool _focusRequested;
     private string _validationMessage = string.Empty;
     private SolidColorBrush _borderBrush = Features.Optimization.BrushPool.GetBrush(Colors.Gray);
     private SolidColorBrush _backgroundBrush = Features.Optimization.BrushPool.GetBrush(Colors.White);
@@ -176,6 +177,18 @@ public sealed class CellViewModel : ViewModelBase, IDisposable
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Gets or sets whether focus should be programmatically applied to this cell's control.
+    /// Used for keyboard navigation (arrow keys) to move focus between cells.
+    /// ARCHITECTURE: CellControl subscribes to PropertyChanged and applies focus when this is set to true.
+    /// CRITICAL: Automatically resets to false after focus is applied to prevent infinite loops.
+    /// </summary>
+    public bool FocusRequested
+    {
+        get => _focusRequested;
+        set => SetProperty(ref _focusRequested, value);
     }
 
     /// <summary>

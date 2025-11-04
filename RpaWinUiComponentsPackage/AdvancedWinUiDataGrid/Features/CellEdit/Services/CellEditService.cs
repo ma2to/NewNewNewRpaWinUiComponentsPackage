@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Logging;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.CellEdit.Interfaces;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Import.Services;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Schema;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Validation.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.Persistence.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Infrastructure.SpecialColumns.Interfaces;
@@ -18,25 +20,32 @@ internal sealed class CellEditService : ICellEditService
     private readonly IValidationService _validationService;
     private readonly ISpecialColumnService _specialColumnService;
     private readonly AdvancedDataGridOptions _options;
+    private readonly ColumnSchemaService _columnSchemaService; // PHASE 3: Schema access
+    private readonly TypeValidationService _typeValidationService; // PHASE 3: Type validation
     private EditSession? _currentEditSession;
     private readonly object _sessionLock = new();
     private bool _editingEnabled = true;
 
     /// <summary>
     /// Constructor for CellEditService
+    /// PHASE 3: Now includes ColumnSchemaService and TypeValidationService for type enforcement
     /// </summary>
     public CellEditService(
         ILogger<CellEditService> logger,
         IRowStore rowStore,
         IValidationService validationService,
         ISpecialColumnService specialColumnService,
-        AdvancedDataGridOptions options)
+        AdvancedDataGridOptions options,
+        ColumnSchemaService columnSchemaService,
+        TypeValidationService typeValidationService)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _rowStore = rowStore ?? throw new ArgumentNullException(nameof(rowStore));
         _validationService = validationService ?? throw new ArgumentNullException(nameof(validationService));
         _specialColumnService = specialColumnService ?? throw new ArgumentNullException(nameof(specialColumnService));
         _options = options ?? throw new ArgumentNullException(nameof(options));
+        _columnSchemaService = columnSchemaService ?? throw new ArgumentNullException(nameof(columnSchemaService));
+        _typeValidationService = typeValidationService ?? throw new ArgumentNullException(nameof(typeValidationService));
     }
 
     /// <summary>
@@ -123,10 +132,59 @@ internal sealed class CellEditService : ICellEditService
             // Get old value
             var oldValue = row.TryGetValue(columnName, out var value) ? value : null;
 
-            // Create updated row
+            // PHASE 3: Type validation and enforcement (if schema defined)
+            object? validatedValue = newValue;
+            var columnDef = _columnSchemaService.GetColumnByName(columnName);
+
+            if (columnDef != null && columnDef.DataType != typeof(object))
+            {
+                _logger.LogDebug("PHASE 3: Type validation for column {ColumnName} (DataType={DataType}, AllowNull={AllowNull})",
+                    columnName, columnDef.DataType.Name, columnDef.AllowNull);
+
+                // ✅ CHECK 1: Null validation
+                if (newValue == null && !columnDef.AllowNull)
+                {
+                    var errorMsg = $"Column '{columnName}' does not allow null values";
+                    _logger.LogWarning("Type validation failed for rowId {RowId}, column {ColumnName}: {Error}",
+                        rowId, columnName, errorMsg);
+                    return EditResult.Failure(errorMsg);
+                }
+
+                // ✅ CHECK 2: Type compatibility and conversion
+                if (newValue != null)
+                {
+                    var valueType = newValue.GetType();
+                    if (!_typeValidationService.IsCompatibleType(valueType, columnDef.DataType))
+                    {
+                        // Attempt type conversion
+                        var convertedValue = _typeValidationService.ConvertValue(newValue, columnDef.DataType);
+                        if (convertedValue == null && newValue != null)
+                        {
+                            // Conversion failed
+                            var errorMsg = $"Column '{columnName}': cannot convert '{newValue}' ({valueType.Name}) to {columnDef.DataType.Name}";
+                            _logger.LogWarning("Type validation/conversion failed for rowId {RowId}, column {ColumnName}: {Error}",
+                                rowId, columnName, errorMsg);
+                            return EditResult.Failure(errorMsg);
+                        }
+
+                        // Use converted value
+                        validatedValue = convertedValue;
+                        _logger.LogDebug("Type conversion successful: {From} → {To} for column {ColumnName}",
+                            valueType.Name, columnDef.DataType.Name, columnName);
+                    }
+                }
+
+                _logger.LogDebug("✓ Type validation passed for column {ColumnName}", columnName);
+            }
+            else if (columnDef != null)
+            {
+                _logger.LogTrace("Column {ColumnName} has DataType=object - type validation skipped", columnName);
+            }
+
+            // Create updated row with validated value
             var updatedRow = new Dictionary<string, object?>(row)
             {
-                [columnName] = newValue
+                [columnName] = validatedValue
             };
 
             // Update the row in store by rowId
@@ -174,7 +232,11 @@ internal sealed class CellEditService : ICellEditService
                         await _specialColumnService.UpdateValidationAlertsAsync(rowIndex.Value, validationAlerts, cancellationToken);
                     }
 
-                    _logger.LogWarning("Cell update validation failed for rowId {RowId}, column {ColumnName}: {Message}",
+                    // ✅ PROFESSIONAL FIX: Log message clarity improvement
+                    // NOTE: ErrorMessage contains ALL row errors (cross-cell dependencies)
+                    // Format: "Column_4: msg1; Column_3: msg2; Column_1: msg3"
+                    // This is CORRECT behavior (cross-cell validation), not a bug
+                    _logger.LogWarning("Cell update validation failed for rowId {RowId}, editing column {ColumnName} (ALL row validation errors): {Message}",
                         rowId, columnName, validationResult.ErrorMessage);
 
                     // SENIOR FIX: Fire ValidationChanged event to update cell borders (red) and ValidationAlerts
@@ -258,6 +320,64 @@ internal sealed class CellEditService : ICellEditService
             _logger.LogInformation("Committing edit session {SessionId} for rowId {RowId}, column {ColumnName}",
                 session.SessionId, session.RowId, session.ColumnName);
 
+            // ✅ PROFESSIONAL FIX: Revalidate and save errors to row store on COMMIT (user confirms cell)
+            if (_validationService.ShouldRunAutomaticValidation("CommitEditAsync"))
+            {
+                _logger.LogInformation("🔍 COMMIT VALIDATION: Starting validation for rowId {RowId}, column {ColumnName}",
+                    session.RowId, session.ColumnName);
+
+                // Get current row
+                var row = await _rowStore.GetRowByIdAsync(session.RowId, cancellationToken);
+                if (row != null)
+                {
+                    // Revalidate entire row (for cross-cell dependencies)
+                    // IMPORTANT: Use stopOnFirstError=false to collect ALL errors (per test requirements)
+                    var allRowErrors = await _validationService.GetAllRowErrorsAsync(
+                        session.RowId,
+                        stopOnFirstError: false, // ✅ Collect ALL errors for testing
+                        cancellationToken);
+
+                    _logger.LogInformation("🔍 COMMIT VALIDATION: GetAllRowErrorsAsync returned {ErrorCount} errors for rowId {RowId}",
+                        allRowErrors.Count, session.RowId);
+
+                    if (allRowErrors.Any())
+                    {
+                        _logger.LogInformation("🔍 COMMIT VALIDATION: Error details: {Errors}",
+                            string.Join("; ", allRowErrors.Select(e => $"{e.ColumnName}: {e.Message}")));
+                    }
+
+                    // Save all errors to row store
+                    if (allRowErrors.Any())
+                    {
+                        await _rowStore.WriteValidationResultsAsync(allRowErrors, cancellationToken);
+
+                        _logger.LogInformation("✅ COMMIT VALIDATION: Saved {ErrorCount} validation errors to row store for rowId {RowId}",
+                            allRowErrors.Count, session.RowId);
+                    }
+                    else
+                    {
+                        // Clear all errors for this row (validation passed)
+                        await _rowStore.ClearValidationErrorsForRowAsync(session.RowId, cancellationToken);
+
+                        _logger.LogInformation("✅ COMMIT VALIDATION: Cleared validation errors for rowId {RowId} (all valid)",
+                            session.RowId);
+                    }
+
+                    // Fire ValidationChanged to update UI
+                    _validationService.FireValidationChanged();
+
+                    _logger.LogInformation("✅ COMMIT VALIDATION: FireValidationChanged called to update UI");
+                }
+                else
+                {
+                    _logger.LogWarning("⚠️ COMMIT VALIDATION: Row not found for rowId {RowId}", session.RowId);
+                }
+            }
+            else
+            {
+                _logger.LogDebug("COMMIT VALIDATION: Skipped (automatic validation disabled)");
+            }
+
             // End the session
             lock (_sessionLock)
             {
@@ -266,7 +386,6 @@ internal sealed class CellEditService : ICellEditService
 
             _logger.LogInformation("Edit session {SessionId} committed successfully", session.SessionId);
 
-            await Task.CompletedTask;
             return EditResult.Success(session.SessionId);
         }
         catch (Exception ex)

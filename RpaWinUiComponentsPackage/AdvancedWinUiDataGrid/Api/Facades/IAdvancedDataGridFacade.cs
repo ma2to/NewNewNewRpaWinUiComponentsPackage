@@ -123,6 +123,34 @@ public interface IAdvancedDataGridFacade : IAsyncDisposable
 
     #endregion
 
+    #region Column Schema Management
+
+    /// <summary>
+    /// Defines column schema with type information and validation rules.
+    /// BREAKING CHANGE v4.0: Enables typed columns with DataType enforcement.
+    /// ARCHITECTURE:
+    /// - Validates reserved names (__rowId, __Checkbox, etc.)
+    /// - Handles duplicate column names (auto-rename to Name_1, Name_2, etc.)
+    /// - Validates DataType support
+    /// - Stores normalized schema for import/edit validation
+    /// USAGE: Call this BEFORE importing data to enable type checking.
+    /// </summary>
+    /// <param name="columns">Column definitions with Name, DataType, AllowNull, Width, etc.</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>PublicResult indicating success or validation errors</returns>
+    Task<PublicResult> DefineColumnsAsync(
+        IEnumerable<ColumnDefinition> columns,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets the current column schema (read-only).
+    /// Returns empty list if no schema has been defined via DefineColumnsAsync.
+    /// </summary>
+    /// <returns>Read-only list of column definitions</returns>
+    IReadOnlyList<ColumnDefinition> GetColumnSchema();
+
+    #endregion
+
     #region UI Control Access
 
     /// <summary>

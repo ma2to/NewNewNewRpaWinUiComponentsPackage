@@ -327,6 +327,24 @@ internal sealed class SqliteValidationStrategy : IValidationStrategy
         }
     }
 
+    /// <summary>
+    /// Clears all validation errors for a specific row.
+    /// Used after revalidation when all errors have been fixed.
+    /// </summary>
+    public Task ClearValidationErrorsForRowAsync(string rowId, CancellationToken ct)
+    {
+        _logger?.LogDebug("Clearing validation errors for rowId {RowId}", rowId);
+
+        // Remove all errors for this row from cache
+        _validationCache.TryRemove(rowId, out _);
+
+        // Keep the row marked as validated in cache (it was just validated)
+        // Do not remove from _validatedRowsCache
+
+        // NOTE: SQLite validation table cleanup not needed - queries filter by rowId existence
+        return Task.CompletedTask;
+    }
+
     // ========== HELPER METHODS ==========
 
     /// <summary>

@@ -26,6 +26,8 @@ internal sealed class ImportService : IImportService
     private readonly Infrastructure.Persistence.Interfaces.IRowStore _rowStore;
     private readonly AdvancedDataGridOptions _options;
     private readonly UIAdapters.WinUI.UiNotificationService? _uiNotificationService;
+    private readonly TypeValidationService _typeValidationService; // PHASE 2: Schema validation
+    private readonly Features.Schema.ColumnSchemaService _columnSchemaService; // PHASE 2: Global schema
     // REMOVED: SmartOperationService - no longer needed with new data-shifting architecture
     // private readonly Features.SmartAddDelete.Interfaces.ISmartOperationService _smartOperationService;
 
@@ -40,6 +42,8 @@ internal sealed class ImportService : IImportService
         IValidationService validationService,
         Infrastructure.Persistence.Interfaces.IRowStore rowStore,
         AdvancedDataGridOptions options,
+        TypeValidationService typeValidationService, // PHASE 2: Required for schema validation
+        Features.Schema.ColumnSchemaService columnSchemaService, // PHASE 2: Global schema access
         IOperationLogger<ImportService>? operationLogger = null,
         UIAdapters.WinUI.UiNotificationService? uiNotificationService = null)
     {
@@ -48,6 +52,8 @@ internal sealed class ImportService : IImportService
         _validationService = validationService ?? throw new ArgumentNullException(nameof(validationService));
         _rowStore = rowStore ?? throw new ArgumentNullException(nameof(rowStore));
         _options = options ?? throw new ArgumentNullException(nameof(options));
+        _typeValidationService = typeValidationService ?? throw new ArgumentNullException(nameof(typeValidationService));
+        _columnSchemaService = columnSchemaService ?? throw new ArgumentNullException(nameof(columnSchemaService));
         // REMOVED: SmartOperationService assignment
         // _smartOperationService = smartOperationService ?? throw new ArgumentNullException(nameof(smartOperationService));
         _uiNotificationService = uiNotificationService; // Optional - null in Headless mode
@@ -85,6 +91,61 @@ internal sealed class ImportService : IImportService
 
         try
         {
+            // PHASE 2: Schema validation (uses global schema from ColumnSchemaService)
+            var schema = _columnSchemaService.GetSchema();
+
+            if (schema.Count > 0 && command.DictionaryData != null)
+            {
+                _logger.LogInformation("Schema defined with {ColumnCount} columns - validating {RowCount} rows",
+                    schema.Count, command.DictionaryData.Count);
+
+                var validationSw = System.Diagnostics.Stopwatch.StartNew();
+
+                // ✅ Batch validation - all rows, collect ALL errors (up to limit)
+                var (allValid, errorMessages) = _typeValidationService.ValidateAllRows(
+                    command.DictionaryData,
+                    schema,
+                    maxErrorsToCollect: 100); // Limit for memory safety
+
+                validationSw.Stop();
+                _logger.LogInformation("Schema validation completed in {Ms}ms", validationSw.ElapsedMilliseconds);
+
+                if (!allValid)
+                {
+                    // ❌ FATAL: Schema mismatch → entire import fails
+                    _logger.LogError("Schema validation failed for operation {OperationId}. " +
+                        "Error count: {ErrorCount}. Import aborted.",
+                        operationId, errorMessages.Count);
+
+                    scope.MarkFailure(new InvalidOperationException(
+                        $"Schema validation failed: {errorMessages.Count} error(s) found"));
+
+                    // Return FAILURE with detailed error messages
+                    var failureMessages = new List<string>
+                    {
+                        $"Import failed: {errorMessages.Count} row(s) violate schema definition."
+                    };
+                    failureMessages.AddRange(errorMessages);
+
+                    return InternalImportResult.Failure(
+                        failureMessages,
+                        stopwatch.Elapsed,
+                        command.Mode,
+                        command.CorrelationId);
+                }
+
+                _logger.LogInformation("✓ Schema validation passed - all {RowCount} rows valid",
+                    command.DictionaryData.Count);
+            }
+            else if (schema.Count > 0 && command.DataTableData != null)
+            {
+                _logger.LogWarning("Schema defined but import uses DataTable format - schema validation not supported for DataTable (use Dictionary format)");
+            }
+            else if (schema.Count == 0)
+            {
+                _logger.LogDebug("Schema not defined - skipping type validation (backward compatibility mode)");
+            }
+
             // Validate import configuration
             _logger.LogInformation("Validating import configuration for operation {OperationId}", operationId);
             var validationResult = await ValidateImportDataAsync(command, cancellationToken);

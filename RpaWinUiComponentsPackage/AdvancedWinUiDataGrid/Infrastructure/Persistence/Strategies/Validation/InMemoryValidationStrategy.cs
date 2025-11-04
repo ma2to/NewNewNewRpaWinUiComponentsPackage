@@ -260,6 +260,23 @@ internal sealed class InMemoryValidationStrategy : IValidationStrategy
         }
     }
 
+    /// <summary>
+    /// Clears all validation errors for a specific row.
+    /// Used after revalidation when all errors have been fixed.
+    /// </summary>
+    public Task ClearValidationErrorsForRowAsync(string rowId, CancellationToken ct)
+    {
+        _logger?.LogDebug("Clearing validation errors for rowId {RowId}", rowId);
+
+        // Remove all errors for this row
+        _validationErrors.TryRemove(rowId, out _);
+
+        // Keep the row marked as validated in cache (it was just validated)
+        // Do not remove from _validatedRowsCache
+
+        return Task.CompletedTask;
+    }
+
     // ========== HELPER METHODS ==========
 
     /// <summary>

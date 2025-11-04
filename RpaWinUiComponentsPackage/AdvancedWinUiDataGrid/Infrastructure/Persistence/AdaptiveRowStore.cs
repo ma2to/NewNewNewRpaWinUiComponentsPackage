@@ -328,6 +328,9 @@ internal sealed class AdaptiveRowStore : IRowStore, IAsyncDisposable
     public Task<IReadOnlyList<ValidationError>> GetValidationErrorsForRowAsync(string rowId, CancellationToken cancellationToken = default) =>
         _activeStore.GetValidationErrorsForRowAsync(rowId, cancellationToken);
 
+    public Task ClearValidationErrorsForRowAsync(string rowId, CancellationToken cancellationToken = default) =>
+        _activeStore.ClearValidationErrorsForRowAsync(rowId, cancellationToken);
+
     public async Task RemoveRowsAsync(IEnumerable<string> rowIds, CancellationToken cancellationToken = default)
     {
         await _activeStore.RemoveRowsAsync(rowIds, cancellationToken);
@@ -388,6 +391,9 @@ internal sealed class AdaptiveRowStore : IRowStore, IAsyncDisposable
 
     public void SetSortCriteria(string columnName, SortDirection direction) =>
         _activeStore.SetSortCriteria(columnName, direction);
+
+    public void SetMultiColumnSortCriteria(IReadOnlyList<(string columnName, SortDirection direction)> sortColumns) =>
+        _activeStore.SetMultiColumnSortCriteria(sortColumns);
 
     public void ClearSortCriteria() =>
         _activeStore.ClearSortCriteria();

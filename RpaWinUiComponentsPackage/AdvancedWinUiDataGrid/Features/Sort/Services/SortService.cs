@@ -338,6 +338,8 @@ internal sealed class SortService : ISortService
 
             _logger.LogInformation("Sort criteria set successfully: column={ColumnName}, direction={Direction}",
                 columnName, direction);
+            _logger.LogInformation("✅ SORT STATE UPDATED: _currentSort = [{Columns}]",
+                string.Join(", ", _currentSort.Select(s => $"{s.ColumnName} {s.Direction}")));
 
             // Note: Data will be returned sorted on next GetAllRowsAsync() or GetPagedRowsAsync() call
             // No need to ReplaceAllRowsAsync() - HybridRowStore uses SQL ORDER BY in queries
@@ -614,9 +616,32 @@ internal sealed class SortService : ISortService
             var sortedRows = orderedData?.ToList() ?? allRows.ToList();
             await _rowStore.ReplaceAllRowsAsync(sortedRows, cancellationToken);
 
+            // ✅ PROFESSIONAL FIX: Set multi-column sort criteria on row store
+            // CRITICAL: Call SetMultiColumnSortCriteria with ALL columns (not just primary)
+            // This ensures subsequent LoadRows/GetRowsRangeAsync return data in sorted order
+            // EXAMPLE: enabledSorts = [Column_2 Ascending, Column_3 Descending]
+            //          → SetMultiColumnSortCriteria([(Column_2, Ascending), (Column_3, Descending)])
+            if (enabledSorts.Any())
+            {
+                // ✅ Convert ALL sort columns to Common.SortDirection format
+                var sortCriteria = enabledSorts.Select(s => (
+                    s.ColumnName,
+                    s.Direction == CoreTypes.SortDirection.Ascending
+                        ? Common.SortDirection.Ascending
+                        : Common.SortDirection.Descending
+                )).ToList();
+
+                _rowStore.SetMultiColumnSortCriteria(sortCriteria);
+
+                _logger.LogInformation("✅ MULTISORT FIX: Set multi-column sort criteria on row store: {Columns}",
+                    string.Join(", ", sortCriteria.Select(s => $"{s.ColumnName} {s.Item2}")));
+            }
+
             _currentSort = enabledSorts.Select(s => (s.ColumnName, s.Direction)).ToList();
 
             _logger.LogInformation("Multi-column sort completed: {RowCount} rows", sortedRows.Count);
+            _logger.LogInformation("✅ MULTISORT STATE UPDATED: _currentSort = [{Columns}]",
+                string.Join(", ", _currentSort.Select(s => $"{s.ColumnName} {s.Direction}")));
             return Common.Models.Result.Success();
         }
         catch (Exception ex)
@@ -640,6 +665,10 @@ internal sealed class SortService : ISortService
     /// </summary>
     public IReadOnlyList<CoreTypes.SortColumnConfiguration> GetCurrentSortDescriptors()
     {
+        _logger.LogDebug("📋 GetCurrentSortDescriptors called: returning {Count} descriptors: {Columns}",
+            _currentSort.Count,
+            _currentSort.Any() ? string.Join(", ", _currentSort.Select(s => $"{s.ColumnName} {s.Direction}")) : "(empty)");
+
         return _currentSort
             .Select((s, index) => CoreTypes.SortColumnConfiguration.Create(s.ColumnName, s.Direction, priority: index))
             .ToList();

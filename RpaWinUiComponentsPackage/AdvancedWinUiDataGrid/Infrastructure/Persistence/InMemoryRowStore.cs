@@ -938,6 +938,81 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
     }
 
     /// <summary>
+    /// ✅ PROFESSIONAL FIX: Set multi-column sort criteria - sorts rows by multiple columns and RENUMBERS __rowNumber.
+    /// CRITICAL: Fixes multi-sort issue where second column was ignored
+    /// ARCHITECTURE:
+    /// - Sorts rows using dynamic OrderBy/ThenBy/ThenByDescending chain
+    /// - Renumbers __rowNumber sequentially (1, 2, 3, ...)
+    /// - EXAMPLE: sortColumns = [(Column_2, Ascending), (Column_3, Descending)]
+    ///   → OrderBy(Column_2 ASC).ThenByDescending(Column_3 DESC)
+    /// PERFORMANCE: O(n log n) for sorting, O(n) for renumbering
+    /// </summary>
+    public void SetMultiColumnSortCriteria(IReadOnlyList<(string columnName, Common.SortDirection direction)> sortColumns)
+    {
+        _logger.LogInformation("SetMultiColumnSortCriteria: {Count} columns: {Columns}",
+            sortColumns.Count,
+            string.Join(", ", sortColumns.Select(s => $"{s.columnName} {s.direction}")));
+
+        if (!sortColumns.Any() || sortColumns.All(s => s.direction == Common.SortDirection.None))
+        {
+            // Clear sort → keep current __rowNumber order (no renumbering)
+            InvalidateSortedRowKeysCache();
+            _logger.LogInformation("Multi-sort cleared - reverted to current __rowNumber order");
+            return;
+        }
+
+        lock (_modificationLock)
+        {
+            var rowsList = _rows.Values.ToList();
+
+            // ✅ PROFESSIONAL FIX: Apply multi-column sort using dynamic OrderBy/ThenBy chain
+            IOrderedEnumerable<IReadOnlyDictionary<string, object?>>? orderedData = null;
+
+            for (int i = 0; i < sortColumns.Count; i++)
+            {
+                var (columnName, direction) = sortColumns[i];
+
+                if (direction == Common.SortDirection.None)
+                {
+                    continue; // Skip columns with None direction
+                }
+
+                if (i == 0 || orderedData == null)
+                {
+                    // First column - use OrderBy/OrderByDescending
+                    orderedData = direction == Common.SortDirection.Ascending
+                        ? rowsList.OrderBy(row => row.TryGetValue(columnName, out var val) ? val : null)
+                        : rowsList.OrderByDescending(row => row.TryGetValue(columnName, out var val) ? val : null);
+                }
+                else
+                {
+                    // Subsequent columns - use ThenBy/ThenByDescending
+                    orderedData = direction == Common.SortDirection.Ascending
+                        ? orderedData.ThenBy(row => row.TryGetValue(columnName, out var val) ? val : null)
+                        : orderedData.ThenByDescending(row => row.TryGetValue(columnName, out var val) ? val : null);
+                }
+            }
+
+            var sortedRows = orderedData?.ToList() ?? rowsList;
+
+            // Renumber __rowNumber sequentially (1, 2, 3, ...)
+            for (int i = 0; i < sortedRows.Count; i++)
+            {
+                var row = sortedRows[i];
+                var rowId = (string)row["__rowId"]!;
+                var mutableRow = new Dictionary<string, object?>(row);
+                mutableRow["__rowNumber"] = i + 1; // 1-based
+                _rows[rowId] = mutableRow;
+            }
+
+            InvalidateSortedRowKeysCache();
+
+            _logger.LogInformation("Multi-sort completed: {Count} rows renumbered by {ColumnCount} columns",
+                sortedRows.Count, sortColumns.Count);
+        }
+    }
+
+    /// <summary>
     /// Clear sort criteria - IRowStore implementation
     /// Note: InMemoryRowStore does not use this (sorting handled by SortService).
     /// This is a no-op to maintain interface compatibility.
@@ -1048,6 +1123,23 @@ internal sealed class InMemoryRowStore : Interfaces.IRowStore
         }
 
         return Task.FromResult<IReadOnlyList<ValidationError>>(Array.Empty<ValidationError>());
+    }
+
+    public Task ClearValidationErrorsForRowAsync(string rowId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(rowId))
+            return Task.CompletedTask;
+
+        // Remove all errors for this row
+        lock (_modificationLock)
+        {
+            _validationErrors.TryRemove(rowId, out _);
+        }
+
+        // Keep the row marked as validated in cache (it was just validated)
+        // Do not remove from _validatedRowsCache
+
+        return Task.CompletedTask;
     }
 
     /// <summary>

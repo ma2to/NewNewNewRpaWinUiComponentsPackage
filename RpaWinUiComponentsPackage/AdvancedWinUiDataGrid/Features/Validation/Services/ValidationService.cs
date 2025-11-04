@@ -412,6 +412,21 @@ internal sealed class ValidationService : IValidationService
         // Group errors by rowId for batch write operation
         var validationResultsDict = new Dictionary<string, ValidationError[]>();
 
+        // ✅ CRITICAL FIX 1.1: Pre-populate dictionary with ALL validated rowIds (including successful ones)
+        // REASON: Rows that passed validation need empty array to CLEAR old errors from storage
+        // ROOT CAUSE: Without this, valid rows never get entry → old errors persist forever
+        foreach (var row in rows)
+        {
+            if (row.TryGetValue("__rowId", out var rowIdValue) && rowIdValue is string rowId && !string.IsNullOrEmpty(rowId))
+            {
+                validationResultsDict[rowId] = Array.Empty<ValidationError>(); // Start with empty (valid)
+            }
+        }
+
+        _logger.LogDebug("Pre-populated validation dictionary with {Count} rowIds (all validated rows)",
+            validationResultsDict.Count);
+
+        // ✅ PROFESSIONAL FIX: Now populate with actual errors (overwrite empty arrays for invalid rows)
         foreach (var error in validationErrors)
         {
             if (string.IsNullOrEmpty(error.RowId))
@@ -419,6 +434,7 @@ internal sealed class ValidationService : IValidationService
 
             if (!validationResultsDict.ContainsKey(error.RowId))
             {
+                // This shouldn't happen (all rows pre-populated), but handle defensively
                 validationResultsDict[error.RowId] = Array.Empty<ValidationError>();
             }
 
@@ -426,6 +442,10 @@ internal sealed class ValidationService : IValidationService
             existing.Add(error);
             validationResultsDict[error.RowId] = existing.ToArray();
         }
+
+        _logger.LogDebug("Populated validation errors: {ErrorRowCount} rows with errors, {ValidRowCount} valid rows",
+            validationErrors.Select(e => e.RowId).Distinct().Count(),
+            validationResultsDict.Count(kvp => kvp.Value.Length == 0));
 
         // ADAPTIVE VALIDATION STORAGE: Switch between InMemory and SQLite based on row count
         // Uses ValidationStorageThreshold from options to determine storage strategy
@@ -503,56 +523,85 @@ internal sealed class ValidationService : IValidationService
                         return; // Skip this row (already validated)
                     }
 
-                    foreach (var rule in rules)
+                    // ✅ PROFESSIONAL FIX: Group rules by dependent columns for per-cell error collection
+                    var rulesByColumn = rules
+                        .SelectMany(rule => rule.DependentColumns.Select(col => new { Column = col, Rule = rule }))
+                        .GroupBy(x => x.Column)
+                        .ToDictionary(g => g.Key, g => g.Select(x => x.Rule).ToList());
+
+                    // ✅ Iterate through columns (not rules) to enable stop-on-first-error per cell
+                    foreach (var columnRules in rulesByColumn)
                     {
-                        cancellationToken.ThrowIfCancellationRequested();
+                        var columnName = columnRules.Key;
+                        var rulesForColumn = columnRules.Value;
 
-                        try
+                        // ✅ Use configuration setting for batch validation
+                        var stopOnFirstError = _options.ValidationStopOnFirstError;
+
+                        foreach (var rule in rulesForColumn)
                         {
-                            var context = new ValidationContext
-                            {
-                                RowIndex = absoluteRowIndex,
-                                OperationId = operationId.ToString()
-                            };
-                            // SENIOR FIX: Use wrapper to automatically skip validation for entirely empty rows
-                            var validationResult = ValidateRowWithEmptyCheck(rule, rowData.row, context);
+                            cancellationToken.ThrowIfCancellationRequested();
 
-                            if (!validationResult.IsValid)
+                            try
                             {
-                                if (validationResult.Severity == PublicValidationSeverity.Error)
+                                var context = new ValidationContext
                                 {
-                                    batchErrors.Add(new ValidationError
-                                    {
-                                        RowId = rowId,
-                                        RuleId = rule.RuleId,
-                                        Message = validationResult.ErrorMessage ?? "Validation failed",
-                                        ColumnName = validationResult.AffectedColumn
-                                    });
-                                }
-                                else if (validationResult.Severity == PublicValidationSeverity.Warning)
+                                    RowIndex = absoluteRowIndex,
+                                    OperationId = operationId.ToString(),
+                                    ColumnName = columnName
+                                };
+                                // SENIOR FIX: Use wrapper to automatically skip validation for entirely empty rows
+                                var validationResult = ValidateRowWithEmptyCheck(rule, rowData.row, context);
+
+                                if (!validationResult.IsValid)
                                 {
-                                    batchWarnings.Add(new ValidationWarning
+                                    if (validationResult.Severity == PublicValidationSeverity.Error)
                                     {
-                                        RowId = rowId,
-                                        RuleId = rule.RuleId,
-                                        Message = validationResult.ErrorMessage ?? "Validation warning",
-                                        ColumnName = validationResult.AffectedColumn
-                                    });
+                                        batchErrors.Add(new ValidationError
+                                        {
+                                            RowId = rowId,
+                                            RuleId = rule.RuleId,
+                                            Message = validationResult.ErrorMessage ?? "Validation failed",
+                                            ColumnName = validationResult.AffectedColumn
+                                        });
+                                    }
+                                    else if (validationResult.Severity == PublicValidationSeverity.Warning)
+                                    {
+                                        batchWarnings.Add(new ValidationWarning
+                                        {
+                                            RowId = rowId,
+                                            RuleId = rule.RuleId,
+                                            Message = validationResult.ErrorMessage ?? "Validation warning",
+                                            ColumnName = validationResult.AffectedColumn
+                                        });
+                                    }
+
+                                    // ✅ Stop on first error FOR THIS COLUMN (if configured)
+                                    if (stopOnFirstError)
+                                    {
+                                        break; // Skip remaining rules for this column
+                                    }
                                 }
                             }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "Validation rule {RuleId} failed for row with RowId {RowId} in operation {OperationId}",
-                                rule.RuleId, rowId, operationId);
-
-                            batchErrors.Add(new ValidationError
+                            catch (Exception ex)
                             {
-                                RowId = rowId,
-                                RuleId = rule.RuleId,
-                                Message = $"Validation rule execution failed: {ex.Message}",
-                                ColumnName = null
-                            });
+                                _logger.LogWarning(ex, "Validation rule {RuleId} failed for row with RowId {RowId} in operation {OperationId}",
+                                    rule.RuleId, rowId, operationId);
+
+                                batchErrors.Add(new ValidationError
+                                {
+                                    RowId = rowId,
+                                    RuleId = rule.RuleId,
+                                    Message = $"Validation rule execution failed: {ex.Message}",
+                                    ColumnName = null
+                                });
+
+                                // ✅ Stop on exception FOR THIS COLUMN (if configured)
+                                if (stopOnFirstError)
+                                {
+                                    break;
+                                }
+                            }
                         }
                     }
                 });
@@ -787,15 +836,77 @@ internal sealed class ValidationService : IValidationService
             _logger.LogInformation("Validating row {RowIndex} against {RuleCount} rules for operation {OperationId}",
                 context.RowIndex, activeRules.Length, operationId);
 
-            foreach (var rule in activeRules)
+            // ✅ PROFESSIONAL FIX: Determine if this is realtime validation
+            var isRealTime = context.Properties?.TryGetValue("ValidationMode", out var mode) == true
+                && mode is Common.Models.ValidationMode validationMode
+                && validationMode == Common.Models.ValidationMode.RealTime;
+
+            // ✅ PROFESSIONAL FIX: For realtime validation ALWAYS collect all errors
+            // For batch validation use configuration setting
+            var stopOnFirstError = isRealTime ? false : _options.ValidationStopOnFirstError;
+
+            _logger.LogDebug("Validation mode: {Mode}, StopOnFirstError: {StopOnFirstError}",
+                isRealTime ? "RealTime" : "Batch", stopOnFirstError);
+
+            // ✅ PROFESSIONAL FIX: Group rules by dependent columns for per-cell error collection
+            var rulesByColumn = activeRules
+                .SelectMany(rule => rule.DependentColumns.Select(col => new { Column = col, Rule = rule }))
+                .GroupBy(x => x.Column)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.Rule).ToList());
+
+            var allErrors = new List<ValidationResult>();
+
+            // ✅ Iterate through columns (not rules) to enable stop-on-first-error per cell
+            foreach (var columnRules in rulesByColumn)
             {
-                var result = await rule.ValidateAsync(row, context, cancellationToken);
-                if (!result.IsValid)
+                var columnName = columnRules.Key;
+                var rulesForColumn = columnRules.Value;
+
+                var columnErrors = new List<ValidationResult>();
+
+                // Validate all rules for this column
+                foreach (var rule in rulesForColumn)
                 {
-                    _logger.LogWarning("Row {RowIndex} validation failed on rule {RuleId} for operation {OperationId}: {Message}",
-                        context.RowIndex, rule.RuleId, operationId, result.ErrorMessage);
-                    return result;
+                    var result = await rule.ValidateAsync(row, context, cancellationToken);
+
+                    if (!result.IsValid)
+                    {
+                        columnErrors.Add(result);
+
+                        _logger.LogWarning("Row {RowIndex} validation failed on rule {RuleId} for column {Column}: {Message}",
+                            context.RowIndex, rule.RuleId, columnName, result.ErrorMessage);
+
+                        // ✅ Stop on first error FOR THIS COLUMN (if configured)
+                        if (stopOnFirstError)
+                        {
+                            _logger.LogDebug("StopOnFirstCellError=true: Skipping remaining rules for column {Column}",
+                                columnName);
+                            break;
+                        }
+                    }
                 }
+
+                // Add all errors for this column
+                allErrors.AddRange(columnErrors);
+            }
+
+            // If there are any errors, return combined message
+            if (allErrors.Any())
+            {
+                var combinedMessage = string.Join("; ",
+                    allErrors.Select(e => $"{e.AffectedColumn}: {e.ErrorMessage}"));
+
+                _logger.LogWarning("Row {RowIndex} validation completed with {ErrorCount} errors in {Duration}ms",
+                    context.RowIndex, allErrors.Count, stopwatch.ElapsedMilliseconds);
+
+                // Return first error with combined message (for backward compatibility)
+                return new ValidationResult
+                {
+                    IsValid = false,
+                    ErrorMessage = combinedMessage,
+                    Severity = allErrors.First().Severity,
+                    AffectedColumn = allErrors.First().AffectedColumn
+                };
             }
 
             _logger.LogInformation("Row {RowIndex} validation successful in {Duration}ms for operation {OperationId}",
@@ -1060,6 +1171,7 @@ internal sealed class ValidationService : IValidationService
             "UpdateRowAsync" => _options.EnableRealTimeValidation,
             "BeginEditAsync" => _options.EnableRealTimeValidation,
             "CommitEditAsync" => _options.EnableRealTimeValidation,
+            "PreviewValidateCellAsync" => _options.EnableRealTimeValidation,
 
             // Export - check EnableBatchValidation (pre-export validation)
             "ExportAsync" => _options.EnableBatchValidation,
@@ -1390,6 +1502,124 @@ internal sealed class ValidationService : IValidationService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get validation errors: {Message}", ex.Message);
+            return Array.Empty<ValidationError>();
+        }
+    }
+
+    /// <summary>
+    /// ✅ PROFESSIONAL FIX: Gets ALL validation errors for a specific row (all columns).
+    /// Used for cross-cell dependencies and commit operations.
+    /// Validates all rules for the row and collects errors per column.
+    /// </summary>
+    /// <param name="rowId">Row ID to validate</param>
+    /// <param name="stopOnFirstError">If true, stops on first error per cell. If false, collects all errors per cell.</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>List of validation errors for all columns in the row</returns>
+    public async Task<IReadOnlyList<ValidationError>> GetAllRowErrorsAsync(
+        string rowId,
+        bool stopOnFirstError,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Getting all row errors for rowId {RowId}, stopOnFirstError={StopOnFirstError}",
+            rowId, stopOnFirstError);
+
+        try
+        {
+            // Get row from row store
+            var row = await _rowStore.GetRowByIdAsync(rowId, cancellationToken);
+            if (row == null)
+            {
+                _logger.LogWarning("Row {RowId} not found when getting all row errors", rowId);
+                return Array.Empty<ValidationError>();
+            }
+
+            var errors = new List<ValidationError>();
+            var activeRules = _validationRules.ToArray();
+
+            if (activeRules.Length == 0)
+            {
+                _logger.LogDebug("No validation rules configured, returning empty errors");
+                return errors;
+            }
+
+            // ✅ PROFESSIONAL FIX: Group rules by dependent columns for per-cell error collection
+            var rulesByColumn = activeRules
+                .SelectMany(rule => rule.DependentColumns.Select(col => new { Column = col, Rule = rule }))
+                .GroupBy(x => x.Column)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.Rule).ToList());
+
+            // Get row index for validation context
+            var rowIndex = _rowStore.GetRowIndexById(rowId) ?? -1;
+
+            // ✅ Iterate through columns (not rules) to enable stop-on-first-error per cell
+            foreach (var columnRules in rulesByColumn)
+            {
+                var columnName = columnRules.Key;
+                var rulesForColumn = columnRules.Value;
+
+                // Validate all rules for this column
+                foreach (var rule in rulesForColumn)
+                {
+                    var context = new ValidationContext
+                    {
+                        RowIndex = rowIndex,
+                        ColumnName = columnName,
+                        Properties = new Dictionary<string, object?>
+                        {
+                            ["ValidationMode"] = Common.Models.ValidationMode.RealTime
+                        }
+                    };
+
+                    try
+                    {
+                        var result = await rule.ValidateAsync(row, context, cancellationToken);
+                        if (!result.IsValid)
+                        {
+                            errors.Add(new ValidationError
+                            {
+                                RowId = rowId,
+                                ColumnName = result.AffectedColumn,
+                                Message = result.ErrorMessage ?? "Validation failed",
+                                RuleId = rule.RuleId
+                            });
+
+                            // ✅ Stop on first error FOR THIS COLUMN (if configured)
+                            if (stopOnFirstError)
+                            {
+                                _logger.LogDebug("StopOnFirstError=true: Skipping remaining rules for column {Column}",
+                                    columnName);
+                                break;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Validation rule {RuleId} failed for row {RowId}, column {Column}",
+                            rule.RuleId, rowId, columnName);
+
+                        errors.Add(new ValidationError
+                        {
+                            RowId = rowId,
+                            ColumnName = columnName,
+                            Message = $"Validation rule execution failed: {ex.Message}",
+                            RuleId = rule.RuleId
+                        });
+
+                        // ✅ Stop on exception FOR THIS COLUMN (if configured)
+                        if (stopOnFirstError)
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            _logger.LogDebug("Found {ErrorCount} validation errors for rowId {RowId}", errors.Count, rowId);
+            return errors;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get all row errors for rowId {RowId}: {Message}", rowId, ex.Message);
             return Array.Empty<ValidationError>();
         }
     }

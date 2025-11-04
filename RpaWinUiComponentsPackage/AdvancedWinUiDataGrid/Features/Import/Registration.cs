@@ -23,6 +23,9 @@ internal static class Registration
         // Import service - Scoped per DI_DECISIONS.md
         services.AddScoped<IImportService, ImportService>();
 
+        // PHASE 2: Type validation service for schema-based imports
+        services.AddScoped<TypeValidationService>();
+
         return services;
     }
 }

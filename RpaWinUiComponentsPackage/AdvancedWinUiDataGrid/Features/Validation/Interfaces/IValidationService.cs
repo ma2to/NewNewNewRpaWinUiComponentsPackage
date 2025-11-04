@@ -217,6 +217,20 @@ internal interface IValidationService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Gets ALL validation errors for a specific row (all columns).
+    /// Used for cross-cell dependencies and commit operations.
+    /// Validates all rules for the row and collects errors per column.
+    /// </summary>
+    /// <param name="rowId">Row ID to validate</param>
+    /// <param name="stopOnFirstError">If true, stops on first error per cell. If false, collects all errors per cell.</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>List of validation errors for all columns in the row</returns>
+    Task<IReadOnlyList<ValidationError>> GetAllRowErrorsAsync(
+        string rowId,
+        bool stopOnFirstError,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Fires ValidationChanged event to notify subscribers of validation state changes.
     /// Used by CellEditService and other services to trigger UI updates after validation.
     /// </summary>

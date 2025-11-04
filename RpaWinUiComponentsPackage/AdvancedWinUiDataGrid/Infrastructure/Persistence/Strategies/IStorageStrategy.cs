@@ -122,6 +122,15 @@ internal interface IStorageStrategy
     void SetSortCriteria(string columnName, SortDirection direction);
 
     /// <summary>
+    /// ✅ PROFESSIONAL FIX: Set multi-column sort criteria and renumber __rowNumber.
+    /// CRITICAL: Fixes multi-sort where second column was ignored
+    /// InMemory: LINQ OrderBy().ThenBy() chain + renumber loop
+    /// Hybrid: SQL ROW_NUMBER() OVER (ORDER BY col1, col2, ...) + UPDATE __rowNumber
+    /// </summary>
+    /// <param name="sortColumns">List of (columnName, direction) tuples defining sort order</param>
+    void SetMultiColumnSortCriteria(IReadOnlyList<(string columnName, SortDirection direction)> sortColumns);
+
+    /// <summary>
     /// Clear sort criteria (revert to default __rowNumber ordering).
     /// </summary>
     void ClearSortCriteria();

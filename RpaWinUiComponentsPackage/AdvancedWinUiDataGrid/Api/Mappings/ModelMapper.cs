@@ -12,6 +12,7 @@ internal static class ModelMapper
 {
     /// <summary>
     /// Map public ImportDataCommand to internal ImportDataCommand
+    /// SIMPLIFIED: Schema is global (from ColumnSchemaService), not per-import
     /// </summary>
     public static InternalImportDataCommand ToInternal(this ImportDataCommand publicCommand)
     {

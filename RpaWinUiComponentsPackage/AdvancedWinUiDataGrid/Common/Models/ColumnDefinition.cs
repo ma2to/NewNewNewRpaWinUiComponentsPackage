@@ -3,7 +3,7 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
 /// <summary>
 /// Defines the configuration and properties of a grid column
 /// </summary>
-internal class ColumnDefinition
+public class ColumnDefinition
 {
     /// <summary>
     /// Gets or sets the unique name of the column
@@ -28,6 +28,13 @@ internal class ColumnDefinition
     /// Gets or sets the data type of the column
     /// </summary>
     public Type DataType { get; set; } = typeof(string);
+
+    /// <summary>
+    /// Gets or sets whether this column allows null values.
+    /// Used for type validation during import and cell editing.
+    /// Default is true (nulls allowed).
+    /// </summary>
+    public bool AllowNull { get; set; } = true;
 
     /// <summary>
     /// Gets or sets the sort direction for this column
@@ -115,6 +122,7 @@ internal class ColumnDefinition
             Name = this.Name,
             Header = this.Header,
             DataType = this.DataType,
+            AllowNull = this.AllowNull,
             Width = this.Width,
             MinWidth = this.MinWidth,
             MaxWidth = this.MaxWidth,

@@ -124,6 +124,33 @@ public sealed partial class MainWindow : Window
                 AddLogMessage("");
                 await DefineValidationRulesAsync();
 
+                // Define column schema after grid initialization
+                AddLogMessage("");
+                AddLogMessage("=== DEFINING COLUMN SCHEMA ===");
+
+                var columns = new List<RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models.ColumnDefinition>
+                {
+                    new() { Name = "Column_1", DataType = typeof(string), AllowNull = false, Width = 150 },
+                    new() { Name = "Column_2", DataType = typeof(int), AllowNull = true, Width = 100 },
+                    new() { Name = "Column_3", DataType = typeof(string), AllowNull = true, Width = 120 },
+                    new() { Name = "Column_4", DataType = typeof(string), AllowNull = true, Width = 150 },
+                    new() { Name = "Column_5", DataType = typeof(string), AllowNull = true, Width = 120 }
+                };
+
+                var schemaResult = await _gridFacade.DefineColumnsAsync(columns, CancellationToken.None);
+                if (schemaResult.IsSuccess)
+                {
+                    AddLogMessage($"✓ Column schema defined successfully: {columns.Count} columns");
+                    foreach (var col in columns)
+                    {
+                        AddLogMessage($"  - {col.Name}: {col.DataType.Name} (AllowNull: {col.AllowNull}, Width: {col.Width})");
+                    }
+                }
+                else
+                {
+                    AddLogMessage($"✗ Schema definition failed: {schemaResult.ErrorMessage}");
+                }
+
                 // Enable AutoRowHeight explicitly via API
                 AddLogMessage("");
                 AddLogMessage("=== ENABLING AUTO ROW HEIGHT ===");
@@ -607,60 +634,32 @@ public sealed partial class MainWindow : Window
         {
             var row = new Dictionary<string, object?>();
 
-            // Generate data with intentional validation errors for testing
+            // Generate data matching schema types (no validation errors for schema compatibility)
             for (int j = 1; j <= columnCount; j++)
             {
                 if (j == 1)
                 {
-                    // Column_1: Required - occasionally make it empty (10% chance)
-                    if (random.Next(100) < 10)
-                    {
-                        row["Column_1"] = ""; // Will fail required validation
-                    }
-                    else
-                    {
-                        row["Column_1"] = $"Row{i + 1}_Col{j}";
-                    }
+                    // Column_1: string, AllowNull=false, Required validation
+                    row["Column_1"] = $"Row{i + 1}_Col{j}"; // Always non-empty for required validation
                 }
                 else if (j == 2)
                 {
-                    // Column_2: Numeric range 1-100 - occasionally out of range (20% chance)
-                    if (random.Next(100) < 20)
-                    {
-                        var invalidValue = random.Next(2) == 0 ? random.Next(-10, 1) : random.Next(101, 200);
-                        row["Column_2"] = invalidValue.ToString(); // Will fail range validation
-                    }
-                    else
-                    {
-                        row["Column_2"] = random.Next(1, 101).ToString(); // Valid range 1-100
-                    }
+                    // Column_2: int (NOT string!), AllowNull=true, Range 1-100 validation
+                    row["Column_2"] = random.Next(1, 101); // Generate int, valid range 1-100
                 }
                 else if (j == 3)
                 {
-                    // Column_3: Max length 20 - occasionally too long (15% chance)
-                    if (random.Next(100) < 15)
-                    {
-                        row["Column_3"] = $"This_is_a_very_long_text_that_exceeds_20_characters_Row{i + 1}"; // Will fail length validation
-                    }
-                    else
-                    {
-                        row["Column_3"] = $"Row{i + 1}_Col{j}"; // Valid length
-                    }
+                    // Column_3: string, AllowNull=true, MaxLength=20
+                    row["Column_3"] = $"Row{i + 1}_Col{j}"; // Valid length
                 }
                 else if (j == 4)
                 {
-                    // Column_4: Must start with "Valid" - occasionally invalid (25% chance)
-                    if (random.Next(100) < 25)
-                    {
-                        row["Column_4"] = $"Invalid_Row{i + 1}"; // Will fail pattern validation
-                    }
-                    else
-                    {
-                        row["Column_4"] = $"Valid_Row{i + 1}_Col{j}"; // Valid pattern
-                    }
+                    // Column_4: string, AllowNull=true, Pattern: must start with "Valid"
+                    row["Column_4"] = $"Valid_Row{i + 1}_Col{j}"; // Valid pattern
                 }
                 else
                 {
+                    // Column_5: string, AllowNull=true
                     row[$"Column_{j}"] = $"Row{i + 1}_Col{j}";
                 }
             }

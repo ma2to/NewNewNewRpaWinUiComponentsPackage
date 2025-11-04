@@ -371,6 +371,17 @@ internal interface IRowStore
     void SetSortCriteria(string columnName, Common.SortDirection direction);
 
     /// <summary>
+    /// ✅ PROFESSIONAL FIX: Set multi-column sort criteria for the store.
+    /// CRITICAL: Supports multi-column sorting (e.g., Column_2 ASC, Column_3 DESC)
+    /// In HybridRowStore: Builds SQL ORDER BY clause with multiple columns
+    /// In InMemoryRowStore: Sorts rows using dynamic OrderBy/ThenBy chain
+    /// EXAMPLE: sortColumns = [(Column_2, Ascending), (Column_3, Descending)]
+    ///          → ORDER BY Column_2 ASC, Column_3 DESC
+    /// </summary>
+    /// <param name="sortColumns">List of (columnName, direction) tuples defining sort order</param>
+    void SetMultiColumnSortCriteria(IReadOnlyList<(string columnName, Common.SortDirection direction)> sortColumns);
+
+    /// <summary>
     /// Clear sort criteria (revert to default ordering).
     /// </summary>
     void ClearSortCriteria();
@@ -523,4 +534,14 @@ internal interface IRowStore
     /// <param name="rowId">STABLE identifier (not RowIndex!)</param>
     /// <param name="cancellationToken">Cancellation token</param>
     Task DeleteRowByIdAsync(string rowId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// ✅ PROFESSIONAL FIX: Clears all validation errors for a specific row.
+    /// Used after revalidation when all errors have been fixed.
+    /// </summary>
+    /// <param name="rowId">Stable row identifier (from __rowId field)</param>
+    /// <param name="cancellationToken">Cancellation token for async operations</param>
+    Task ClearValidationErrorsForRowAsync(
+        string rowId,
+        CancellationToken cancellationToken = default);
 }
