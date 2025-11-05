@@ -228,16 +228,24 @@ public sealed class DataGridViewModel : ViewModelBase
     /// <param name="options">Grid options containing special column configuration (optional)</param>
     public void InitializeColumns(IEnumerable<string> columnNames, AdvancedDataGridOptions? options = null)
     {
-        // CRITICAL: Filter out __rowId (double underscore prefix) - internal implementation detail
-        // User columns named "rowId" or "RowId" (without __ prefix) are treated as normal data columns
-        // Note: __rowId is added automatically by the internal system and must be hidden from UI
+        // ✅ PROFESSIONAL FIX: Filter ALL system columns with __ prefix (not just __rowId)
+        // REASON: Backend adds system columns (__rowId, __rowNumber, __internalState, etc.) for internal use
+        // These must be hidden from UI to prevent:
+        //   1. User editing system values (breaks internal logic)
+        //   2. Column position conflicts (e.g. __rowNumber vs rowNumber special column)
+        //   3. Confusing duplicate columns in grid
+        // ARCHITECTURE: System columns (__*) are internal, user columns never start with __
         var allColumns = columnNames.ToList();
-        var hasInternalRowId = allColumns.Contains("__rowId");
-        var columnList = allColumns.Where(c => c != "__rowId").ToList();
+        var columnList = allColumns
+            .Where(c => !c.StartsWith("__", StringComparison.Ordinal))
+            .ToList();
 
-        if (hasInternalRowId)
+        var filteredCount = allColumns.Count - columnList.Count;
+        if (filteredCount > 0)
         {
-            _logger?.LogDebug("Internal __rowId column detected and filtered from UI display (expected system behavior)");
+            var filteredColumns = allColumns.Except(columnList).ToList();
+            _logger?.LogDebug("Filtered {Count} system columns with __ prefix: {Columns}",
+                filteredCount, string.Join(", ", filteredColumns));
         }
 
         _logger?.LogInformation("Initializing {Count} data columns with special columns support", columnList.Count);
@@ -374,6 +382,11 @@ public sealed class DataGridViewModel : ViewModelBase
             ColumnHeaders.Count,
             ColumnHeaders.Count(h => h.IsSpecialColumn),
             columnList.Count);
+
+        // ✅ DIAGNOSTIC: Log column header order for RowNumber position debugging
+        var headerOrder = string.Join(", ", ColumnHeaders.Select(h =>
+            $"{h.DisplayOrder}:{h.ColumnName}({(h.IsSpecialColumn ? "SPECIAL-" + h.SpecialType : "DATA")})"));
+        _logger?.LogInformation("🔍 COLUMN HEADER ORDER: [{HeaderOrder}]", headerOrder);
     }
 
     /// <summary>
@@ -668,6 +681,14 @@ public sealed class DataGridViewModel : ViewModelBase
                 }
 
                 rowVm.Cells.Add(cellVm);
+            }
+
+            // ✅ DIAGNOSTIC: Log cell order for RowNumber position debugging (first 3 rows only)
+            if (rowIndex < 3)
+            {
+                var cellOrder = string.Join(", ", rowVm.Cells.Select(c =>
+                    $"{c.ColumnIndex}:{c.ColumnName}({(c.IsSpecialColumn ? "SPECIAL" : "DATA")})"));
+                _logger?.LogDebug("🔍 ROW {RowIndex} CELL ORDER: [{CellOrder}]", rowIndex, cellOrder);
             }
 
             rowViewModels.Add(rowVm);
@@ -1750,11 +1771,21 @@ public sealed class DataGridViewModel : ViewModelBase
 
                 if (allRowErrors.Any())
                 {
-                    // CRITICAL FIX: Format with column names for clarity
+                    // ✅ PROFESSIONAL FIX: Sort errors by column order (left-to-right)
+                    // REASON: User expects errors in same order as columns in grid
+                    // ARCHITECTURE: Get column order from ColumnHeaders → sort errors → build message
+                    var columnOrder = ColumnHeaders
+                        .Select((header, index) => new { header.ColumnName, Order = index })
+                        .ToDictionary(x => x.ColumnName, x => x.Order, StringComparer.OrdinalIgnoreCase);
+
+                    var sortedErrors = allRowErrors
+                        .OrderBy(e => columnOrder.TryGetValue(e.ColumnName ?? string.Empty, out var order) ? order : int.MaxValue)
+                        .ToList();
+
                     // Format: "ColumnName: msg1; ColumnName: msg2; ..."
                     // User requirement: Show column name to identify which field has validation error
                     var message = string.Join("; ",
-                        allRowErrors.Select(e => $"{e.ColumnName}: {e.Message}"));
+                        sortedErrors.Select(e => $"{e.ColumnName}: {e.Message}"));
 
                     // CRITICAL: Update on UI thread to ensure PropertyChanged propagates correctly
                     if (_dispatcherQueue != null)

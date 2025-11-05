@@ -199,6 +199,21 @@ public sealed class CellControl : UserControl
             return;
         }
 
+        // ✅ CRITICAL FIX: Set keyboard focus to _rootBorder IMMEDIATELY after click
+        // REASON: Without explicit Focus(), keyboard focus remains on ScrollViewer or parent
+        //         ScrollViewer arrow keys = scroll, CellControl arrow keys = navigation
+        // ARCHITECTURE:
+        //   - Click = select cell + focus cell for keyboard navigation
+        //   - FocusState.Pointer = appropriate for mouse/touch input
+        // USER REQUIREMENT:
+        //   - Tab/Arrow keys must work IMMEDIATELY after click (before first edit)
+        //   - After edit, focus is already set (_editTextBox.Focus), so this maintains consistency
+        // PROBLEM SOLVED: Tab/Arrow keys now work correctly before first edit (navigation instead of scroll)
+        _rootBorder.Focus(FocusState.Pointer);
+
+        _logger?.LogTrace("CellControl[{Row},{Col}]: Keyboard focus set to _rootBorder after click",
+            ViewModel.RowIndex, ViewModel.ColumnIndex);
+
         // Check if Ctrl key is pressed
         var isCtrlPressed = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
             .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);

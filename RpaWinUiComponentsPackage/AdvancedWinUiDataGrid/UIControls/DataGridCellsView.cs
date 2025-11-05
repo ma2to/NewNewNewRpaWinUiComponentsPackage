@@ -1023,51 +1023,24 @@ public sealed class DataGridCellsView : UserControl, IDisposable
         }
     }
 
-    private async void OnCellEditCompleted(object? sender, CellViewModel cell)
+    private void OnCellEditCompleted(object? sender, CellViewModel cell)
     {
         // ✅ PROFESSIONAL FIX: Forward event to parent control
         // ARCHITECTURE: InternalUIOperationHandler will catch this event and call UpdateCellAsync
-        // UpdateCellAsync already handles realtime validation and row store updates
-        // REMOVED: CommitEditAsync call (was failing with "No active edit session")
-        // REASON: TwoWay binding writes directly to ViewModel, no session management needed
+        // UpdateCellAsync already handles:
+        //   1. Cell value write to backend storage
+        //   2. Batch validation (ValidateAllAsync) - writes errors to row store
+        //   3. Full UI reload (PerformFullReload) - displays persisted ValidationAlerts
+        // REMOVED: Duplicate POST-COMMIT validation that used PreviewValidateCellAsync
+        // REASON: PreviewValidateCellAsync does NOT write to storage (preview-only mode)
+        //         This caused ValidationAlerts to not show errors after commit
+        // FIX: Let InternalUIOperationHandler handle complete validation flow with storage persistence
         _logger.LogInformation("🔑 Cell edit completed: rowId {RowId}, column {ColumnName} - forwarding to handlers",
             cell.RowId, cell.ColumnName);
 
         // Forward cell edit completion to parent control
-        // This allows the application layer to trigger auto-expand when last row is edited
+        // InternalUIOperationHandler will trigger UpdateCellAsync → ValidateAllAsync → PerformFullReload
         CellEditCompleted?.Invoke(this, cell);
-
-        // ✅ CRITICAL FIX: Re-validate cell after commit to clear/update preview validation state
-        // REASON: Preview validation shows temporary errors during edit.
-        //         After commit, we need to validate against the FINAL value to update UI correctly.
-        // ARCHITECTURE: This ensures validation state reflects the committed value, not mid-edit preview.
-        var facade = _viewModel.Facade;
-        if (facade?.Editing != null && !string.IsNullOrEmpty(cell.RowId))
-        {
-            try
-            {
-                _logger.LogDebug("🔄 POST-COMMIT VALIDATION: Re-validating cell after edit completion (RowId={RowId}, Column={Column})",
-                    cell.RowId, cell.ColumnName);
-
-                // Execute preview validation with the committed value
-                var validationResult = await facade.Editing.PreviewValidateCellAsync(
-                    cell.RowId,
-                    cell.ColumnName,
-                    cell.Value,
-                    CancellationToken.None);
-
-                // Update UI with post-commit validation result
-                UpdateCellPreviewValidationUI(cell, validationResult);
-
-                _logger.LogDebug("✅ POST-COMMIT VALIDATION: Completed for {Column} - Valid={IsValid}",
-                    cell.ColumnName, validationResult.IsValid);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Post-commit validation failed for RowId={RowId}, Column={Column}",
-                    cell.RowId, cell.ColumnName);
-            }
-        }
     }
 
     #region SENIOR IMPLEMENTATION: Row Context Menu Handlers (Excel-like Insert/Delete)

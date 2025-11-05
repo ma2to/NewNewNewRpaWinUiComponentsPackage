@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.CellEdit.Interfaces;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Import.Services;
@@ -232,6 +233,67 @@ internal sealed class CellEditService : ICellEditService
                         await _specialColumnService.UpdateValidationAlertsAsync(rowIndex.Value, validationAlerts, cancellationToken);
                     }
 
+                    // ✅ CRITICAL FIX: Write realtime validation errors to validation store
+                    // REASON: HandleValidationChanged reads from validation store and clears UI if empty
+                    //         If realtime errors are not persisted, ValidationAlerts will be cleared
+                    // ARCHITECTURE: Realtime validation creates single-row error → batch validation aggregates
+                    // USER REQUIREMENT: Preview validation shows errors immediately during typing,
+                    //                   Commit validation writes errors to ValidationAlerts for persistence
+                    var errorsList = new List<ValidationError>();
+
+                    // Parse combined error message to extract per-column errors
+                    // Format: "Column_1: msg1; Column_4: msg2"
+                    if (!string.IsNullOrEmpty(validationResult.ErrorMessage))
+                    {
+                        var errorParts = validationResult.ErrorMessage.Split(new[] { "; " }, StringSplitOptions.RemoveEmptyEntries);
+                        foreach (var part in errorParts)
+                        {
+                            var colonIndex = part.IndexOf(':');
+                            if (colonIndex > 0)
+                            {
+                                var colName = part.Substring(0, colonIndex).Trim();
+                                var message = part.Substring(colonIndex + 1).Trim();
+
+                                errorsList.Add(new ValidationError
+                                {
+                                    RowId = rowId,
+                                    ColumnName = colName,
+                                    Message = message,
+                                    Severity = validationResult.Severity == PublicValidationSeverity.Error
+                                        ? ValidationSeverity.Error
+                                        : ValidationSeverity.Warning,
+                                    RuleId = $"realtime_{colName}"
+                                });
+                            }
+                            else
+                            {
+                                // Fallback: single error for edited column
+                                errorsList.Add(new ValidationError
+                                {
+                                    RowId = rowId,
+                                    ColumnName = validationResult.AffectedColumn ?? columnName,
+                                    Message = part,
+                                    Severity = validationResult.Severity == PublicValidationSeverity.Error
+                                        ? ValidationSeverity.Error
+                                        : ValidationSeverity.Warning,
+                                    RuleId = $"realtime_{columnName}"
+                                });
+                            }
+                        }
+                    }
+
+                    // Write to validation store (replaces old errors for this row)
+                    // Get existing errors for OTHER rows (preserve them)
+                    var allErrors = await _rowStore.GetValidationErrorsAsync(false, false, cancellationToken);
+                    var otherRowErrors = allErrors.Where(e => e.RowId != rowId).ToList();
+
+                    // Combine: other rows' errors + this row's new errors
+                    var combinedErrors = otherRowErrors.Concat(errorsList).ToList();
+                    await _rowStore.WriteValidationResultsAsync(combinedErrors, cancellationToken);
+
+                    _logger.LogDebug("Wrote {Count} realtime validation errors to store for rowId {RowId}",
+                        errorsList.Count, rowId);
+
                     // ✅ PROFESSIONAL FIX: Log message clarity improvement
                     // NOTE: ErrorMessage contains ALL row errors (cross-cell dependencies)
                     // Format: "Column_4: msg1; Column_3: msg2; Column_1: msg3"
@@ -249,6 +311,14 @@ internal sealed class CellEditService : ICellEditService
                     {
                         await _specialColumnService.ClearValidationAlertsAsync(rowIndex.Value, cancellationToken);
                     }
+
+                    // ✅ CRITICAL FIX: Clear realtime validation errors from store when validation passes
+                    // Get existing errors and remove errors for this row
+                    var allErrors = await _rowStore.GetValidationErrorsAsync(false, false, cancellationToken);
+                    var remainingErrors = allErrors.Where(e => e.RowId != rowId).ToList();
+                    await _rowStore.WriteValidationResultsAsync(remainingErrors, cancellationToken);
+
+                    _logger.LogDebug("Cleared realtime validation errors from store for rowId {RowId}", rowId);
 
                     // SENIOR FIX: Fire ValidationChanged event to clear cell borders and ValidationAlerts
                     _validationService.FireValidationChanged();

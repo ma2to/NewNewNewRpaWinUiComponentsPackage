@@ -213,7 +213,6 @@ internal sealed class DataGridElementFactory : IElementFactory
         }
 
         // Create cell controls
-        int columnIndex = 0;
         foreach (var cellViewModel in rowViewModel.Cells)
         {
             FrameworkElement cellControl;
@@ -228,11 +227,19 @@ internal sealed class DataGridElementFactory : IElementFactory
                 cellControl = CreateNormalCell(cellViewModel, controlData);
             }
 
-            // Set column position
-            Grid.SetColumn(cellControl, columnIndex);
+            // ✅ PROFESSIONAL FIX: Use cell's actual ColumnIndex instead of loop counter
+            // REASON: Ensures correct visual position even if Cells collection order is wrong
+            // CRITICAL: ColumnIndex matches ColumnHeaders order (RowNumber=0, Checkbox=1, etc.)
+            Grid.SetColumn(cellControl, cellViewModel.ColumnIndex);
             rowGrid.Children.Add(cellControl);
+        }
 
-            columnIndex++;
+        // ✅ DIAGNOSTIC: Log cell rendering order (first 3 rows only)
+        if (rowViewModel.RowIndex < 3)
+        {
+            var renderedOrder = string.Join(", ", rowViewModel.Cells.Select(c =>
+                $"Col{c.ColumnIndex}:{c.ColumnName}({(c.IsSpecialColumn ? "SPECIAL" : "DATA")})"));
+            _logger.LogDebug("🔍 ROW {RowIndex} RENDERED ORDER: [{RenderedOrder}]", rowViewModel.RowIndex, renderedOrder);
         }
 
         _logger.LogTrace("Configured Grid for row {RowIndex} with {CellCount} cells",
