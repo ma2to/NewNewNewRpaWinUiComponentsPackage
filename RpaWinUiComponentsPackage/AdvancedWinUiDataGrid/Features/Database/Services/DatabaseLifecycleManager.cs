@@ -61,7 +61,7 @@ internal sealed class DatabaseLifecycleManager : IDatabaseLifecycleManager
             if (!pathResult.IsSuccess)
             {
                 _logger.LogError("Invalid database path: {Error}", pathResult.ErrorMessage);
-                return Result.Failure(pathResult.ErrorMessage);
+                return Result.Failure(pathResult.ErrorMessage ?? "Invalid database path");
             }
             _databasePath = pathResult.Value;
 

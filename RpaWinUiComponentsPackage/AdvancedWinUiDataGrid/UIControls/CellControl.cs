@@ -160,6 +160,14 @@ public sealed class CellControl : UserControl
         _editTextBox.KeyDown += OnEditTextBoxKeyDown;
         _editTextBox.TextChanged += OnEditTextBoxTextChanged;
 
+        // ✅ CRITICAL FIX: Block right-click during edit mode
+        // USER REQUIREMENT: Right-click v edit mode by NEMAL ROBIŤ NIČ
+        // REASON 1: User explicitly requested no action on right-click in edit mode
+        // REASON 2: Zabráni zobrazeniu default TextBox context menu (Cut/Copy/Paste)
+        // REASON 3: Zabráni COMException z missing WinUI theme resources
+        _editTextBox.RightTapped += OnEditTextBoxRightTapped;
+        _editTextBox.PointerPressed += OnEditTextBoxPointerPressed;
+
         // Add controls to Grid
         _rootGrid.Children.Add(_displayTextBlock);
         _rootGrid.Children.Add(_editTextBox);
@@ -509,6 +517,41 @@ public sealed class CellControl : UserControl
                 OldValue = ViewModel.Value,
                 NewValue = textBox.Text
             });
+        }
+    }
+
+    /// <summary>
+    /// Handles right-click on edit TextBox - SUPPRESS all actions during edit mode.
+    /// USER REQUIREMENT: Pravý klik v edit mode by nemal robiť NIČ.
+    /// </summary>
+    private void OnEditTextBoxRightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        // ✅ PROFESSIONAL FIX: Completely suppress right-click during edit mode
+        // REASON 1: User requirement - right-click should do NOTHING in edit mode
+        // REASON 2: Prevents default TextBox context menu (Cut/Copy/Paste)
+        // REASON 3: Prevents COMException from missing WinUI theme resources
+        _logger?.LogTrace("CellControl[{Row},{Col}]: Right-click SUPPRESSED during edit mode (no action)",
+            ViewModel.RowIndex, ViewModel.ColumnIndex);
+
+        e.Handled = true; // Block event propagation
+    }
+
+    /// <summary>
+    /// Handles pointer press on edit TextBox - detect and suppress right-click.
+    /// This catches right-click BEFORE RightTapped event fires.
+    /// </summary>
+    private void OnEditTextBoxPointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        var pointerPoint = e.GetCurrentPoint(_editTextBox);
+        if (pointerPoint.Properties.IsRightButtonPressed)
+        {
+            // ✅ CRITICAL: Block right-click at PointerPressed level
+            // REASON: Prevents TextBox from processing right-click at all
+            //         (more aggressive than RightTapped - blocks earlier in event chain)
+            _logger?.LogTrace("CellControl[{Row},{Col}]: Right-click PointerPressed BLOCKED in edit mode",
+                ViewModel.RowIndex, ViewModel.ColumnIndex);
+
+            e.Handled = true; // Block immediately
         }
     }
 }

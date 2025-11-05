@@ -51,12 +51,28 @@ internal sealed class ValidationAlertBackgroundConverter : IValueConverter
 
     public object Convert(object value, Type targetType, object parameter, string language)
     {
+        // ✅ PROFESSIONAL FIX: Use BrushPool for guaranteed brush availability
+        // REASON: Creating new SolidColorBrush in converter can fail → binding fail → Black background
+        // SOLUTION: Use BrushPool which caches brushes and never returns null
+
         if (value is bool hasAlert && hasAlert)
         {
-            return _themeManager?.ValidationAlertsErrorBackground ?? new SolidColorBrush(Color.FromArgb(30, 255, 0, 0));
+            // Has validation alert - return error background (light red)
+            if (_themeManager?.ValidationAlertsErrorBackground != null)
+            {
+                return _themeManager.ValidationAlertsErrorBackground;
+            }
+            // ✅ CRITICAL: Use BrushPool instead of new SolidColorBrush
+            return Features.Optimization.BrushPool.GetBrush(Color.FromArgb(30, 255, 0, 0));
         }
 
-        return _themeManager?.CellDefaultBackground ?? new SolidColorBrush(Colors.White);
+        // No validation alert - return default background (white)
+        if (_themeManager?.CellDefaultBackground != null)
+        {
+            return _themeManager.CellDefaultBackground;
+        }
+        // ✅ CRITICAL: Use BrushPool instead of new SolidColorBrush
+        return Features.Optimization.BrushPool.GetBrush(Colors.White);
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, string language)

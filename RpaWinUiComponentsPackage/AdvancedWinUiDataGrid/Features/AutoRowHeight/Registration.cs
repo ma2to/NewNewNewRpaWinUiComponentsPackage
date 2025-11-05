@@ -23,6 +23,11 @@ internal static class Registration
         // AutoRowHeight service - Scoped per DI_DECISIONS.md
         services.AddScoped<IAutoRowHeightService, AutoRowHeightService>();
 
+        // ✅ PROFESSIONAL: AutoRowHeightOrchestrator - Scoped (orchestrates automatic height adjustments)
+        // ARCHITECTURE: Separation of concerns - orchestrator listens to ViewModel events and triggers service
+        // QUALITY: Only adjusts heights when AutoRowHeight.IsEnabled = true (respects public API)
+        services.AddScoped<AutoRowHeightOrchestrator>();
+
         return services;
     }
 }

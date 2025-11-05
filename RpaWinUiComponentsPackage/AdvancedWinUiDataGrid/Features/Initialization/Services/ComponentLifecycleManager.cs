@@ -355,6 +355,20 @@ internal sealed class ComponentLifecycleManager : IComponentLifecycleManager
             }
         }
 
+        // ✅ PROFESSIONAL: Activate AutoRowHeightOrchestrator (separation of concerns)
+        // REASON: Orchestrator subscribes to ViewModel events and automatically adjusts row heights
+        // ARCHITECTURE: Service-based approach - no manual calls needed in UI code
+        // QUALITY: Only adjusts when AutoRowHeight.IsEnabled = true (respects public API)
+        var orchestrator = _serviceProvider.GetService<AutoRowHeight.Services.AutoRowHeightOrchestrator>();
+        if (orchestrator != null)
+        {
+            _logger.LogInformation("AutoRowHeightOrchestrator activated - will auto-adjust row heights when enabled");
+        }
+        else
+        {
+            _logger.LogWarning("AutoRowHeightOrchestrator not found in service provider - auto row height will not work");
+        }
+
         await Task.CompletedTask;
         cancellationToken.ThrowIfCancellationRequested();
     }

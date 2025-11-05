@@ -249,6 +249,10 @@ internal sealed class SpecialColumnCellControl : UserControl
         var border = new Border
         {
             Child = textBlock,
+            // ✅ CRITICAL FIX: Nastaviť INITIAL background PRED bindingom
+            // REASON: Eliminuje BLACK flash počas binding initialization po sort
+            // QUALITY: Border má OKAMŽITE správnu farbu pri vytvorení, binding ju potom updatuje
+            Background = _viewModel.Theme?.CellDefaultBackground ?? new SolidColorBrush(Colors.White),
             BorderBrush = _viewModel.Theme?.CellBorder ?? new SolidColorBrush(Colors.LightGray),
             BorderThickness = new Thickness(1, 1, 0, 1), // ✅ FIX: Right=0 (ResizeGripControl adds 12px spacing between columns)
             HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -256,13 +260,17 @@ internal sealed class SpecialColumnCellControl : UserControl
             Padding = new Thickness(1)
         };
 
-        // PROFESSIONAL: Use value converter for Background color based on HasValidationAlert
+        // ✅ PROFESSIONAL FIX: Binding s FallbackValue + TargetNullValue pre 100% safety
         var backgroundBinding = new Microsoft.UI.Xaml.Data.Binding
         {
             Source = _viewModel,
             Path = new PropertyPath(nameof(CellViewModel.HasValidationAlert)),
             Mode = Microsoft.UI.Xaml.Data.BindingMode.OneWay,
-            Converter = new ValidationAlertBackgroundConverter(_viewModel.Theme)
+            Converter = new ValidationAlertBackgroundConverter(_viewModel.Theme),
+            // ✅ CRITICAL: FallbackValue for binding path failure
+            FallbackValue = Features.Optimization.BrushPool.GetBrush(Colors.White),
+            // ✅ QUALITY: TargetNullValue for null Source or null converter result
+            TargetNullValue = Features.Optimization.BrushPool.GetBrush(Colors.White)
         };
         border.SetBinding(Border.BackgroundProperty, backgroundBinding);
 
@@ -305,6 +313,14 @@ internal sealed class SpecialColumnCellControl : UserControl
             MinHeight = 0,
             Background = _viewModel.Theme?.DeleteRowBackground ?? Features.Optimization.BrushPool.GetBrush(Colors.Transparent)
         };
+
+        // ✅ PROFESSIONAL FIX: Inject missing WinUI theme resources directly into Button.Resources
+        // REASON: Eliminuje COMException "Cannot find Resource TabViewScrollButtonBackground"
+        // QUALITY: Explicitly define resources namiesto spoliehania sa na app-level theme dictionary
+        button.Resources["TabViewScrollButtonBackground"] = new SolidColorBrush(Colors.Transparent);
+        button.Resources["TabViewScrollButtonBorderBrush"] = new SolidColorBrush(Colors.Transparent);
+        button.Resources["TabViewScrollButtonForeground"] = _viewModel.Theme?.DeleteRowForeground
+            ?? Features.Optimization.BrushPool.GetBrush(Colors.DarkRed);
 
         // Event: delete button clicked
         // DEBOUNCE FIX: Prevent rapid-fire delete clicks causing row count restoration bug
@@ -373,6 +389,13 @@ internal sealed class SpecialColumnCellControl : UserControl
         // Použiť ControlTemplate resource keys pre custom VisualStates
         button.Resources["ButtonBackgroundPointerOver"] = hoverBg;
         button.Resources["ButtonForegroundPointerOver"] = hoverFg;
+
+        // ✅ PROFESSIONAL FIX: Inject missing WinUI theme resources
+        // REASON: Eliminuje COMException pri rendering button controls
+        button.Resources["TabViewScrollButtonBackground"] = new SolidColorBrush(Colors.Transparent);
+        button.Resources["TabViewScrollButtonBorderBrush"] = new SolidColorBrush(Colors.Transparent);
+        button.Resources["TabViewScrollButtonForeground"] = _viewModel.Theme?.InsertRowForeground
+            ?? Features.Optimization.BrushPool.GetBrush(Colors.DarkGreen);
 
         // Event: insert button clicked
         // DEBOUNCE FIX: Prevent rapid-fire insert clicks

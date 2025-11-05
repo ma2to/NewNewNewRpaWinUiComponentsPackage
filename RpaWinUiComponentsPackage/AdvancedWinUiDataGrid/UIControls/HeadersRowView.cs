@@ -491,66 +491,72 @@ public sealed class HeadersRowView : UserControl
     // SENIOR FIX: Replaced ManipulationEvents with PointerEvents for reliable WinUI 3 behavior
     private void OnResizeGripPointerPressed(object sender, PointerRoutedEventArgs e)
     {
-        _logger?.LogTrace("HeadersRowView: OnResizeGripPointerPressed called! Sender type: {SenderType}", sender?.GetType().Name);
+        // ✅ QUALITY: Enhanced diagnostic logging for troubleshooting
+        _logger?.LogInformation("=== RESIZE GRIP POINTER PRESSED ===");
+        _logger?.LogInformation("Sender Type: {SenderType}, IsNull: {IsNull}",
+            sender?.GetType().Name ?? "NULL", sender == null);
 
-        if (sender is ResizeGripControl grip)
+        if (sender is not ResizeGripControl grip)
         {
-            _logger?.LogTrace("Sender IS ResizeGripControl, DataContext type: {DataContextType}", grip.DataContext?.GetType().Name);
+            _logger?.LogError("❌ Sender is NOT ResizeGripControl! Type: {Type}",
+                sender?.GetType().FullName ?? "NULL");
+            return;
+        }
 
-            if (grip.DataContext is ColumnHeaderViewModel column)
-            {
-                _logger?.LogTrace("DataContext IS ColumnHeaderViewModel: {ColumnName}", column.ColumnName);
+        _logger?.LogInformation("✅ Sender IS ResizeGripControl");
+        _logger?.LogInformation("DataContext Type: {DataContextType}, IsNull: {IsNull}",
+            grip.DataContext?.GetType().Name ?? "NULL", grip.DataContext == null);
 
-                _resizingColumn = column;
-                _resizeStartWidth = column.Width;
-                _resizeStartX = e.GetCurrentPoint(_headersGrid).Position.X; // FIX: Position relative to grid, not grip
-                column.IsResizing = true;
+        if (grip.DataContext is not ColumnHeaderViewModel column)
+        {
+            _logger?.LogError("❌ DataContext is NOT ColumnHeaderViewModel! Type: {Type}",
+                grip.DataContext?.GetType().FullName ?? "NULL");
+            return;
+        }
 
-                _logger?.LogInformation("Resize START: col={ColumnName}, width={Width}, x={StartX}", column.ColumnName, _resizeStartWidth, _resizeStartX);
+        _logger?.LogInformation("✅ DataContext IS ColumnHeaderViewModel: {ColumnName}", column.ColumnName);
 
-                // ✅ MEDIUM FIX: Capture pointer to continue receiving events even if pointer moves outside grip
-                var captured = grip.CapturePointer(e.Pointer);
-                if (!captured)
-                {
-                    _logger?.LogWarning("Failed to capture pointer for resize grip");
-                }
-                else
-                {
-                    _logger?.LogTrace("Pointer captured successfully for resize");
-                }
+        // Continue with resize logic
+        _resizingColumn = column;
+        _resizeStartWidth = column.Width;
+        _resizeStartX = e.GetCurrentPoint(_headersGrid).Position.X; // FIX: Position relative to grid, not grip
+        column.IsResizing = true;
 
-                // Create visual preview line (SENIOR ARCHITECTURE: Use theme color)
-                _resizePreviewLine = new Border
-                {
-                    Width = 2,
-                    Background = _viewModel.Theme?.ResizePreviewLine ?? new SolidColorBrush(Colors.Blue),
-                    Opacity = 0.6,
-                    HorizontalAlignment = HorizontalAlignment.Left,
-                    VerticalAlignment = VerticalAlignment.Stretch
-                };
+        _logger?.LogInformation("Resize START: col={ColumnName}, width={Width}, x={StartX}", column.ColumnName, _resizeStartWidth, _resizeStartX);
 
-                // Add preview line to parent grid (if accessible)
-                if (this.Parent is Panel parentPanel)
-                {
-                    _logger?.LogTrace("Adding preview line to parent panel");
-                    parentPanel.Children.Add(_resizePreviewLine);
-                }
-                else
-                {
-                    _logger?.LogWarning("Parent is not a Panel, cannot add preview line");
-                }
-
-                e.Handled = true;
-            }
-            else
-            {
-                _logger?.LogError("DataContext is NOT ColumnHeaderViewModel");
-            }
+        // ✅ MEDIUM FIX: Capture pointer to continue receiving events even if pointer moves outside grip
+        var captured = grip.CapturePointer(e.Pointer);
+        if (!captured)
+        {
+            _logger?.LogWarning("Failed to capture pointer for resize grip");
         }
         else
         {
-            _logger?.LogError("Sender is NOT ResizeGripControl");
+            _logger?.LogTrace("Pointer captured successfully for resize");
         }
+
+        // Create visual preview line (SENIOR ARCHITECTURE: Use theme color)
+        _resizePreviewLine = new Border
+        {
+            Width = 2,
+            Background = _viewModel.Theme?.ResizePreviewLine ?? new SolidColorBrush(Colors.Blue),
+            Opacity = 0.6,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
+
+        // Add preview line to parent grid (if accessible)
+        if (this.Parent is Panel parentPanel)
+        {
+            _logger?.LogTrace("Adding preview line to parent panel");
+            parentPanel.Children.Add(_resizePreviewLine);
+        }
+        else
+        {
+            _logger?.LogWarning("Parent is not a Panel, cannot add preview line");
+        }
+
+        e.Handled = true;
     }
 
     private void OnResizeGripPointerMoved(object sender, PointerRoutedEventArgs e)
