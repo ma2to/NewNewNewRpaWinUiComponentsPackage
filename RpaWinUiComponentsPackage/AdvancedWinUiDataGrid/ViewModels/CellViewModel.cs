@@ -411,7 +411,11 @@ public sealed class CellViewModel : ViewModelBase, IDisposable
         if (IsValidationError)
         {
             var errorBorder = _themeManager?.ValidationErrorBorder ?? Features.Optimization.BrushPool.GetBrush(Colors.Red);
-            var errorBackground = _themeManager?.ValidationErrorBackground ?? Features.Optimization.BrushPool.GetBrush(Color.FromArgb(20, 255, 0, 0));
+            // ✅ CRITICAL FIX: Changed alpha from 20 to 255 (opaque light red background)
+            // REASON: Alpha=20 (7.8% opacity) appears black when overlaid on dark system backgrounds
+            // USER ISSUE: "Turns black when sorting with validation error"
+            // SOLUTION: Use opaque light red (255, 255, 200, 200) for consistent visibility
+            var errorBackground = _themeManager?.ValidationErrorBackground ?? Features.Optimization.BrushPool.GetBrush(Color.FromArgb(255, 255, 200, 200));
             BorderBrush = errorBorder;
             BackgroundBrush = errorBackground;
             ForegroundBrush = _themeManager?.ValidationErrorForeground ?? Features.Optimization.BrushPool.GetBrush(Colors.Black);

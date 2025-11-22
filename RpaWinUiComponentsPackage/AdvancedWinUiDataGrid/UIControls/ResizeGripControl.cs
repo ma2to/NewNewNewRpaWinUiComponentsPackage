@@ -83,7 +83,11 @@ internal sealed class ResizeGripControl : Control
         // CRITICAL FIX: Increased to 12px width for easier grabbing and better visibility
         this.Width = 12;
         this.MinWidth = 12;
-        this.Background = _themeManager?.ResizeGripBackground ?? new SolidColorBrush(Microsoft.UI.Colors.DarkGray) { Opacity = 0.7 };
+        // ✅ PROFESSIONAL FIX: Use OPAQUE background for better visibility and HIT TESTING
+        // REASON: WinUI hit testing can fail with semi-transparent backgrounds (Opacity=0.7)
+        // USER FEEDBACK: "resize nefunguje, event sa nespúšťa" → grip nebol viditeľný kvôli opacity
+        // SOLUTION: Remove Opacity, use fully opaque LightGray (visible but not intrusive)
+        this.Background = _themeManager?.ResizeGripBackground ?? new SolidColorBrush(Microsoft.UI.Colors.LightGray);
         // SENIOR FIX: Removed ManipulationMode - using PointerEvents in HeadersRowView instead
 
         _logger?.LogTrace("ResizeGripControl: Width={Width}, Background={HasBackground}",

@@ -40,14 +40,14 @@
 
     <!-- Package Information -->
     <PackageId>RpaWinUiComponentsPackage</PackageId>
-    <Version>2.2.21</Version>
+    <Version>2.2.24</Version>
     <Authors>RPA Team</Authors>
     <Company>RPA Company</Company>
     <Product>RPA WinUI Components Package</Product>
     <Description>Professional WinUI3 Components Package: AdvancedDataGrid + LoggerComponent</Description>
     <PackageTags>WinUI3;DataGrid;Logger;Components;Package;NET8</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageReleaseNotes>v2.2.21: MAJOR UPDATE - Fixed all table functionality: cell borders, validation alerts column, add/delete/validate buttons, import dict/datatable, cell editing (double-click/Enter), comprehensive error logging</PackageReleaseNotes>
+    <PackageReleaseNotes>v2.2.24: MAJOR UPDATE - Fixed all table functionality: cell borders, validation alerts column, add/delete/validate buttons, import dict/datatable, cell editing (double-click/Enter), comprehensive error logging</PackageReleaseNotes>
 
     <!-- Assembly Information -->
     <AssemblyTitle>RPA WinUI Components Package</AssemblyTitle>
@@ -62,25 +62,25 @@
   <!-- Dependencies - Minimal as per newProject.md -->
   <ItemGroup>
     <!-- WinUI3 support with private assets -->
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.10" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.250916003" IncludeAssets="all" PrivateAssets="none" GeneratePathProperty="true" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.251106002" IncludeAssets="all" PrivateAssets="none" GeneratePathProperty="true" />
     
     <!-- Logging abstractions only -->
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
 
     <!-- Logging implementation for AddLogging extension -->
     <!--<PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.9" />-->
 
     <!-- Dependency injection -->
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.10" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
     
     <!-- ObjectPool for performance optimization -->
-    <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="9.0.10" />
+    <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="10.0.0" />
     
     <!-- System dependencies -->
     <PackageReference Include="System.ComponentModel.Annotations" Version="5.0.0" />
-    <PackageReference Include="System.Diagnostics.PerformanceCounter" Version="9.0.10" />
-    <PackageReference Include="System.Numerics.Tensors" Version="9.0.10" />
+    <PackageReference Include="System.Diagnostics.PerformanceCounter" Version="10.0.0" />
+    <PackageReference Include="System.Numerics.Tensors" Version="10.0.0" />
     
     <!-- Reactive programming for hybrid functional-OOP architecture -->
     <PackageReference Include="System.Reactive" Version="6.1.0" />
@@ -93,7 +93,7 @@
     <PackageReference Include="System.Threading.Tasks.Extensions" Version="4.6.3" />
     
     <!-- JSON support for data export -->
-    <PackageReference Include="System.Text.Json" Version="9.0.10" />
+    <PackageReference Include="System.Text.Json" Version="10.0.0" />
     
     <!-- Data support - keeping 4.3.0 as it's the only stable version available -->
     <!-- System.Data.Common" Version="4.3.0" - vulnerable but only available version -->

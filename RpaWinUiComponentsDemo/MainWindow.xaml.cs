@@ -220,10 +220,13 @@ public sealed partial class MainWindow : Window
             AddLogMessage("");
             AddLogMessage("=== IMPORTING DATA ===");
 
-            // Generate test data (100 rows for testing validation and smart delete)
-            var testData = GenerateTestData(100, 5);
+            // ✅ CRITICAL FIX: Generate 110 rows for testing pagination (PageSize=15 → 8 pages)
+            // REASON: Tests that RowCount increments correctly beyond 100 rows
+            // USER REQUIREMENT: Support 10M+ rows with fixed UI pool (15 ViewModels)
+            // PREVIOUS BUG: RowCount stuck at 100 due to GetRowCountAsync filtering empty rows
+            var testData = GenerateTestData(110, 5);
 
-            AddLogMessage($"Importing {testData.Count} rows...");
+            AddLogMessage($"Importing {testData.Count} rows (PageSize=15 → {Math.Ceiling(110.0 / 15)} pages)...");
 
             // Create import command
             var command = ImportDataCommand.FromDictionaries(testData);
@@ -235,6 +238,7 @@ public sealed partial class MainWindow : Window
             {
                 AddLogMessage($"✓ Import successful: {result.ImportedRows} rows imported to facade");
                 AddLogMessage($"  Duration: {result.ImportTime.TotalMilliseconds:F0}ms");
+                AddLogMessage($"  Total pages: {Math.Ceiling(110.0 / 15)} (15 rows/page)");
                 AddLogMessage("⏳ Waiting for automatic UI refresh...");
             }
             else

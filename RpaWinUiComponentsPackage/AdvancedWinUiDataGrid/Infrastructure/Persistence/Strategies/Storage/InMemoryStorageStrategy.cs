@@ -338,13 +338,16 @@ internal sealed class InMemoryStorageStrategy : IStorageStrategy
         {
             lock (_modificationLock)
             {
-                // ✅ PROBLEM 2 FIX: Use filtered row IDs if filter is active
+                // ✅ CRITICAL FIX: Return ALL rows, not just non-empty ones
+                // REASON: Empty rows are valid rows (e.g., after VirtualInsertEmptyRowAfterAsync)
+                // USER REQUIREMENT: Support 10M+ rows including empty rows
+                // PREVIOUS BUG: Filtered out empty rows → RowCount stuck at 100 even after insert
                 IEnumerable<string> rowIdsToCount;
                 if (onlyFiltered && _filteredRowIds != null)
                 {
                     // Filtered view - use cached filtered row IDs
                     rowIdsToCount = _filteredRowIds;
-                    _logger?.LogDebug("✅ PROBLEM 2 FIX (InMemory): Using filtered view ({Count} filtered rows)",
+                    _logger?.LogDebug("✅ FIX (InMemory): Using filtered view ({Count} filtered rows)",
                         _filteredRowIds.Count);
                 }
                 else
@@ -353,26 +356,12 @@ internal sealed class InMemoryStorageStrategy : IStorageStrategy
                     rowIdsToCount = GetSortedRowKeys();
                 }
 
-                // Count only non-empty data rows
-                long count = 0;
-                foreach (var rowId in rowIdsToCount)
-                {
-                    if (_rows.TryGetValue(rowId, out var row))
-                    {
-                        // Check if row has at least one non-empty data column
-                        bool hasData = row.Any(kvp =>
-                            !kvp.Key.StartsWith("__") &&  // Skip internal columns (__rowId, __rowNumber, etc.)
-                            kvp.Value != null &&
-                            !string.IsNullOrWhiteSpace(kvp.Value.ToString()));
+                // ✅ FIX: Count ALL rows (including empty rows)
+                // REMOVED: hasData filter that excluded empty rows
+                // RESULT: RowCount now increments correctly after insert operations
+                long count = rowIdsToCount.Count();
 
-                        if (hasData)
-                        {
-                            count++;
-                        }
-                    }
-                }
-
-                _logger?.LogDebug("✅ PROBLEM 2 FIX (InMemory): GetRowCountAsync returning {Count} non-empty rows (onlyFiltered={OnlyFiltered}, total in store: {Total})",
+                _logger?.LogDebug("✅ FIX (InMemory): GetRowCountAsync returning {Count} TOTAL rows (onlyFiltered={OnlyFiltered}, store total: {Total})",
                     count, onlyFiltered, _rows.Count);
 
                 return count;

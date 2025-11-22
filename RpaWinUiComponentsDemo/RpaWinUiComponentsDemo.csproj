@@ -53,10 +53,10 @@
   <ItemGroup>
 
     <!-- External logging implementation for testing -->
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.10" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.10" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.10" />
-    <PackageReference Include="RpaWinUiComponentsPackage" Version="2.2.21" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
+    <PackageReference Include="RpaWinUiComponentsPackage" Version="2.2.24" />
 
     <!-- USE PROJECT REFERENCE for development/testing new features -->
     <!--<PackageReference Include="RpaWinUiComponentsPackage" Version="2.2.11" />-->

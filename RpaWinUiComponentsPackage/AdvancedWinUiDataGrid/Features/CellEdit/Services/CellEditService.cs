@@ -648,11 +648,42 @@ internal sealed class CellEditService : ICellEditService
             // Return preview result
             if (!validationResult.IsValid)
             {
-                _logger.LogTrace("⚠️ PREVIEW VALIDATION FAILED: {ErrorMessage}", validationResult.ErrorMessage);
-                return PreviewValidationResult.Error(
-                    validationResult.ErrorMessage ?? "Validation failed",
-                    columnName,
-                    validationResult.Severity);
+                // ✅ PROFESSIONAL FIX: Filter errors to show ONLY errors for edited column
+                // REASON: Preview validates ENTIRE ROW but should show only CURRENT COLUMN errors
+                // USER REQUIREMENT: "ked editnem Column_2, nechcem vidiet chyby z Column_1"
+                // ARCHITECTURE: Separate row validation (backend) from column-specific preview (UI)
+
+                // Parse ErrorMessage to extract column-specific errors
+                // ErrorMessage format: "Column_1: msg1; Column_2: msg2; ..."
+                var allErrorMessages = (validationResult.ErrorMessage ?? string.Empty)
+                    .Split(new[] { "; " }, StringSplitOptions.RemoveEmptyEntries)
+                    .ToList();
+
+                // Filter to include only errors for the column being edited
+                var columnSpecificErrors = allErrorMessages
+                    .Where(msg => msg.StartsWith($"{columnName}:", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                if (columnSpecificErrors.Any())
+                {
+                    // Build error message with only errors for edited column
+                    var errorMessage = string.Join("; ", columnSpecificErrors);
+
+                    _logger.LogTrace("⚠️ PREVIEW VALIDATION FAILED for column {ColumnName}: {ErrorMessage}",
+                        columnName, errorMessage);
+
+                    return PreviewValidationResult.Error(
+                        errorMessage,
+                        columnName,
+                        validationResult.Severity);
+                }
+                else
+                {
+                    // Row has errors but NOT in edited column - return success for THIS column
+                    _logger.LogTrace("✅ PREVIEW VALIDATION PASSED for column {ColumnName} (row has errors in OTHER columns)",
+                        columnName);
+                    return PreviewValidationResult.Success(columnName);
+                }
             }
             else
             {

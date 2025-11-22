@@ -630,7 +630,7 @@ public sealed class DataGridCellsView : UserControl, IDisposable
     /// SOLUTION: Rebind ItemsSource (null → recreate) to force ItemsRepeater to recreate ALL elements.
     /// USE CASE: After INSERT operations that change visible row count on last page.
     /// </summary>
-    private void OnItemsRepeaterRefreshRequested(object? sender, EventArgs e)
+    private async void OnItemsRepeaterRefreshRequested(object? sender, EventArgs e)
     {
         try
         {
@@ -646,13 +646,42 @@ public sealed class DataGridCellsView : UserControl, IDisposable
                 return;
             }
 
+            // ✅ CRITICAL FIX: Save scroll position BEFORE rebind
+            // REASON: ItemsSource rebind resets ScrollViewer.VerticalOffset to 0
+            // USER REQUIREMENT: Keep scroll position when adding/deleting rows
+            double savedScrollOffset = _scrollViewer.VerticalOffset;
+            _logger.LogDebug("Saving scroll position before rebind: {Offset}", savedScrollOffset);
+
+            // ✅ CRITICAL FIX: Use count of VISIBLE rows instead of total Rows.Count
+            // REASON: Rows.Count is FIXED (always PageSize=15), but visible rows may be less (e.g., 6 on last page)
+            // PREVIOUS BUG: ItemsRepeater created 15 elements even when only 6 rows were visible
+            // RESULT: New rows appeared invisible because ItemsRepeater didn't create UI elements for them
+            // ARCHITECTURE: Fixed UI pool (15 ViewModels) but ItemsRepeater renders only VISIBLE count
+            int visibleRowCount = _viewModel?.Rows?.Count(r => r.IsVisible) ?? currentCount;
+            _logger.LogInformation("Rebinding ItemsSource with {VisibleCount} visible rows (total pool: {PoolSize})",
+                visibleRowCount, _viewModel?.Rows?.Count ?? 0);
+
             // ✅ Force complete re-render: ItemsSource = null → recreate
             // This clears ItemsRepeater's internal cache and forces recreation of ALL elements
             _itemsRepeater.ItemsSource = null;
             _itemsRepeater.UpdateLayout();  // Force layout pass to clear cache
-            _itemsRepeater.ItemsSource = Enumerable.Range(0, currentCount).ToList();
 
-            _logger.LogInformation("✅ ItemsRepeater refresh completed - {Count} elements recreated", currentCount);
+            // ✅ CRITICAL FIX: Set scroll position BEFORE assigning new ItemsSource
+            // REASON: Prevents visible scroll jump (scroll restored before UI renders)
+            // PREVIOUS BUG: 50ms delay caused visible jump to top then back
+            // RESULT: Smooth transition - user never sees scroll position change
+            if (savedScrollOffset > 0)
+            {
+                _scrollViewer.ChangeView(null, savedScrollOffset, null, disableAnimation: true);
+            }
+
+            _itemsRepeater.ItemsSource = Enumerable.Range(0, visibleRowCount).ToList();  // ✅ CHANGE: visibleRowCount instead of currentCount
+
+            // ✅ CHANGE: Small delay AFTER rebind for UI stabilization (no visible jump)
+            await Task.Delay(16); // 1 frame @ 60fps - imperceptible
+
+            _logger.LogInformation("✅ ItemsRepeater refresh completed - {Count} visible elements recreated, scroll restored to {Offset}",
+                visibleRowCount, savedScrollOffset);
         }
         catch (Exception ex)
         {

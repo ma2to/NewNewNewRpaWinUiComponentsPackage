@@ -517,7 +517,7 @@ internal sealed class InternalUIUpdateHandler : IDisposable
             var validationErrors = await _validationService.GetValidationErrorsAsync(onlyFiltered: false, onlyChecked: false, cancellationToken: default);
             if (validationErrors != null && validationErrors.Any())
             {
-                _viewModel.ApplyValidationErrors(validationErrors);
+                await _viewModel.ApplyValidationErrors(validationErrors);
                 _logger.LogInformation("✅ VALIDATION FIX: Re-applied {Count} validation errors after full reload", validationErrors.Count);
             }
 
@@ -566,7 +566,7 @@ internal sealed class InternalUIUpdateHandler : IDisposable
                     if (errors != null && errors.Count > 0)
                     {
                         // Apply to UI ViewModels (red borders, validation alerts)
-                        _viewModel.ApplyValidationErrors(errors);
+                        await _viewModel.ApplyValidationErrors(errors);
                         _logger.LogInformation("Applied {ErrorCount} validation errors to UI (red borders, alerts)", errors.Count);
 
                         // ARCHITECTURE CHANGE: No need to refresh viewport - uses canonical ViewModels

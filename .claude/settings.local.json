@@ -22,7 +22,10 @@
       "Bash(Select-String -Pattern \"Build succeeded|Build FAILED|Error\\(s\\)|warning CS0618\")",
       "Bash(Get-ChildItem \"D:\\www\\RB0120APP\\NewRpaWinUiComponentsPackage\\RpaWinUiComponentsDemo\\TempLog\")",
       "Bash(Select-String -Pattern \"Build succeeded|Build FAILED|error\")",
-      "Bash(Select-String -Pattern \"Build succeeded|Build FAILED|warning CS8604\")"
+      "Bash(Select-String -Pattern \"Build succeeded|Build FAILED|warning CS8604\")",
+      "Bash(awk:*)",
+      "Bash(Get-ChildItem \"D:\\www\\RB0120APP\\NewRpaWinUiComponentsPackage\\RpaWinUiComponentsPackage\\TempLog\" -ErrorAction SilentlyContinue)",
+      "Bash(Select-String -Pattern \"Build succeeded|Build FAILED|error|warning CS0618\" -Context 0,1)"
     ],
     "deny": [],
     "ask": []

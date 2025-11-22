@@ -1649,7 +1649,7 @@ public sealed class DataGridViewModel : ViewModelBase
     /// Should be called after validation completes to show validation results in UI.
     /// </summary>
     /// <param name="validationErrors">List of validation errors from validation service</param>
-    internal void ApplyValidationErrors(IReadOnlyList<Common.Models.ValidationError> validationErrors)
+    internal async Task ApplyValidationErrors(IReadOnlyList<Common.Models.ValidationError> validationErrors)
     {
         _logger?.LogTrace("DataGridViewModel: ApplyValidationErrors called with {ErrorCount} errors", validationErrors?.Count ?? 0);
 
@@ -1674,13 +1674,64 @@ public sealed class DataGridViewModel : ViewModelBase
 
         _logger?.LogDebug("Grouped into {CellErrorCount} unique cell errors", errorsByCell.Count);
 
-        // ✅ PROFESSIONAL FIX: DO NOT clear existing validation errors
-        // CRITICAL: Prevents realtime validation from clearing errors in OTHER rows
-        // REASON: UpdateCellAsync validates only CURRENT row, but ApplyValidationErrors
-        //         was clearing errors from ALL rows, causing errors to disappear
-        // ARCHITECTURE: Only update/add errors from errorsByCell, leave others unchanged
-        // REMOVED: foreach loop that cleared all cells (lines 1656-1664)
-        _logger?.LogDebug("Skipping clear of existing errors - will only update/add new errors");
+        // ✅ CRITICAL FIX: Clear ALL validation errors from ALL cells
+        // REASON: ItemsRepeater recycles UI elements - old errors persist on recycled cells
+        // PREVIOUS BUG: Validation errors appeared on wrong rows after sort/pagination
+        // EXAMPLE: Page 1 row 3 had error → After sort, page 2 row 3 shows same error (recycled cell)
+        // SOLUTION: Clear all errors first, then apply only current errors from errorsByCell
+        _logger?.LogDebug("Clearing all existing validation errors before applying new ones (ItemsRepeater recycling fix)");
+
+        foreach (var row in Rows)
+        {
+            foreach (var cell in row.Cells.Where(c => c.SpecialType == Common.SpecialColumnType.None))
+            {
+                if (cell.IsValidationError)
+                {
+                    // ✅ CRITICAL FIX: Clear on UI thread to ensure immediate binding update
+                    // REASON: PropertyChanged events must fire on UI thread for immediate effect
+                    // PREVIOUS BUG: Clearing on background thread → binding delayed → errors persisted visually
+                    if (_dispatcherQueue != null)
+                    {
+                        _dispatcherQueue.TryEnqueue(() =>
+                        {
+                            cell.IsValidationError = false;
+                            cell.ValidationMessage = null;
+                        });
+                    }
+                    else
+                    {
+                        cell.IsValidationError = false;
+                        cell.ValidationMessage = null;
+                    }
+                }
+            }
+
+            // Clear ValidationAlerts column
+            var alertsCell = row.Cells.FirstOrDefault(c => c.SpecialType == Common.SpecialColumnType.ValidationAlerts);
+            if (alertsCell != null && !string.IsNullOrEmpty(alertsCell.ValidationAlertMessage))
+            {
+                // ✅ CRITICAL FIX: Clear on UI thread
+                if (_dispatcherQueue != null)
+                {
+                    _dispatcherQueue.TryEnqueue(() =>
+                    {
+                        alertsCell.ValidationAlertMessage = null;
+                    });
+                }
+                else
+                {
+                    alertsCell.ValidationAlertMessage = null;
+                }
+            }
+        }
+
+        // ✅ CRITICAL: Wait for UI thread to process clears BEFORE applying new errors
+        // REASON: Ensures old errors are visually cleared before new ones appear
+        // DURATION: 1 frame @ 60fps (16ms) - imperceptible delay
+        if (_dispatcherQueue != null)
+        {
+            await Task.Delay(16);
+        }
 
         // ✅ DIAGNOSTIC 2: Log ViewModel rowIds
         var viewModelRowIds = Rows

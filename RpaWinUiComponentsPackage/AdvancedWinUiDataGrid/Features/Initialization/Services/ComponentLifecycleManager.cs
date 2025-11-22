@@ -329,11 +329,17 @@ internal sealed class ComponentLifecycleManager : IComponentLifecycleManager
         // This pre-allocates rows for the first page (improves UX and performance)
         var rowStore = _serviceProvider.GetService<Infrastructure.Persistence.Interfaces.IRowStore>();
         var options = _serviceProvider.GetService<AdvancedDataGridOptions>();
+        var pageManager = _serviceProvider.GetService<Pagination.Interfaces.IPageManager>();
 
-        if (rowStore != null && options != null)
+        if (rowStore != null && options != null && pageManager != null)
         {
-            // Use default page size of 100 rows for initialization
-            var pageSize = 100;
+            // ✅ PROFESSIONAL FIX: Use PageManager.PageSize instead of hardcoded 100
+            // REASON: User requirement - vytvorí sa počet riadkov = PageSize (nie 100)
+            // ARCHITECTURE: PageSize je konfigurovateľný (default: 20 in PageManager.cs)
+            // REUSE PATTERN: ViewModels sa prepúžavajú pri zmene stránky (nie vytvárajú nanovo)
+            var pageSize = pageManager.PageSize;
+
+            _logger.LogInformation("Initializing {PageSize} empty rows (from PageManager.PageSize) for first page", pageSize);
 
             // Get column names from InitialColumns in AdvancedDataGridOptions
             var columnNames = options.InitialColumns?
@@ -343,15 +349,27 @@ internal sealed class ComponentLifecycleManager : IComponentLifecycleManager
 
             if (columnNames.Any())
             {
-                _logger.LogInformation("Initializing {PageSize} empty rows with {ColumnCount} predefined columns", pageSize, columnNames.Count);
+                _logger.LogInformation("Creating {PageSize} empty rows with {ColumnCount} predefined columns",
+                    pageSize, columnNames.Count);
                 await rowStore.InitializeEmptyRowsAsync(columnNames, pageSize, cancellationToken);
             }
             else
             {
                 // No columns configured yet - create empty rows with empty column list
                 // Columns will be auto-detected on first import operation
-                _logger.LogInformation("No InitialColumns configured - creating {PageSize} empty rows (columns will be detected on first import)", pageSize);
+                _logger.LogInformation("No InitialColumns configured - creating {PageSize} empty rows (columns will be detected on first import)",
+                    pageSize);
                 await rowStore.InitializeEmptyRowsAsync(Enumerable.Empty<string>(), pageSize, cancellationToken);
+            }
+
+            _logger.LogInformation("✅ Initialized grid with {PageSize} empty rows (matches PageManager.PageSize) - rows will be REUSED when changing pages",
+                pageSize);
+        }
+        else
+        {
+            if (pageManager == null)
+            {
+                _logger.LogWarning("PageManager not found in service provider - cannot determine PageSize for initialization");
             }
         }
 

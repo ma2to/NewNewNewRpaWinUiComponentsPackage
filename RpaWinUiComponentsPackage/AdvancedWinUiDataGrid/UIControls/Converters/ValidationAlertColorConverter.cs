@@ -62,8 +62,11 @@ internal sealed class ValidationAlertBackgroundConverter : IValueConverter
             {
                 return _themeManager.ValidationAlertsErrorBackground;
             }
-            // ✅ CRITICAL: Use BrushPool instead of new SolidColorBrush
-            return Features.Optimization.BrushPool.GetBrush(Color.FromArgb(30, 255, 0, 0));
+            // ✅ CRITICAL FIX: Change alpha from 30 to 255 (opaque light red)
+            // REASON: Alpha=30 appears black on dark backgrounds
+            // USER ISSUE: "Black background in validAlerts column when sorting with errors"
+            // SOLUTION: Use opaque light red (255, 255, 220, 220) for consistent visibility
+            return Features.Optimization.BrushPool.GetBrush(Color.FromArgb(255, 255, 220, 220));
         }
 
         // No validation alert - return default background (white)

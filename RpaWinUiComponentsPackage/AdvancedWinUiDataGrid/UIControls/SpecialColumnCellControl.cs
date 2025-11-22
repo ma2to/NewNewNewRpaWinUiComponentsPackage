@@ -249,10 +249,11 @@ internal sealed class SpecialColumnCellControl : UserControl
         var border = new Border
         {
             Child = textBlock,
-            // ✅ CRITICAL FIX: Nastaviť INITIAL background PRED bindingom
+            // ✅ CRITICAL FIX: Nastaviť INITIAL background PRED bindingom using BrushPool
             // REASON: Eliminuje BLACK flash počas binding initialization po sort
-            // QUALITY: Border má OKAMŽITE správnu farbu pri vytvorení, binding ju potom updatuje
-            Background = _viewModel.Theme?.CellDefaultBackground ?? new SolidColorBrush(Colors.White),
+            // QUALITY: BrushPool garantuje non-null cached brush (nie new instance)
+            // USER FIX: Po sorte sa Border re-create → BrushPool zabezpečuje konzistentný background
+            Background = _viewModel.Theme?.CellDefaultBackground ?? Features.Optimization.BrushPool.GetBrush(Colors.White),
             BorderBrush = _viewModel.Theme?.CellBorder ?? new SolidColorBrush(Colors.LightGray),
             BorderThickness = new Thickness(1, 1, 0, 1), // ✅ FIX: Right=0 (ResizeGripControl adds 12px spacing between columns)
             HorizontalAlignment = HorizontalAlignment.Stretch,
