@@ -735,7 +735,10 @@ internal sealed class SqliteStorageStrategy : IStorageStrategy, IAsyncDisposable
 
         using var cmd = connection.CreateCommand();
 
-        // ✅ PROBLEM 2 FIX: Build WHERE clause with filter support
+        // ✅ CRITICAL: Build WHERE clause with filter support
+        // CONSISTENCY: __isDeleted=0 filter equals InMemory's _rows.Remove() behavior
+        // ARCHITECTURE: SQLite uses soft delete (__isDeleted flag), InMemory uses hard delete (dictionary remove)
+        // RESULT: Both return count of NON-DELETED rows (same API behavior)
         var whereClause = "__isDeleted = 0";
         if (onlyFiltered && !string.IsNullOrEmpty(_activeFilterSql))
         {
@@ -747,7 +750,7 @@ internal sealed class SqliteStorageStrategy : IStorageStrategy, IAsyncDisposable
         var result = await cmd.ExecuteScalarAsync(ct);
         var count = result != null ? Convert.ToInt64(result) : 0;
 
-        _logger?.LogDebug("✅ PROBLEM 2 FIX (SqliteStrategy): GetRowCountAsync: {Count} rows (onlyFiltered={OnlyFiltered})",
+        _logger?.LogDebug("✅ FIX (SQLite): GetRowCountAsync returning {Count} TOTAL rows (onlyFiltered={OnlyFiltered}, excluding soft-deleted)",
             count, onlyFiltered);
         return count;
     }

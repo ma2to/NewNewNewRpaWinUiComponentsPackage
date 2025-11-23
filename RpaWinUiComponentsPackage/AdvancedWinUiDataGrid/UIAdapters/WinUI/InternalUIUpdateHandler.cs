@@ -378,19 +378,49 @@ internal sealed class InternalUIUpdateHandler : IDisposable
             _viewModel.InvalidateRowIdCache();
             _viewModel.ViewportManager?.InvalidateCache();
 
-            // ✅ CRITICAL FIX #1: Force UI refresh after INSERT/DELETE (same as OnPageChanged)
-            // PROBLEM: UI shows stale data until user manually changes page (page 6 → page 7)
-            // ROOT CAUSE: WinUI ItemsRepeater requires PropertyChanged(Rows) to re-render viewport
-            // SOLUTION: Notify Rows collection changed to trigger ItemsRepeater refresh
-            // CONSISTENCY: Same mechanism as OnPageManagerPageChanged() line 1915
+            // ✅ CRITICAL FIX #1: Force UI refresh FIRST
             _viewModel.NotifyRowsCollectionChanged();
 
-            // ✅ CRITICAL FIX #2: Force COMPLETE ItemsRepeater refresh (beyond cache invalidation)
-            // PROBLEM: Page 7 has 10 rows → user adds 5 rows → UI still shows only 10 rows
-            // ROOT CAUSE: ItemsRepeater caches collapsed elements (rows 10-14) and doesn't re-render when IsVisible changes
-            // SOLUTION: ForceCompleteUIRefresh() triggers ItemsSource rebind (null → recreate) in DataGridCellsView
-            // RESULT: ALL elements recreated, IsVisible changes reflected immediately
+            // ✅ CRITICAL FIX #2: Force COMPLETE ItemsRepeater refresh
             _viewModel.ForceCompleteUIRefresh();
+
+            // ✅ CRITICAL FIX #2.5: SYNCHRONOUS WAIT for UI refresh completion
+            // REASON: ForceCompleteUIRefresh fires async void event → returns immediately
+            // PREVIOUS BUG: Dispose executed BEFORE OnItemsRepeaterRefreshRequested completed
+            // USER ISSUE: "na poslednej page viem pridat iba 1 novy riadok" (13th fix!)
+            // SOLUTION: Add delay to ensure UI refresh completes BEFORE dispose
+            // ARCHITECTURE: Complex grids with many columns can take 200-300ms for UpdateLayout()
+            // TIMING: async void event handler cannot be awaited → must wait long enough
+            // PREVIOUS ATTEMPT: 100ms was NOT enough → increased to 300ms for safety
+            await Task.Delay(300);
+
+            // ✅ CRITICAL FIX #3: Dispose ViewModels AFTER UI refresh completion
+            // REASON: Dispose sets IsVisible=false → if called before refresh, visibleRowCount is wrong
+            // PREVIOUS BUG: Dispose before refresh → OnItemsRepeaterRefreshRequested counts disposed rows as invisible
+            // EXAMPLE: Last page had 6 visible, added 5 = 11 visible, disposed 4 empty = 7 counted (WRONG!)
+            // ARCHITECTURE: Refresh first (UI reads IsVisible from all 11), then dispose (cleanup 4 empty)
+            // TIMING: Dispose after ForceCompleteUIRefresh ensures UI already read correct IsVisible values
+            // PERFORMANCE: 10M+ riadkov - dispose len 4-8 empty ViewModels, NIE 10M riadkov
+            var invisibleRows = _viewModel.Rows
+                .Where(r => !r.IsVisible || string.IsNullOrEmpty(r.RowId))
+                .ToList();
+
+            if (invisibleRows.Any())
+            {
+                foreach (var row in invisibleRows)
+                {
+                    try
+                    {
+                        row.Dispose(); // Dispose CellViewModels + unsubscribe events
+                    }
+                    catch (Exception disposeEx)
+                    {
+                        _logger.LogWarning(disposeEx, "Failed to dispose invisible row at index {RowIndex}", row.RowIndex);
+                    }
+                }
+                _logger.LogInformation("✅ MEMORY: Disposed {Count} invisible ViewModels after incremental update (freed ~{CellCount} CellViewModels)",
+                    invisibleRows.Count, invisibleRows.Count * 10);
+            }
 
             _logger.LogInformation("✅ INCREMENTAL UPDATE completed - reloaded {Count} ViewModels for current page (VirtualInsert/Delete shifted data now visible)",
                 pageRows.Count);

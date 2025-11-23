@@ -368,7 +368,21 @@ public sealed class CellViewModel : ViewModelBase, IDisposable
     public string? ValidationAlertMessage
     {
         get => _validationAlertMessage;
-        set => SetProperty(ref _validationAlertMessage, value);
+        set
+        {
+            // ✅ CRITICAL FIX: Notify BOTH properties!
+            // REASON: HasValidationAlert is computed from ValidationAlertMessage
+            // PREVIOUS BUG: Binding on HasValidationAlert never updated → converter never called → BLACK background
+            // USER ISSUE: "stale to meni farbu background na ciernu" (13th fix attempt!)
+            // ROOT CAUSE: WinUI binding engine requires explicit PropertyChanged for computed properties
+            // ARCHITECTURE: SetProperty returns true if value changed, then notify dependent property
+            if (SetProperty(ref _validationAlertMessage, value))
+            {
+                // ✅ Must explicitly notify dependent computed property
+                // RESULT: ValidationAlertBackgroundConverter.Convert() will be called
+                OnPropertyChanged(nameof(HasValidationAlert));
+            }
+        }
     }
 
     /// <summary>

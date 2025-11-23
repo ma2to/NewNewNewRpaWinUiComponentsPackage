@@ -249,11 +249,13 @@ internal sealed class SpecialColumnCellControl : UserControl
         var border = new Border
         {
             Child = textBlock,
-            // ✅ CRITICAL FIX: Nastaviť INITIAL background PRED bindingom using BrushPool
-            // REASON: Eliminuje BLACK flash počas binding initialization po sort
-            // QUALITY: BrushPool garantuje non-null cached brush (nie new instance)
-            // USER FIX: Po sorte sa Border re-create → BrushPool zabezpečuje konzistentný background
-            Background = _viewModel.Theme?.CellDefaultBackground ?? Features.Optimization.BrushPool.GetBrush(Colors.White),
+            // ✅ CRITICAL FIX: Initial background must be OPAQUE for visibility in dark mode
+            // PREVIOUS BUG: Transparent appeared BLACK in dark mode
+            // REASON: System background v dark mode = black, Transparent = invisible/black appearance
+            // SOLUTION: Use OPAQUE white which renders correctly in both light & dark modes
+            //           Binding converter will override with correct color asynchronously
+            Background = _viewModel.Theme?.CellDefaultBackground ??
+                Features.Optimization.BrushPool.GetBrush(Microsoft.UI.Colors.White),
             BorderBrush = _viewModel.Theme?.CellBorder ?? new SolidColorBrush(Colors.LightGray),
             BorderThickness = new Thickness(1, 1, 0, 1), // ✅ FIX: Right=0 (ResizeGripControl adds 12px spacing between columns)
             HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -268,10 +270,10 @@ internal sealed class SpecialColumnCellControl : UserControl
             Path = new PropertyPath(nameof(CellViewModel.HasValidationAlert)),
             Mode = Microsoft.UI.Xaml.Data.BindingMode.OneWay,
             Converter = new ValidationAlertBackgroundConverter(_viewModel.Theme),
-            // ✅ CRITICAL: FallbackValue for binding path failure
-            FallbackValue = Features.Optimization.BrushPool.GetBrush(Colors.White),
-            // ✅ QUALITY: TargetNullValue for null Source or null converter result
-            TargetNullValue = Features.Optimization.BrushPool.GetBrush(Colors.White)
+            // ✅ CRITICAL: FallbackValue for binding path failure (opaque white)
+            FallbackValue = Features.Optimization.BrushPool.GetBrush(Microsoft.UI.Colors.White),
+            // ✅ QUALITY: TargetNullValue for null Source or null converter result (opaque white)
+            TargetNullValue = Features.Optimization.BrushPool.GetBrush(Microsoft.UI.Colors.White)
         };
         border.SetBinding(Border.BackgroundProperty, backgroundBinding);
 

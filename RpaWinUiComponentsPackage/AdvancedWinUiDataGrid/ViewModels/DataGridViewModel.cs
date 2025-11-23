@@ -1674,64 +1674,18 @@ public sealed class DataGridViewModel : ViewModelBase
 
         _logger?.LogDebug("Grouped into {CellErrorCount} unique cell errors", errorsByCell.Count);
 
-        // ✅ CRITICAL FIX: Clear ALL validation errors from ALL cells
-        // REASON: ItemsRepeater recycles UI elements - old errors persist on recycled cells
-        // PREVIOUS BUG: Validation errors appeared on wrong rows after sort/pagination
-        // EXAMPLE: Page 1 row 3 had error → After sort, page 2 row 3 shows same error (recycled cell)
-        // SOLUTION: Clear all errors first, then apply only current errors from errorsByCell
+        // ✅ CRITICAL FIX: ATOMIC batch operation namiesto 150+ TryEnqueue calls
+        // REASON: Každý TryEnqueue = samostatný UI thread task → clearing a applying sa prelínajú
+        // PREVIOUS BUG: Page 1 row 0 had error, change to page 2 → row 0 still shows error
+        //               CAUSE: UI thread queue interleaved clearing and applying tasks
+        // SOLUTION: Batch ALL clearing + applying v JEDNOM TryEnqueue call
+        // ARCHITECTURE: Atomická operácia na UI thread → clear THEN apply, no interleaving
+        // PERFORMANCE: 1 context switch namiesto 150+ = RÝCHLEJŠIE pre 10M+ riadkov
+        // VALIDATION SCOPE:
+        //   - Validation sa VYKONÁVA na všetkých riadkoch ktoré potrebujú revalidáciu
+        //   - ApplyValidationErrors ZOBRAZUJE errors len na 15 visible ViewModels
+        //   - Cross-column dependencies: rule.DependentColumns revaliduje závislé stĺpce
         _logger?.LogDebug("Clearing all existing validation errors before applying new ones (ItemsRepeater recycling fix)");
-
-        foreach (var row in Rows)
-        {
-            foreach (var cell in row.Cells.Where(c => c.SpecialType == Common.SpecialColumnType.None))
-            {
-                if (cell.IsValidationError)
-                {
-                    // ✅ CRITICAL FIX: Clear on UI thread to ensure immediate binding update
-                    // REASON: PropertyChanged events must fire on UI thread for immediate effect
-                    // PREVIOUS BUG: Clearing on background thread → binding delayed → errors persisted visually
-                    if (_dispatcherQueue != null)
-                    {
-                        _dispatcherQueue.TryEnqueue(() =>
-                        {
-                            cell.IsValidationError = false;
-                            cell.ValidationMessage = null;
-                        });
-                    }
-                    else
-                    {
-                        cell.IsValidationError = false;
-                        cell.ValidationMessage = null;
-                    }
-                }
-            }
-
-            // Clear ValidationAlerts column
-            var alertsCell = row.Cells.FirstOrDefault(c => c.SpecialType == Common.SpecialColumnType.ValidationAlerts);
-            if (alertsCell != null && !string.IsNullOrEmpty(alertsCell.ValidationAlertMessage))
-            {
-                // ✅ CRITICAL FIX: Clear on UI thread
-                if (_dispatcherQueue != null)
-                {
-                    _dispatcherQueue.TryEnqueue(() =>
-                    {
-                        alertsCell.ValidationAlertMessage = null;
-                    });
-                }
-                else
-                {
-                    alertsCell.ValidationAlertMessage = null;
-                }
-            }
-        }
-
-        // ✅ CRITICAL: Wait for UI thread to process clears BEFORE applying new errors
-        // REASON: Ensures old errors are visually cleared before new ones appear
-        // DURATION: 1 frame @ 60fps (16ms) - imperceptible delay
-        if (_dispatcherQueue != null)
-        {
-            await Task.Delay(16);
-        }
 
         // ✅ DIAGNOSTIC 2: Log ViewModel rowIds
         var viewModelRowIds = Rows
@@ -1746,128 +1700,181 @@ public sealed class DataGridViewModel : ViewModelBase
         int appliedCount = 0;
         int mismatchCount = 0;
 
-        foreach (var row in Rows)
+        // ✅ Batch všetky operácie v JEDNOM UI thread task
+        if (_dispatcherQueue != null)
         {
-            // ✅ PROFESSIONAL FIX: Get rowId from first DATA cell (skip special columns)
-            // REASON: Special columns (RowNumber, Checkbox, etc.) may have different or NULL rowId
-            //         but DATA cells always have correct rowId from backend
-            // FALLBACK: If no data cell found, use row.RowId property directly
-            var rowId = row.Cells.FirstOrDefault(c => c.SpecialType == Common.SpecialColumnType.None)?.RowId;
-
-            // ✅ DIAGNOSTIC: Log first 3 ViewModel rowIds for debugging
-            if (row.RowIndex < 3)
+            _dispatcherQueue.TryEnqueue(() =>
             {
-                _logger?.LogDebug("ViewModel row {RowIndex} has rowId: {RowId}", row.RowIndex, rowId ?? "NULL");
-            }
-
-            if (string.IsNullOrEmpty(rowId))
-            {
-                // Fallback: try to get rowId from row itself
-                rowId = row.RowId;
-                if (string.IsNullOrEmpty(rowId))
+                // STEP 1: Clear ALL validation errors (synchronous within UI thread)
+                foreach (var row in Rows)
                 {
-                    _logger?.LogWarning("Cannot apply validation errors to row {RowIndex} - no rowId found", row.RowIndex);
-                    continue;
-                }
-            }
-
-            // Apply errors to data cells
-            foreach (var cell in row.Cells.Where(c => c.SpecialType == Common.SpecialColumnType.None))
-            {
-                var key = (rowId, cell.ColumnName);
-                if (errorsByCell.TryGetValue(key, out var cellErrors) && cellErrors.Any())
-                {
-                    _logger?.LogDebug("✅ MATCH FOUND: Row {RowIndex}, Column {ColumnName}, RowId {RowId}",
-                        cell.RowIndex, cell.ColumnName, rowId);
-
-                    // ✅ PROFESSIONAL FIX: Pre-compute ValidationMessage BEFORE TryEnqueue
-                    // CRITICAL: Prevents IsValidationError setter from logging empty ValidationMessage
-                    // ARCHITECTURE: ValidationMessage must be set BEFORE IsValidationError triggers UpdateCellAppearance()
-                    var validationMessage = string.Join("; ", cellErrors.Select(e => e.Message));
-
-                    // ✅ PROFESSIONAL FIX: Update on UI thread to ensure PropertyChanged propagates
-                    if (_dispatcherQueue != null)
+                    foreach (var cell in row.Cells.Where(c => c.SpecialType == Common.SpecialColumnType.None))
                     {
-                        _dispatcherQueue.TryEnqueue(() =>
+                        if (cell.IsValidationError)
                         {
-                            // Set ValidationMessage FIRST (before IsValidationError triggers UpdateCellAppearance)
+                            cell.IsValidationError = false;
+                            cell.ValidationMessage = null;
+                        }
+                    }
+
+                    // ✅ ALWAYS clear ValidationAlerts - unconditionally!
+                    // REASON: ItemsRepeater recycles UI → old message persists without explicit clear
+                    // PREVIOUS BUG: Cleared only if !IsNullOrEmpty → empty cells kept old values from recycled UI
+                    var alertsCell = row.Cells.FirstOrDefault(c => c.SpecialType == Common.SpecialColumnType.ValidationAlerts);
+                    if (alertsCell != null)
+                    {
+                        alertsCell.ValidationAlertMessage = null;  // Unconditional clear
+                    }
+                }
+
+                // STEP 2: Apply new validation errors (synchronous within UI thread)
+                // NOTE: Tento kód beží SYNCHRONNE po Step 1 v rovnakom UI thread cykle
+                // GUARANTEE: Clearing je 100% dokončený pred applying
+                // SCOPE: Aplikuje errors len na 15 visible ViewModels (Rows collection)
+                //        Validation bola vykonaná na všetkých riadkoch v pozadí
+                int batchAppliedCount = 0;
+
+                foreach (var row in Rows)
+                {
+                    // ✅ PROFESSIONAL FIX: Get rowId from first DATA cell (skip special columns)
+                    var rowId = row.Cells.FirstOrDefault(c => c.SpecialType == Common.SpecialColumnType.None)?.RowId;
+
+                    if (string.IsNullOrEmpty(rowId))
+                    {
+                        rowId = row.RowId;
+                        if (string.IsNullOrEmpty(rowId))
+                            continue;
+                    }
+
+                    // Apply errors to data cells
+                    foreach (var cell in row.Cells.Where(c => c.SpecialType == Common.SpecialColumnType.None))
+                    {
+                        if (errorsByCell.TryGetValue((rowId, cell.ColumnName), out var cellErrors))
+                        {
+                            var validationMessage = string.Join("; ", cellErrors.Select(e => e.Message));
                             cell.ValidationMessage = validationMessage;
                             cell.IsValidationError = true;
-                        });
-                    }
-                    else
-                    {
-                        cell.ValidationMessage = validationMessage;
-                        cell.IsValidationError = true;
+                            batchAppliedCount++;
+                        }
                     }
 
-                    appliedCount++;
+                    // Update ValidationAlerts column with cross-column errors
+                    // NOTE: ValidationAlerts zobrazí všetky errors pre tento riadok,
+                    //       vrátane errors z cross-column validation rules
+                    var alertsCellInner = row.Cells.FirstOrDefault(c => c.SpecialType == Common.SpecialColumnType.ValidationAlerts);
+                    if (alertsCellInner != null)
+                    {
+                        var allRowErrors = errorsByCell
+                            .Where(kvp => kvp.Key.RowId == rowId)
+                            .SelectMany(kvp => kvp.Value)
+                            .ToList();
+
+                        if (allRowErrors.Any())
+                        {
+                            var columnOrder = ColumnHeaders
+                                .Select((header, index) => new { header.ColumnName, Order = index })
+                                .ToDictionary(x => x.ColumnName, x => x.Order, StringComparer.OrdinalIgnoreCase);
+
+                            var sortedErrors = allRowErrors
+                                .OrderBy(e => columnOrder.TryGetValue(e.ColumnName ?? string.Empty, out var order) ? order : int.MaxValue)
+                                .ToList();
+
+                            var message = string.Join("; ",
+                                sortedErrors.Select(e => $"{e.ColumnName}: {e.Message}"));
+
+                            alertsCellInner.ValidationAlertMessage = message;
+                        }
+                        // ✅ CRITICAL FIX: ELSE branch to clear message when no errors
+                        // REASON: ItemsRepeater recycles UI → old message persists without explicit clear
+                        // PREVIOUS BUG: Page 1 error appeared on Page 2 at same position (13th fix!)
+                        // USER ISSUE: "na kazdej page je tato chyba vypisana na prvom riadku"
+                        else
+                        {
+                            alertsCellInner.ValidationAlertMessage = null;  // Clear when no errors
+                        }
+                    }
                 }
-                // ✅ PROFESSIONAL FIX: DO NOT clear errors for cells not in errorsByCell
-                // CRITICAL: errorsByCell may contain only CURRENT row errors (realtime validation)
-                // REASON: Clearing here would remove errors from OTHER rows that were not validated
-                // ARCHITECTURE: Leave existing errors unchanged - batch validation will clear them later
-                // REMOVED: else block that cleared cell.ValidationMessage and cell.IsValidationError
+
+                _logger?.LogInformation("✅ ATOMIC VALIDATION UPDATE: Cleared all + applied {Count} errors in single UI thread cycle", batchAppliedCount);
+                appliedCount = batchAppliedCount;
+            });
+
+            // ✅ CRITICAL FIX: Force SYNCHRONOUS wait for PropertyChanged propagation
+            // REASON: TryEnqueue is async → need to ensure UI sees updated values
+            // PREVIOUS BUG: Validation errors persisted on wrong pages due to race condition
+            // SOLUTION: Small delay to allow PropertyChanged events to propagate to UI
+            // TIMING: 50ms = 3 frames @ 60fps - ensures PropertyChanged completed before UI refresh
+            await Task.Delay(50);
+        }
+        else
+        {
+            // Fallback: Synchronous execution (nie UI thread)
+            // NOTE: Toto sa použije len ak DispatcherQueue nie je dostupný (testing scenarios)
+            foreach (var row in Rows)
+            {
+                foreach (var cell in row.Cells.Where(c => c.SpecialType == Common.SpecialColumnType.None))
+                {
+                    if (cell.IsValidationError)
+                    {
+                        cell.IsValidationError = false;
+                        cell.ValidationMessage = null;
+                    }
+                }
+
+                var alertsCell = row.Cells.FirstOrDefault(c => c.SpecialType == Common.SpecialColumnType.ValidationAlerts);
+                if (alertsCell != null && !string.IsNullOrEmpty(alertsCell.ValidationAlertMessage))
+                {
+                    alertsCell.ValidationAlertMessage = null;
+                }
             }
 
-            // Update ValidationAlerts special column
-            var alertsCell = row.Cells.FirstOrDefault(c => c.SpecialType == Common.SpecialColumnType.ValidationAlerts);
-            if (alertsCell != null)
+            // Apply new errors synchronously (same logic as batch)
+            foreach (var row in Rows)
             {
-                // Get all errors for this row (any column)
-                var allRowErrors = errorsByCell
-                    .Where(kvp => kvp.Key.RowId == rowId)
-                    .SelectMany(kvp => kvp.Value)
-                    .ToList();
+                var rowId = row.Cells.FirstOrDefault(c => c.SpecialType == Common.SpecialColumnType.None)?.RowId;
 
-                if (allRowErrors.Any())
+                if (string.IsNullOrEmpty(rowId))
                 {
-                    // ✅ PROFESSIONAL FIX: Sort errors by column order (left-to-right)
-                    // REASON: User expects errors in same order as columns in grid
-                    // ARCHITECTURE: Get column order from ColumnHeaders → sort errors → build message
-                    var columnOrder = ColumnHeaders
-                        .Select((header, index) => new { header.ColumnName, Order = index })
-                        .ToDictionary(x => x.ColumnName, x => x.Order, StringComparer.OrdinalIgnoreCase);
+                    rowId = row.RowId;
+                    if (string.IsNullOrEmpty(rowId))
+                        continue;
+                }
 
-                    var sortedErrors = allRowErrors
-                        .OrderBy(e => columnOrder.TryGetValue(e.ColumnName ?? string.Empty, out var order) ? order : int.MaxValue)
-                        .ToList();
-
-                    // Format: "ColumnName: msg1; ColumnName: msg2; ..."
-                    // User requirement: Show column name to identify which field has validation error
-                    var message = string.Join("; ",
-                        sortedErrors.Select(e => $"{e.ColumnName}: {e.Message}"));
-
-                    // CRITICAL: Update on UI thread to ensure PropertyChanged propagates correctly
-                    if (_dispatcherQueue != null)
+                // Apply errors to data cells
+                foreach (var cell in row.Cells.Where(c => c.SpecialType == Common.SpecialColumnType.None))
+                {
+                    if (errorsByCell.TryGetValue((rowId, cell.ColumnName), out var cellErrors))
                     {
-                        _dispatcherQueue.TryEnqueue(() =>
-                        {
-                            alertsCell.ValidationAlertMessage = message;
-                            _logger?.LogDebug("Updated ValidationAlerts column for row {RowIndex}: {Alerts}",
-                                row.RowIndex, alertsCell.ValidationAlertMessage);
-                        });
-                    }
-                    else
-                    {
-                        alertsCell.ValidationAlertMessage = message;
-                        _logger?.LogDebug("Updated ValidationAlerts column for row {RowIndex}: {Alerts}",
-                            row.RowIndex, alertsCell.ValidationAlertMessage);
+                        var validationMessage = string.Join("; ", cellErrors.Select(e => e.Message));
+                        cell.ValidationMessage = validationMessage;
+                        cell.IsValidationError = true;
+                        appliedCount++;
                     }
                 }
-                else
+
+                // Update ValidationAlerts column
+                var alertsCell = row.Cells.FirstOrDefault(c => c.SpecialType == Common.SpecialColumnType.ValidationAlerts);
+                if (alertsCell != null)
                 {
-                    // CRITICAL: Clear on UI thread to ensure PropertyChanged propagates correctly
-                    if (_dispatcherQueue != null)
+                    var allRowErrors = errorsByCell
+                        .Where(kvp => kvp.Key.RowId == rowId)
+                        .SelectMany(kvp => kvp.Value)
+                        .ToList();
+
+                    if (allRowErrors.Any())
                     {
-                        _dispatcherQueue.TryEnqueue(() =>
-                        {
-                            alertsCell.ValidationAlertMessage = null;
-                        });
-                    }
-                    else
-                    {
-                        alertsCell.ValidationAlertMessage = null;
+                        var columnOrder = ColumnHeaders
+                            .Select((header, index) => new { header.ColumnName, Order = index })
+                            .ToDictionary(x => x.ColumnName, x => x.Order, StringComparer.OrdinalIgnoreCase);
+
+                        var sortedErrors = allRowErrors
+                            .OrderBy(e => columnOrder.TryGetValue(e.ColumnName ?? string.Empty, out var order) ? order : int.MaxValue)
+                            .ToList();
+
+                        var message = string.Join("; ",
+                            sortedErrors.Select(e => $"{e.ColumnName}: {e.Message}"));
+
+                        alertsCell.ValidationAlertMessage = message;
                     }
                 }
             }

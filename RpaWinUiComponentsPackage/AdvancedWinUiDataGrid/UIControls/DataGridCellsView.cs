@@ -662,23 +662,31 @@ public sealed class DataGridCellsView : UserControl, IDisposable
                 visibleRowCount, _viewModel?.Rows?.Count ?? 0);
 
             // ✅ Force complete re-render: ItemsSource = null → recreate
-            // This clears ItemsRepeater's internal cache and forces recreation of ALL elements
             _itemsRepeater.ItemsSource = null;
             _itemsRepeater.UpdateLayout();  // Force layout pass to clear cache
 
-            // ✅ CRITICAL FIX: Set scroll position BEFORE assigning new ItemsSource
-            // REASON: Prevents visible scroll jump (scroll restored before UI renders)
-            // PREVIOUS BUG: 50ms delay caused visible jump to top then back
-            // RESULT: Smooth transition - user never sees scroll position change
+            // Assign new ItemsSource
+            _itemsRepeater.ItemsSource = Enumerable.Range(0, visibleRowCount).ToList();
+
+            // ✅ CRITICAL FIX: Force synchronous layout BEFORE setting scroll
+            // REASON: ItemsSource assignment is async → must wait for layout completion
+            // PREVIOUS BUG: ChangeView called before layout → scroll position lost during layout
+            // TIMING: ItemsSource assign → layout starts → ChangeView(222) → layout continues → scroll reset to 0
+            // SOLUTION: UpdateLayout() forces synchronous layout completion, THEN set scroll
+            // RESULT: ItemsSource assign → UpdateLayout() blocks until layout done → ChangeView(222) → scroll preserved
+            _itemsRepeater.UpdateLayout();  // ← CRITICAL: Wait for layout completion (synchronous)
+
+            // ✅ Set scroll position AFTER layout completion
+            // REASON: Scroll must be set AFTER ItemsRepeater finished creating elements
+            // GUARANTEE: Layout is 100% complete, scroll will not be reset
             if (savedScrollOffset > 0)
             {
                 _scrollViewer.ChangeView(null, savedScrollOffset, null, disableAnimation: true);
             }
 
-            _itemsRepeater.ItemsSource = Enumerable.Range(0, visibleRowCount).ToList();  // ✅ CHANGE: visibleRowCount instead of currentCount
-
-            // ✅ CHANGE: Small delay AFTER rebind for UI stabilization (no visible jump)
-            await Task.Delay(16); // 1 frame @ 60fps - imperceptible
+            // ✅ ODSTRÁNENÉ: await Task.Delay(16) - už nie je potrebné
+            // REASON: UpdateLayout() is synchronous → scroll applied immediately after layout completion
+            // PERFORMANCE: No 16ms delay = faster UI response
 
             _logger.LogInformation("✅ ItemsRepeater refresh completed - {Count} visible elements recreated, scroll restored to {Offset}",
                 visibleRowCount, savedScrollOffset);
@@ -1587,8 +1595,12 @@ public sealed class DataGridCellsView : UserControl, IDisposable
                                 // Add preview error if validation failed (temporary, not in storage)
                                 if (!result.IsValid && !string.IsNullOrEmpty(result.ErrorMessage))
                                 {
-                                    alertMessages.Add($"⚠️ PREVIEW: {result.AffectedColumn}: {result.ErrorMessage}");
-                                    _logger.LogTrace("📝 PREVIEW: Added temporary alert for {Column}", result.AffectedColumn);
+                                    // ✅ CRITICAL FIX: ErrorMessage už obsahuje column name prefix
+                                    // PREVIOUS BUG: Pridával "PREVIEW: Column_1: Column_1: Column_1 is required"
+                                    // REASON: CellEditService.cs:670 už formuje "Column_1: Column_1 is required"
+                                    // SOLUTION: Použiť ErrorMessage priamo bez pridávania AffectedColumn
+                                    alertMessages.Add($"⚠️ PREVIEW: {result.ErrorMessage}");
+                                    _logger.LogTrace("📝 PREVIEW: Added temporary alert: {Message}", result.ErrorMessage);
                                 }
 
                                 // Add permanent errors from OTHER columns (skip current column to avoid duplication)

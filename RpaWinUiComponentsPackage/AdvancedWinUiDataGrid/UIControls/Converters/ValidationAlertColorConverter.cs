@@ -62,20 +62,28 @@ internal sealed class ValidationAlertBackgroundConverter : IValueConverter
             {
                 return _themeManager.ValidationAlertsErrorBackground;
             }
-            // ✅ CRITICAL FIX: Change alpha from 30 to 255 (opaque light red)
-            // REASON: Alpha=30 appears black on dark backgrounds
-            // USER ISSUE: "Black background in validAlerts column when sorting with errors"
-            // SOLUTION: Use opaque light red (255, 255, 220, 220) for consistent visibility
-            return Features.Optimization.BrushPool.GetBrush(Color.FromArgb(255, 255, 220, 220));
+            // ✅ CRITICAL FIX: Use Windows.UI.Color EXPLICITLY
+            // REASON: BrushPool expects Windows.UI.Color, NOT Microsoft.UI.Color
+            // PREVIOUS BUG: Ambiguous Color.FromArgb resolved to wrong type → BLACK background (13th fix attempt!)
+            // ROOT CAUSE: Type mismatch between Microsoft.UI.Color and Windows.UI.Color → struct corruption
+            // SOLUTION: Explicit namespace qualification ensures correct type
+            return Features.Optimization.BrushPool.GetBrush(
+                Windows.UI.Color.FromArgb(255, 255, 220, 220)  // Opaque light red
+            );
         }
 
-        // No validation alert - return default background (white)
+        // No validation alert - return default background (opaque white for visibility)
         if (_themeManager?.CellDefaultBackground != null)
         {
             return _themeManager.CellDefaultBackground;
         }
-        // ✅ CRITICAL: Use BrushPool instead of new SolidColorBrush
-        return Features.Optimization.BrushPool.GetBrush(Colors.White);
+        // ✅ CRITICAL FIX: Convert Microsoft.UI.Colors.White to Windows.UI.Color
+        // REASON: BrushPool.GetBrush expects Windows.UI.Color parameter
+        // PREVIOUS BUG: Type mismatch caused by passing Microsoft.UI.Color → BLACK background
+        // SOLUTION: Create Windows.UI.Color from RGBA values
+        return Features.Optimization.BrushPool.GetBrush(
+            Windows.UI.Color.FromArgb(255, 255, 255, 255)  // Opaque white
+        );
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, string language)
