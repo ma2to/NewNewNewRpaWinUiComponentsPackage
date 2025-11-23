@@ -597,6 +597,51 @@ public sealed class DataGridCellsView : UserControl, IDisposable
                 _logger.LogTrace("✅ FIX #3: ItemsSource unchanged (count={Count}), skipping reset to avoid flicker", e.Count);
             }
 
+            // ✅ CRITICAL FIX #23.2: Re-apply validation errors after page change
+            // PROBLEM: UpdateViewModelsInPlace clears validation styling (IsValidationError=false, ValidationAlertMessage=null)
+            //          but ApplyValidationErrors was never called to restore errors for new page
+            // SOLUTION: Fetch validation errors from storage and re-apply them to ViewModels
+            // USER COMPLAINT: "ked prekliknem na dalsiu page a vratim sa spat na page kde je validacna chyba tak mi nezobrazi to oramovanie"
+            if (_viewModel.Facade?.Validation != null)
+            {
+                try
+                {
+                    _logger.LogDebug("🔍 FIX #23.2: Fetching validation errors after page change to re-apply to ViewModels");
+
+                    var publicErrors = await _viewModel.Facade.Validation.GetValidationErrorsAsync(
+                        onlyFiltered: false,
+                        onlyChecked: false,
+                        cancellationToken: default);
+
+                    _logger.LogDebug("🔍 FIX #23.2: Retrieved {Count} validation errors from storage, re-applying to current page ViewModels",
+                        publicErrors.Count);
+
+                    // ✅ Convert PublicValidationErrorViewModel to ValidationError
+                    var validationErrors = publicErrors.Select(e => Common.Models.ValidationError.Create(
+                        rowId: e.RowId,
+                        ruleId: e.ErrorCode ?? string.Empty,
+                        message: e.Message,
+                        columnName: e.ColumnName,
+                        severity: e.Severity == "Warning" ? Common.ValidationSeverity.Warning :
+                                  e.Severity == "Info" ? Common.ValidationSeverity.Info :
+                                  Common.ValidationSeverity.Error
+                    )).ToList();
+
+                    // Re-apply validation errors to current page ViewModels
+                    await _viewModel.ApplyValidationErrors(validationErrors);
+
+                    _logger.LogInformation("✅ FIX #23.2: Validation errors re-applied successfully after page change");
+                }
+                catch (Exception validationEx)
+                {
+                    _logger.LogError(validationEx, "❌ FIX #23.2: Failed to re-apply validation errors after page change");
+                }
+            }
+            else
+            {
+                _logger.LogTrace("FIX #23.2: Validation service not available, skipping validation error re-application");
+            }
+
             // Note: ViewportManager.TotalRowCount getter auto-calculates from PageManager.GetCurrentPageRange()
             // No need to set it manually - it will return correct value automatically
 

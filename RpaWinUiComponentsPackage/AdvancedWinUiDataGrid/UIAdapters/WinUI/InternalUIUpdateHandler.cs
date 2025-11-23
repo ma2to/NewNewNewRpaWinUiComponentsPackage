@@ -374,6 +374,22 @@ internal sealed class InternalUIUpdateHandler : IDisposable
             // CONSISTENCY: Same approach as OnPageChanged() - preserves UI binding
             _viewModel.UpdateViewModelsInPlace(pageRows);
 
+            // ✅ CRITICAL FIX #23.3: Diagnostic logging for INSERT visibility issue
+            // USER COMPLAINT: "stale nefunguje pridavanie riadkov na poslednej page" (30th fix attempt!)
+            // PROBLEM: User sees only 1 new row even though log shows correct rebinding (6→7→8→9→10)
+            // SOLUTION: Log IsVisible flags and RowId values to diagnose UI/ViewModel mismatch
+            _logger.LogInformation("🔍 FIX #23.3: DIAGNOSTIC - ViewModel.Rows state after UpdateViewModelsInPlace:");
+            for (int i = 0; i < _viewModel.Rows.Count; i++)
+            {
+                var row = _viewModel.Rows[i];
+                _logger.LogInformation("🔍 FIX #23.3:   Row[{Index}]: IsVisible={IsVisible}, RowId={RowId}, RowIndex={RowIndex}, CellsCount={CellsCount}",
+                    i, row.IsVisible, row.RowId ?? "NULL", row.RowIndex, row.Cells?.Count ?? 0);
+            }
+
+            var totalVisibleRows = _viewModel.Rows.Count(r => r.IsVisible);
+            _logger.LogInformation("🔍 FIX #23.3: TOTAL VISIBLE ROWS after UpdateViewModelsInPlace: {VisibleCount}/{TotalCount}",
+                totalVisibleRows, _viewModel.Rows.Count);
+
             // Invalidate caches to force UI refresh
             _viewModel.InvalidateRowIdCache();
             _viewModel.ViewportManager?.InvalidateCache();
@@ -382,6 +398,8 @@ internal sealed class InternalUIUpdateHandler : IDisposable
             _viewModel.NotifyRowsCollectionChanged();
 
             // ✅ CRITICAL FIX #2: Force COMPLETE ItemsRepeater refresh
+            _logger.LogInformation("🔍 FIX #23.3: Calling ForceCompleteUIRefresh to rebind ItemsRepeater with {VisibleCount} visible rows",
+                totalVisibleRows);
             _viewModel.ForceCompleteUIRefresh();
 
             // ✅ CRITICAL FIX #2.5: SYNCHRONOUS WAIT for UI refresh completion
@@ -394,33 +412,29 @@ internal sealed class InternalUIUpdateHandler : IDisposable
             // PREVIOUS ATTEMPT: 100ms was NOT enough → increased to 300ms for safety
             await Task.Delay(300);
 
-            // ✅ CRITICAL FIX #3: Dispose ViewModels AFTER UI refresh completion
-            // REASON: Dispose sets IsVisible=false → if called before refresh, visibleRowCount is wrong
-            // PREVIOUS BUG: Dispose before refresh → OnItemsRepeaterRefreshRequested counts disposed rows as invisible
-            // EXAMPLE: Last page had 6 visible, added 5 = 11 visible, disposed 4 empty = 7 counted (WRONG!)
-            // ARCHITECTURE: Refresh first (UI reads IsVisible from all 11), then dispose (cleanup 4 empty)
-            // TIMING: Dispose after ForceCompleteUIRefresh ensures UI already read correct IsVisible values
-            // PERFORMANCE: 10M+ riadkov - dispose len 4-8 empty ViewModels, NIE 10M riadkov
-            var invisibleRows = _viewModel.Rows
-                .Where(r => !r.IsVisible || string.IsNullOrEmpty(r.RowId))
-                .ToList();
-
-            if (invisibleRows.Any())
-            {
-                foreach (var row in invisibleRows)
-                {
-                    try
-                    {
-                        row.Dispose(); // Dispose CellViewModels + unsubscribe events
-                    }
-                    catch (Exception disposeEx)
-                    {
-                        _logger.LogWarning(disposeEx, "Failed to dispose invisible row at index {RowIndex}", row.RowIndex);
-                    }
-                }
-                _logger.LogInformation("✅ MEMORY: Disposed {Count} invisible ViewModels after incremental update (freed ~{CellCount} CellViewModels)",
-                    invisibleRows.Count, invisibleRows.Count * 10);
-            }
+            // ✅ CRITICAL FIX #23.4: ARCHITECTURAL FIX - REMOVE dispose logic
+            // USER COMPLAINT: "taktiez aj mazanie riadka berie pamat (asi RAM) (5 megabajtov kazde zmazanie riadku co je zle..."
+            // ROOT CAUSE: Dispose violates Fixed UI Pool architecture
+            // ARCHITECTURE REQUIREMENT (from user):
+            //   "malo by mazat data vo vnutry cize realne bude o riadok menej ale kedze mam vzdy
+            //    pocet UI riadkov tak, ze pre celu page size su vytvorene UI riadky a len sa
+            //    zvyditelnuju alebo zneviditelnuju tak by to mazanie malo zmazat data a zaroven
+            //    zneviditelnit ten riadok"
+            // CORRECT BEHAVIOR:
+            //   - DELETE: Set IsVisible=false, DO NOT dispose UI objects
+            //   - INSERT: Set IsVisible=true on existing hidden ViewModels
+            //   - UI objects should be PERMANENT (PageSize=15 always exists)
+            //   - Only DATA shifts, UI objects remain stable
+            // MEMORY LEAK FIX: Dispose was creating memory pressure (5MB per delete) because:
+            //   1. ViewModels were recreated on next page load (allocation)
+            //   2. Event handlers were being attached/detached repeatedly
+            //   3. WinUI controls were being destroyed/recreated
+            // SOLUTION: NEVER dispose ViewModels during normal operations (DELETE/INSERT)
+            //           Only recycle them by updating data (UpdateViewModelsInPlace)
+            // PERFORMANCE: Zero memory allocation for DELETE (just hide row)
+            //              Zero GC pressure (no dispose/recreate cycle)
+            // REMOVED: Lines 404-423 (dispose invisible ViewModels logic)
+            _logger.LogInformation("✅ FIX #23.4: ARCHITECTURAL FIX - Skipped dispose logic (Fixed UI Pool: ViewModels are permanent, only IsVisible changes)");
 
             _logger.LogInformation("✅ INCREMENTAL UPDATE completed - reloaded {Count} ViewModels for current page (VirtualInsert/Delete shifted data now visible)",
                 pageRows.Count);

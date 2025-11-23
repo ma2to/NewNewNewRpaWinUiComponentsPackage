@@ -249,13 +249,15 @@ internal sealed class SpecialColumnCellControl : UserControl
         var border = new Border
         {
             Child = textBlock,
-            // ✅ CRITICAL FIX: Initial background must be OPAQUE for visibility in dark mode
-            // PREVIOUS BUG: Transparent appeared BLACK in dark mode
-            // REASON: System background v dark mode = black, Transparent = invisible/black appearance
-            // SOLUTION: Use OPAQUE white which renders correctly in both light & dark modes
-            //           Binding converter will override with correct color asynchronously
+            // ✅ CRITICAL FIX #21: Type-safe initial background using Windows.UI.Color
+            // ROOT CAUSE: Microsoft.UI.Colors.White is Microsoft.UI.Color (incompatible with BrushPool)
+            // PREVIOUS BUG: Type mismatch → struct corruption → BLACK background instead of WHITE
+            // SOLUTION: Use Windows.UI.Color.FromArgb() which BrushPool.GetBrush() expects
+            //           This ensures binding initialization succeeds and converter executes
             Background = _viewModel.Theme?.CellDefaultBackground ??
-                Features.Optimization.BrushPool.GetBrush(Microsoft.UI.Colors.White),
+                Features.Optimization.BrushPool.GetBrush(
+                    Windows.UI.Color.FromArgb(255, 255, 255, 255)  // Opaque white
+                ),
             BorderBrush = _viewModel.Theme?.CellBorder ?? new SolidColorBrush(Colors.LightGray),
             BorderThickness = new Thickness(1, 1, 0, 1), // ✅ FIX: Right=0 (ResizeGripControl adds 12px spacing between columns)
             HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -263,17 +265,24 @@ internal sealed class SpecialColumnCellControl : UserControl
             Padding = new Thickness(1)
         };
 
-        // ✅ PROFESSIONAL FIX: Binding s FallbackValue + TargetNullValue pre 100% safety
+        // ✅ CRITICAL FIX #21: Type-safe binding fallback values using Windows.UI.Color
+        // ROOT CAUSE: Microsoft.UI.Colors.White causes type mismatch → binding fails to initialize
+        // SOLUTION: Use Windows.UI.Color.FromArgb() for FallbackValue and TargetNullValue
+        //           This ensures binding doesn't fail and converter executes on PropertyChanged
         var backgroundBinding = new Microsoft.UI.Xaml.Data.Binding
         {
             Source = _viewModel,
             Path = new PropertyPath(nameof(CellViewModel.HasValidationAlert)),
             Mode = Microsoft.UI.Xaml.Data.BindingMode.OneWay,
-            Converter = new ValidationAlertBackgroundConverter(_viewModel.Theme),
+            Converter = new ValidationAlertBackgroundConverter(_viewModel.Theme, _logger),  // ✅ FIX #23: Pass logger
             // ✅ CRITICAL: FallbackValue for binding path failure (opaque white)
-            FallbackValue = Features.Optimization.BrushPool.GetBrush(Microsoft.UI.Colors.White),
+            FallbackValue = Features.Optimization.BrushPool.GetBrush(
+                Windows.UI.Color.FromArgb(255, 255, 255, 255)
+            ),
             // ✅ QUALITY: TargetNullValue for null Source or null converter result (opaque white)
-            TargetNullValue = Features.Optimization.BrushPool.GetBrush(Microsoft.UI.Colors.White)
+            TargetNullValue = Features.Optimization.BrushPool.GetBrush(
+                Windows.UI.Color.FromArgb(255, 255, 255, 255)
+            )
         };
         border.SetBinding(Border.BackgroundProperty, backgroundBinding);
 

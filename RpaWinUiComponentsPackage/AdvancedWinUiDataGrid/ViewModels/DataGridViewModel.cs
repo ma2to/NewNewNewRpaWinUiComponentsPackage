@@ -861,7 +861,15 @@ public sealed class DataGridViewModel : ViewModelBase
                     }
                     else if (cell.SpecialType == SpecialColumnType.ValidationAlerts)
                     {
-                        // ValidationAlerts - preserve current state
+                        // ✅ CRITICAL FIX #21: CLEAR ValidationAlerts when updating ViewModels
+                        // ROOT CAUSE: ViewModels are REUSED (FIXED UI POOL) → old validation persists across pages/deletes
+                        // USER ISSUE: "Ak zmazem riadok... ta validacna chyba zostane stale na danej pozicii"
+                        // USER ISSUE: "na kazdej page je tato chyba vypisana na prvom riadku"
+                        // SOLUTION: Clear ValidationAlertMessage here, ApplyValidationErrors will re-populate with correct errors
+                        cell.ValidationAlertMessage = null;
+
+                        _logger?.LogTrace("Cleared ValidationAlerts for row {Index} (RowId={RowId})",
+                            i, newRowId);
                     }
                     else if (cell.SpecialType == SpecialColumnType.DeleteRow ||
                              cell.SpecialType == SpecialColumnType.InsertRow)
@@ -879,6 +887,20 @@ public sealed class DataGridViewModel : ViewModelBase
                         else
                         {
                             cell.Value = null;
+                        }
+
+                        // ✅ CRITICAL FIX #22: Clear validation styling when reusing cells
+                        // ROOT CAUSE: ViewModels are REUSED (FIXED UI POOL) → old validation styling persists
+                        // USER ISSUE: "ked prekliknem na dalsiu page tak zostane setnute oramovanie"
+                        // SOLUTION: Clear IsValidationError to remove red border from recycled cells
+                        //           ApplyValidationErrors will re-apply correct errors after page load
+                        if (cell.IsValidationError)
+                        {
+                            cell.IsValidationError = false;
+                            cell.ValidationMessage = null;
+
+                            _logger?.LogTrace("Cleared validation styling for cell [{Index},{Col}] (RowId={RowId})",
+                                i, cell.ColumnName, newRowId);
                         }
                     }
                 }

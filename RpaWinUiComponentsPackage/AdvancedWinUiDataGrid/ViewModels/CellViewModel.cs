@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Media;
 using Windows.UI;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common;
 using Microsoft.Extensions.Logging;
+using System.ComponentModel;
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.ViewModels;
 
@@ -37,6 +38,10 @@ public sealed class CellViewModel : ViewModelBase, IDisposable
 
     // ✅ CRITICAL FIX: Reference to parent DataGridRowViewModel for checkbox synchronization
     private DataGridRowViewModel? _parentRow;
+
+    // ✅ CRITICAL FIX #22: Store event handler reference for proper unsubscription (memory leak prevention)
+    // ROOT CAUSE: Event handlers create circular references → cells never garbage-collected → 5MB leak per delete
+    private PropertyChangedEventHandler? _parentPropertyChangedHandler;
 
     /// <summary>
     /// Creates a new cell view model with optional theme support.
@@ -344,11 +349,18 @@ public sealed class CellViewModel : ViewModelBase, IDisposable
     /// </summary>
     public void SetParentRow(DataGridRowViewModel parentRow)
     {
+        // ✅ CRITICAL FIX #22: Unsubscribe from old parent first (if re-assigning)
+        if (_parentRow != null && _parentPropertyChangedHandler != null)
+        {
+            _parentRow.PropertyChanged -= _parentPropertyChangedHandler;
+        }
+
         _parentRow = parentRow;
 
         // ✅ BIDIRECTIONAL SYNC: Parent → Cell (when parent.IsSelected changes, update cell)
         // This ensures header checkbox clicks propagate to cell checkboxes
-        _parentRow.PropertyChanged += (s, e) =>
+        // ✅ CRITICAL FIX #22: Store handler reference for proper cleanup
+        _parentPropertyChangedHandler = (s, e) =>
         {
             if (e.PropertyName == nameof(DataGridRowViewModel.IsSelected))
             {
@@ -360,6 +372,8 @@ public sealed class CellViewModel : ViewModelBase, IDisposable
                 }
             }
         };
+
+        _parentRow.PropertyChanged += _parentPropertyChangedHandler;
     }
 
     /// <summary>
@@ -504,6 +518,18 @@ public sealed class CellViewModel : ViewModelBase, IDisposable
             return;
 
         _disposed = true;
+
+        // ✅ CRITICAL FIX #22: Unsubscribe from parent events to break circular references
+        // ROOT CAUSE: Event handlers keep cells alive → 5MB memory leak per delete operation
+        // SOLUTION: Explicitly unsubscribe PropertyChanged handler before nulling parent reference
+        if (_parentRow != null && _parentPropertyChangedHandler != null)
+        {
+            _parentRow.PropertyChanged -= _parentPropertyChangedHandler;
+            _parentPropertyChangedHandler = null;
+        }
+
+        // Clear parent reference
+        _parentRow = null;
 
         // NOTE: BrushPool brushes NIE SÚ disposed (shared!)
         // We only null out references to help GC
