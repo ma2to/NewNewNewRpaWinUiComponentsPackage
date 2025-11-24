@@ -412,6 +412,57 @@ internal sealed class InternalUIUpdateHandler : IDisposable
             // PREVIOUS ATTEMPT: 100ms was NOT enough → increased to 300ms for safety
             await Task.Delay(300);
 
+            // ✅ FIX #26.2/#27.3: Re-apply validation errors after INSERT (optimized for current page only)
+            // REASON: INSERT clears validation cache, but errors should persist on existing rows
+            // USER COMPLAINT #26.2: "pridam riadok tak sa to zmaze az kym neprejdem na inu page"
+            // USER COMPLAINT #27.3: "pridavanie riakdu je velmi pomaly a trva velmi dlho"
+            // ROOT CAUSE: GetValidationErrorsAsync fetches ALL errors (100+, 1000+) even though only 15 ViewModels visible
+            // SOLUTION: Filter errors to current page RowIds only - reduces processing time dramatically
+            if (_viewModel.Facade?.Validation != null)
+            {
+                try
+                {
+                    // ✅ FIX #27.3: Get current page RowIds to filter validation errors
+                    var currentPageRowIds = _viewModel.Rows
+                        .Where(r => r.IsVisible && !string.IsNullOrEmpty(r.RowId))
+                        .Select(r => r.RowId!)
+                        .ToHashSet();
+
+                    _logger.LogDebug("🔍 FIX #27.3: Current page has {Count} visible rows", currentPageRowIds.Count);
+
+                    // Fetch ALL validation errors (API doesn't support filtering by RowIds)
+                    var allValidationErrors = await _viewModel.Facade.Validation.GetValidationErrorsAsync(
+                        onlyFiltered: false,
+                        onlyChecked: false,
+                        cancellationToken: default);
+
+                    // ✅ FIX #27.3: Filter to current page only (massive performance improvement)
+                    var pageValidationErrors = allValidationErrors
+                        .Where(e => currentPageRowIds.Contains(e.RowId))
+                        .ToList();
+
+                    _logger.LogInformation("✅ FIX #27.3: Filtered validation errors: Total={Total}, CurrentPage={CurrentPage}",
+                        allValidationErrors.Count, pageValidationErrors.Count);
+
+                    var internalErrors = pageValidationErrors.Select(e => Common.Models.ValidationError.Create(
+                        rowId: e.RowId,
+                        ruleId: e.ErrorCode ?? string.Empty,
+                        message: e.Message,
+                        columnName: e.ColumnName,
+                        severity: e.Severity == "Warning" ? Common.ValidationSeverity.Warning :
+                                  e.Severity == "Info" ? Common.ValidationSeverity.Info :
+                                  Common.ValidationSeverity.Error
+                    )).ToList();
+
+                    await _viewModel.ApplyValidationErrors(internalErrors);
+                    _logger.LogInformation("✅ FIX #26.2: Re-applied {Count} validation errors after INSERT/DELETE operation", internalErrors.Count);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to re-apply validation errors after INSERT/DELETE");
+                }
+            }
+
             // ✅ CRITICAL FIX #23.4: ARCHITECTURAL FIX - REMOVE dispose logic
             // USER COMPLAINT: "taktiez aj mazanie riadka berie pamat (asi RAM) (5 megabajtov kazde zmazanie riadku co je zle..."
             // ROOT CAUSE: Dispose violates Fixed UI Pool architecture

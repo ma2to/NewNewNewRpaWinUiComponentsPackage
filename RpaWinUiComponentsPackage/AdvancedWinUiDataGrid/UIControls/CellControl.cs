@@ -74,7 +74,9 @@ public sealed class CellControl : UserControl
         // Create UI programmatically
         _rootBorder = new Border
         {
-            BorderThickness = new Thickness(1, 1, 0, 1), // ✅ FIX: Right=0 (ResizeGripControl adds 12px spacing between columns)
+            // ✅ FIX #27.1: BorderThickness will be set dynamically via PropertyChanged subscription
+            // REASON: Validation errors need 2px border, normal cells need 1px border
+            // USER COMPLAINT: "po oprave uz vobec nezobrazuje preview" - border was hardcoded to 1px
             Padding = new Thickness(1), // 1px padding
             HorizontalAlignment = HorizontalAlignment.Stretch
         };
@@ -95,6 +97,31 @@ public sealed class CellControl : UserControl
             Mode = BindingMode.OneWay
         };
         _rootBorder.SetBinding(Border.BackgroundProperty, backgroundBrushBinding);
+
+        // ✅ FIX #27.1: Subscribe to BorderThickness changes and update Border control
+        // REASON: WinUI Border.BorderThickness expects Thickness struct, not double
+        // SOLUTION: Convert ViewModel.BorderThickness (double) to Thickness(left, top, right, bottom)
+        ViewModel.PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName == nameof(ViewModel.BorderThickness))
+            {
+                // Right border = 0 (ResizeGripControl adds 12px spacing between columns)
+                _rootBorder.BorderThickness = new Thickness(
+                    ViewModel.BorderThickness,  // Left
+                    ViewModel.BorderThickness,  // Top
+                    0,                          // Right (always 0)
+                    ViewModel.BorderThickness   // Bottom
+                );
+            }
+        };
+
+        // Set initial BorderThickness value
+        _rootBorder.BorderThickness = new Thickness(
+            ViewModel.BorderThickness,
+            ViewModel.BorderThickness,
+            0,
+            ViewModel.BorderThickness
+        );
 
         // Create Grid to hold display and edit controls
         _rootGrid = new Grid();

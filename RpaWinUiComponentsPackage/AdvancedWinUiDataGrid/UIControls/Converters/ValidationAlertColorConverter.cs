@@ -62,35 +62,26 @@ internal sealed class ValidationAlertBackgroundConverter : IValueConverter
 
         if (value is bool hasAlert && hasAlert)
         {
-            // Has validation alert - return error background (light red)
-            SolidColorBrush? brush;
-            if (_themeManager?.ValidationAlertsErrorBackground != null)
-            {
-                brush = _themeManager.ValidationAlertsErrorBackground;
-                _logger?.LogDebug("🎨 CONVERTER RESULT: ThemeManager error background, brush={BrushType}", brush.GetType().Name);
-                return brush;
-            }
-
-            brush = Features.Optimization.BrushPool.GetBrush(
-                Windows.UI.Color.FromArgb(255, 255, 220, 220)  // Opaque light red
+            // ✅ FIX #27.2: ALWAYS use opaque light red (#FFEBEE), ignore ThemeManager cached value
+            // REASON: ThemeManager may have stale cached theme with old "#1EFF0000" value
+            // USER COMPLAINT: "chyba s ciernym background sa aj tak nevyriesila" (after 30+ fix attempts!)
+            // SOLUTION: Hardcode opaque light red to ensure consistency with data cell validation errors
+            // NOTE: #FFEBEE = RGB(255, 235, 238) - same as CellElementColors.Error.Background default
+            var brush = Features.Optimization.BrushPool.GetBrush(
+                Windows.UI.Color.FromArgb(255, 255, 235, 238)  // #FFEBEE - opaque light red
             );
-            _logger?.LogDebug("🎨 CONVERTER RESULT: LIGHT RED (255,220,220) from BrushPool, brush={BrushType}", brush?.GetType().Name ?? "null");
+
+            _logger?.LogDebug("🎨 CONVERTER RESULT: FORCED OPAQUE LIGHT RED (#FFEBEE = 255,235,238)");
             return brush;
         }
 
         // No validation alert - return default background (opaque white for visibility)
-        SolidColorBrush? whiteBrush;
-        if (_themeManager?.CellDefaultBackground != null)
-        {
-            whiteBrush = _themeManager.CellDefaultBackground;
-            _logger?.LogDebug("🎨 CONVERTER RESULT: ThemeManager default background, brush={BrushType}", whiteBrush.GetType().Name);
-            return whiteBrush;
-        }
-
-        whiteBrush = Features.Optimization.BrushPool.GetBrush(
+        // ✅ FIX #27.2: Use hardcoded white instead of ThemeManager for consistency
+        var whiteBrush = Features.Optimization.BrushPool.GetBrush(
             Windows.UI.Color.FromArgb(255, 255, 255, 255)  // Opaque white
         );
-        _logger?.LogDebug("🎨 CONVERTER RESULT: WHITE (255,255,255) from BrushPool, brush={BrushType}", whiteBrush?.GetType().Name ?? "null");
+
+        _logger?.LogDebug("🎨 CONVERTER RESULT: WHITE (255,255,255)");
         return whiteBrush;
     }
 

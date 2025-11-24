@@ -359,8 +359,13 @@ public sealed class PublicSpecialColumnColors
 
     /// <summary>
     /// ValidationAlerts background when has alert
+    /// ✅ CRITICAL FIX #24.1: Changed from "#1EFF0000" (alpha 30 transparent red) to "#FFFEBEE" (opaque light red)
+    /// ROOT CAUSE: Alpha 30 (11.7% opacity) on dark theme background appeared as BLACK-RED instead of light red
+    /// USER COMPLAINT: "meni farbu background na ciernu (background cierny a text cerveny)" (30th fix attempt!)
+    /// SOLUTION: Use SAME opaque light red as data cell validation errors (#FFFEBEE = 255, 254, 238)
+    /// RESULT: Consistent light red background across validation errors (data cells + ValidationAlerts column)
     /// </summary>
-    public string ValidationAlertsErrorBackground { get; init; } = "#1EFF0000"; // Red with alpha (30, 255, 0, 0)
+    public string ValidationAlertsErrorBackground { get; init; } = "#FFFEBEE"; // Light red (same as data cell validation)
 
     /// <summary>
     /// ValidationAlerts foreground when has alert

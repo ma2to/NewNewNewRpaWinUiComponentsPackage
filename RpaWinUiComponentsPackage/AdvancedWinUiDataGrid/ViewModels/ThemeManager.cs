@@ -513,6 +513,47 @@ public sealed class ThemeManager : ViewModelBase
                 ColumnBorder = source.HeaderColors.Normal.Border ?? "#E0E0E0",
                 GridBorder = source.GridColors.Normal.Border ?? "#CCCCCC",
                 FocusedCellBorder = source.CellColors.Focused.Border ?? "#0078D4"
+            },
+
+            // ✅ FIX #26.3: Map special column colors from ComprehensiveColorTheme
+            // ROOT CAUSE: ValidationAlertsErrorBackground was not being mapped from comprehensive theme
+            // USER COMPLAINT: "chyba s ciernym background sa aj tak nevyriesila"
+            // SOLUTION: Map SpecialColumnColors.Alert to ValidationAlertsError, use opaque light red
+            SpecialColumnColors = new PublicSpecialColumnColors
+            {
+                RowNumberBackground = source.SpecialColumnColors.Normal.Background ?? "#14808080",
+                RowNumberForeground = source.SpecialColumnColors.Normal.Foreground ?? "#808080",
+                CheckboxBorder = "#A9A9A9",
+                CheckboxBackground = "#FFFFFF",
+                CheckboxForeground = "#000000",
+                DeleteRowBackground = "#00000000",
+                DeleteRowForeground = "#8B0000",
+                DeleteRowHoverBackground = "#FFEBEE",
+                InsertRowBackground = "#C8E6C8",
+                InsertRowForeground = "#006400",
+                InsertRowBorder = "#008000",
+                InsertRowHoverBackground = "#96DC96",
+                InsertRowHoverForeground = "#FFFFFF",
+                // ✅ FIX #26.3: Use OPAQUE light red (#FFEBEE) instead of transparent (#1EFF0000)
+                // REASON: Alpha transparency appears BLACK on dark backgrounds
+                ValidationAlertsErrorBackground = source.CellColors.Error.Background ?? "#FFEBEE",
+                ValidationAlertsErrorForeground = source.CellColors.Error.Foreground ?? "#FF0000"
+            },
+
+            // ✅ FIX #26.3: Map UI control colors from ComprehensiveColorTheme
+            UIControlColors = new PublicUIControlColors
+            {
+                ResizeGripBackground = "#B3A9A9A9",
+                ResizeGripHoverBackground = "#E60000FF",
+                ResizePreviewLine = "#0000FF",
+                MenuDestructiveActionForeground = "#FF0000",
+                DialogErrorForeground = "#FF0000",
+                PlaceholderForeground = "#FF0000",
+                PlaceholderBackground = "#FFFFE0",
+                SearchPanelBorder = "#D3D3D3",
+                FilterRowBorder = "#D3D3D3",
+                HeadersRowBorder = "#808080",
+                PaginationPanelBorder = "#D3D3D3"
             }
         };
     }

@@ -8,9 +8,11 @@ using Microsoft.UI.Xaml.Media;
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIControls.Menus;
 
 /// <summary>
-/// SENIOR IMPLEMENTATION: Context menu for row operations (Insert Above, Insert Below, Delete)
+/// SENIOR IMPLEMENTATION: Context menu for row operations (Insert Above, Insert Below, Delete, Copy, Paste)
 /// Excel-like behavior for row management via right-click
-/// Supports multi-row selection (insert/delete multiple rows at once)
+/// Supports multi-row selection (insert/delete/copy multiple rows at once)
+/// ✅ FIX #24.2: Added Copy/Paste functionality per user request
+/// USER REQUIREMENT: "ked do bunky kliknem pravym tak v tom kontext menu zobraz aj copy a paste funkcionlitu"
 /// </summary>
 internal sealed class RowContextMenu
 {
@@ -30,8 +32,21 @@ internal sealed class RowContextMenu
     public event EventHandler<DeleteRowsEventArgs>? DeleteRowsRequested;
 
     /// <summary>
+    /// ✅ FIX #24.2: Fired when user requests to copy selected cells to clipboard
+    /// Excel-like Ctrl+C functionality via context menu
+    /// </summary>
+    public event EventHandler? CopyRequested;
+
+    /// <summary>
+    /// ✅ FIX #24.2: Fired when user requests to paste clipboard data to selected cells
+    /// Excel-like Ctrl+V functionality via context menu
+    /// </summary>
+    public event EventHandler? PasteRequested;
+
+    /// <summary>
     /// Creates context menu for row operations
-    /// Excel-like: Insert Above/Below, Delete
+    /// Excel-like: Copy, Paste, Insert Above/Below, Delete
+    /// ✅ FIX #24.2: Added Copy/Paste at top of menu (Excel-like order)
     /// Adapts text based on number of selected rows (e.g., "Insert 3 Rows Above")
     /// </summary>
     /// <param name="selectedRowIndices">Indices of selected rows</param>
@@ -50,6 +65,33 @@ internal sealed class RowContextMenu
             // No selection - return empty menu
             return menu;
         }
+
+        // ✅ FIX #24.2: ===== COPY =====
+        var copyItem = new MenuFlyoutItem
+        {
+            Text = "Copy",
+            Icon = new FontIcon { Glyph = "\uE8C8" } // Copy icon
+        };
+        copyItem.Click += (s, e) =>
+        {
+            CopyRequested?.Invoke(this, EventArgs.Empty);
+        };
+        menu.Items.Add(copyItem);
+
+        // ✅ FIX #24.2: ===== PASTE =====
+        var pasteItem = new MenuFlyoutItem
+        {
+            Text = "Paste",
+            Icon = new FontIcon { Glyph = "\uE77F" } // Paste icon
+        };
+        pasteItem.Click += (s, e) =>
+        {
+            PasteRequested?.Invoke(this, EventArgs.Empty);
+        };
+        menu.Items.Add(pasteItem);
+
+        // ✅ FIX #24.2: Separator between Copy/Paste and Insert/Delete
+        menu.Items.Add(new MenuFlyoutSeparator());
 
         // ===== INSERT ABOVE =====
         var insertAboveItem = new MenuFlyoutItem

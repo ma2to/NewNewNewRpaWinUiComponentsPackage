@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.Linq; // ✅ FIX #24.2: For LINQ Select extension method
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -8,6 +9,8 @@ using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.ViewModels;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Features.Viewport;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIControls.Menus;
 using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common.Models;
+using RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.Common; // ✅ FIX #24.2: For SpecialColumnType enum
+using Windows.ApplicationModel.DataTransfer; // ✅ FIX #24.2: For Clipboard API
 
 namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIControls;
 
@@ -103,11 +106,14 @@ public sealed class DataGridCellsView : UserControl, IDisposable
         _viewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<DataGridCellsView>.Instance;
 
-        // SENIOR IMPLEMENTATION: Initialize Row Context Menu (Excel-like Insert/Delete)
+        // SENIOR IMPLEMENTATION: Initialize Row Context Menu (Excel-like Insert/Delete + Copy/Paste)
         _rowContextMenu = new RowContextMenu();
         _rowContextMenu.InsertRowsAboveRequested += OnRowContextMenuInsertAbove;
         _rowContextMenu.InsertRowsBelowRequested += OnRowContextMenuInsertBelow;
         _rowContextMenu.DeleteRowsRequested += OnRowContextMenuDelete;
+        // ✅ FIX #24.2: Subscribe to Copy/Paste events
+        _rowContextMenu.CopyRequested += OnRowContextMenuCopy;
+        _rowContextMenu.PasteRequested += OnRowContextMenuPaste;
 
         // Create ViewportManager (uses ViewModel.Rows as data source)
         var viewportLogger = loggerFactory?.CreateLogger<ViewportManager>()
@@ -154,6 +160,10 @@ public sealed class DataGridCellsView : UserControl, IDisposable
 
         // SENIOR IMPLEMENTATION: Attach RightTapped handler for Row Context Menu (Excel-like)
         _itemsRepeater.RightTapped += OnItemsRepeaterRightTapped;
+
+        // ✅ FIX #25.2: Attach KeyDown handler for Ctrl+C / Ctrl+V keyboard shortcuts
+        // USER REQUIREMENT: "dociel aby pomocou ctrl+c a pomocou ctrl+v sa robilo kopirovanie oznacenych buniek a vkladanie dat do buniek"
+        this.KeyDown += OnKeyDown;
 
         // Create ScrollViewer for scrollable area
         _scrollViewer = new ScrollViewer
@@ -1467,6 +1477,220 @@ public sealed class DataGridCellsView : UserControl, IDisposable
         _logger.LogInformation("Deleted {Count} rows", e.RowIds.Count);
     }
 
+    /// <summary>
+    /// ✅ FIX #24.2: Handles Copy request from context menu.
+    /// Excel-like behavior: Copies selected cells to clipboard in TSV (Tab-Separated Values) format.
+    /// USER REQUIREMENT: "pomocou ctrl+c a pomocou ctrl+v sa robilo to iste (copyrovanie oznacenych buniek)"
+    /// </summary>
+    private async void OnRowContextMenuCopy(object? sender, EventArgs e)
+    {
+        _logger.LogInformation("✅ FIX #24.2: Copy requested from context menu");
+
+        try
+        {
+            // Get selected cells
+            var selectedCells = _viewModel.GetSelectedCells();
+            if (selectedCells.Count == 0)
+            {
+                _logger.LogWarning("No cells selected - Copy cancelled");
+                return;
+            }
+
+            _logger.LogInformation("Copying {Count} selected cells to clipboard", selectedCells.Count);
+
+            // Group cells by row and column for TSV format
+            // TSV format: rows separated by \n, cells separated by \t
+            var rowGroups = selectedCells
+                .Where(c => c.SpecialType == SpecialColumnType.None) // Skip special columns
+                .OrderBy(c => c.RowIndex)
+                .ThenBy(c => c.ColumnIndex)
+                .GroupBy(c => c.RowIndex);
+
+            var tsvLines = new List<string>();
+            foreach (var rowGroup in rowGroups)
+            {
+                var cellValues = rowGroup.Select(c => c.Value?.ToString() ?? "");
+                tsvLines.Add(string.Join("\t", cellValues));
+            }
+
+            var tsvData = string.Join("\n", tsvLines);
+
+            // Copy to clipboard using Windows DataPackage
+            var dataPackage = new DataPackage();
+            dataPackage.SetText(tsvData);
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dataPackage);
+
+            _logger.LogInformation("✅ FIX #24.2: Copied {RowCount} rows x {MaxCellCount} cells to clipboard (TSV format)",
+                tsvLines.Count, tsvLines.Count > 0 ? tsvLines.Max(l => l.Split('\t').Length) : 0);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ FIX #24.2: Copy to clipboard failed");
+        }
+    }
+
+    /// <summary>
+    /// ✅ FIX #24.2: Handles Paste request from context menu.
+    /// Excel-like behavior: Pastes clipboard data (TSV format) to selected cells.
+    /// USER REQUIREMENT: "pomocou ctrl+v sa robilo vkladanie dat do buniek"
+    /// </summary>
+    private async void OnRowContextMenuPaste(object? sender, EventArgs e)
+    {
+        _logger.LogInformation("✅ FIX #24.2: Paste requested from context menu");
+
+        try
+        {
+            // Get clipboard content
+            var dataPackageView = Windows.ApplicationModel.DataTransfer.Clipboard.GetContent();
+            if (!dataPackageView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text))
+            {
+                _logger.LogWarning("Clipboard does not contain text - Paste cancelled");
+                return;
+            }
+
+            var clipboardText = await dataPackageView.GetTextAsync();
+            if (string.IsNullOrWhiteSpace(clipboardText))
+            {
+                _logger.LogWarning("Clipboard text is empty - Paste cancelled");
+                return;
+            }
+
+            _logger.LogInformation("Pasting clipboard data: {Preview}...",
+                clipboardText.Length > 50 ? clipboardText.Substring(0, 50) : clipboardText);
+
+            // Parse TSV data (rows separated by \n, cells separated by \t)
+            var rows = clipboardText.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+            var pasteData = rows.Select(row => row.Split('\t').ToArray()).ToList();
+
+            _logger.LogInformation("Parsed {RowCount} rows from clipboard", pasteData.Count);
+
+            // Get selected cells (starting point for paste)
+            var selectedCells = _viewModel.GetSelectedCells()
+                .Where(c => c.SpecialType == SpecialColumnType.None) // Skip special columns
+                .OrderBy(c => c.RowIndex)
+                .ThenBy(c => c.ColumnIndex)
+                .ToList();
+
+            if (selectedCells.Count == 0)
+            {
+                _logger.LogWarning("No cells selected - Paste cancelled");
+                return;
+            }
+
+            // Get starting position (top-left selected cell)
+            var startRowIndex = selectedCells.Min(c => c.RowIndex);
+            var startColIndex = selectedCells.Min(c => c.ColumnIndex);
+
+            _logger.LogInformation("Pasting starting at Row={Row}, Col={Col}", startRowIndex, startColIndex);
+
+            // Paste data starting from top-left selected cell
+            var facade = _viewModel.Facade;
+            if (facade?.Editing == null)
+            {
+                _logger.LogWarning("Editing facade not available - Paste cancelled");
+                return;
+            }
+
+            int updatedCells = 0;
+            for (int rowOffset = 0; rowOffset < pasteData.Count; rowOffset++)
+            {
+                var targetRowIndex = startRowIndex + rowOffset;
+                if (targetRowIndex >= _viewModel.Rows.Count) break; // Don't paste beyond grid
+
+                var row = _viewModel.Rows[targetRowIndex];
+                var dataCells = row.Cells
+                    .Where(c => c.SpecialType == SpecialColumnType.None)
+                    .OrderBy(c => c.ColumnIndex)
+                    .ToList();
+
+                // ✅ FIX #27.4a: Find starting column offset in dataCells list
+                // REASON: startColIndex is ColumnIndex property (e.g., 2, 3, 4), NOT list index (0, 1, 2)
+                // USER COMPLAINT: "vklada realne iba jednu bunku pricom som skopiroval dve"
+                // ROOT CAUSE FIX #26.1: Paste always starts from dataCells[0] regardless of where user clicked
+                // SOLUTION: Find index of cell with ColumnIndex == startColIndex, then use as list offset
+                int startColOffset = -1;
+                for (int i = 0; i < dataCells.Count; i++)
+                {
+                    if (dataCells[i].ColumnIndex == startColIndex)
+                    {
+                        startColOffset = i;
+                        break;
+                    }
+                }
+
+                if (startColOffset == -1)
+                {
+                    _logger.LogWarning("Could not find starting column with ColumnIndex={StartColIndex}, using first column", startColIndex);
+                    startColOffset = 0; // Fallback to first column
+                }
+
+                _logger.LogDebug("📋 FIX #27.4a: Paste starting at dataCells[{StartColOffset}] (ColumnIndex={ColumnIndex}, ColumnName={ColumnName})",
+                    startColOffset, dataCells[startColOffset].ColumnIndex, dataCells[startColOffset].ColumnName);
+
+                for (int colOffset = 0; colOffset < pasteData[rowOffset].Length; colOffset++)
+                {
+                    int targetColOffset = startColOffset + colOffset;
+                    if (targetColOffset >= dataCells.Count) break; // Don't paste beyond row
+
+                    var targetCell = dataCells[targetColOffset];
+                    var newValue = pasteData[rowOffset][colOffset];
+
+                    // Update cell value via editing facade
+                    await facade.Editing.UpdateCellAsync(targetCell.RowId, targetCell.ColumnName, newValue);
+
+                    // ✅ FIX #27.4b: Manually update CellViewModel.Value to trigger immediate UI refresh
+                    // REASON: UpdateCellAsync writes to storage but may not trigger PropertyChanged event immediately
+                    // USER COMPLAINT: "vidim az po prejdeni na inu page a zaspa spat"
+                    // SOLUTION: Directly set Value property → SetProperty → PropertyChanged → UI refresh
+                    targetCell.Value = newValue;
+
+                    updatedCells++;
+                }
+            }
+
+            _logger.LogInformation("✅ FIX #24.2/#27.4b: Pasted data to {Count} cells successfully with immediate UI refresh", updatedCells);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ FIX #24.2: Paste from clipboard failed");
+        }
+    }
+
+    /// <summary>
+    /// ✅ FIX #25.2: Handles keyboard shortcuts for Copy/Paste operations.
+    /// USER REQUIREMENT: "dociel aby pomocou ctrl+c a pomocou ctrl+v sa robilo kopirovanie oznacenych buniek a vkladanie dat do buniek"
+    /// Supported shortcuts:
+    /// - Ctrl+C: Copy selected cells to clipboard (TSV format)
+    /// - Ctrl+V: Paste clipboard data to selected cells
+    /// </summary>
+    private void OnKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        // Check for Ctrl key
+        var ctrlPressed = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
+            .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+        if (!ctrlPressed)
+            return;
+
+        // Handle Ctrl+C (Copy)
+        if (e.Key == Windows.System.VirtualKey.C)
+        {
+            _logger.LogInformation("✅ FIX #25.2: Ctrl+C detected - triggering Copy");
+            OnRowContextMenuCopy(this, EventArgs.Empty);
+            e.Handled = true;
+            return;
+        }
+
+        // Handle Ctrl+V (Paste)
+        if (e.Key == Windows.System.VirtualKey.V)
+        {
+            _logger.LogInformation("✅ FIX #25.2: Ctrl+V detected - triggering Paste");
+            OnRowContextMenuPaste(this, EventArgs.Empty);
+            e.Handled = true;
+            return;
+        }
+    }
+
     #endregion
 
     #region ✅ PREVIEW VALIDATION: Realtime keystroke validation handlers
@@ -1561,15 +1785,18 @@ public sealed class DataGridCellsView : UserControl, IDisposable
     }
 
     /// <summary>
-    /// ✅ PROFESSIONAL FIX: Updates cell UI with preview validation result (red border + ValidationAlerts).
+    /// ✅ CRITICAL FIX #25.1: Updates ONLY cell UI with preview validation result (red border).
     /// PREVIEW MODE: Shows temporary validation feedback WITHOUT writing to storage.
-    /// CRITICAL: Merges preview error with existing permanent errors from other columns.
+    /// USER COMPLAINT: "po poslednej oprave to uz robi aj pri preview co by nemalo ani pri jednom"
+    /// ROOT CAUSE: Preview validation was setting ValidationAlertMessage (causing black background)
+    /// SOLUTION: Preview should ONLY update data cell (IsValidationError + ValidationMessage)
+    ///           ValidationAlerts column should be updated ONLY by commit validation (ApplyValidationErrors)
     /// </summary>
-    private async void UpdateCellPreviewValidationUI(CellViewModel cellViewModel, PreviewValidationResult result)
+    private void UpdateCellPreviewValidationUI(CellViewModel cellViewModel, PreviewValidationResult result)
     {
         if (cellViewModel == null) return;
 
-        // ✅ STEP 1: Update current cell validation state (red border)
+        // ✅ Update ONLY current data cell validation state (red border + tooltip)
         cellViewModel.IsValidationError = !result.IsValid;
         cellViewModel.ValidationMessage = result.ErrorMessage ?? string.Empty;
 
@@ -1584,114 +1811,10 @@ public sealed class DataGridCellsView : UserControl, IDisposable
                 cellViewModel.RowIndex, cellViewModel.ColumnName);
         }
 
-        // ✅ STEP 2: Update ValidationAlerts column with MERGED errors (preview + permanent)
-        if (_viewModel != null)
-        {
-            var rowViewModel = _viewModel.Rows.FirstOrDefault(r => r.RowIndex == cellViewModel.RowIndex);
-            if (rowViewModel != null)
-            {
-                var alertsCell = rowViewModel.Cells.FirstOrDefault(c =>
-                    c.SpecialType == Common.SpecialColumnType.ValidationAlerts);
-
-                if (alertsCell != null)
-                {
-                    try
-                    {
-                        // ✅ STEP 2A: Get existing PERMANENT validation errors for this row (all columns)
-                        // These are errors stored in validation storage from previous commits
-                        var facade = _viewModel.Facade;
-                        if (facade?.Validation != null)
-                        {
-                            var rowId = cellViewModel.RowId;
-                            if (!string.IsNullOrEmpty(rowId))
-                            {
-                                // Get ALL validation errors for this row from storage
-                                var allRowErrors = await facade.Validation.GetValidationErrorsAsync(
-                                    onlyFiltered: false,
-                                    onlyChecked: false,
-                                    cancellationToken: default);
-
-                                // Filter errors for current row
-                                var permanentRowErrors = allRowErrors
-                                    .Where(e => e.RowId == rowId)
-                                    .ToList();
-
-                                // ✅ PROFESSIONAL FIX 4.1: Sort errors by column order (left-to-right)
-                                // REASON: ValidationAlerts should show errors in same order as columns appear in grid
-                                // USER REQUEST: "tie validacne chyby by sa mohli vypisovat postupne po tych stlpcoch"
-                                var columnOrder = _viewModel.Rows.FirstOrDefault()?.Cells
-                                    .Where(c => !c.IsSpecialColumn)
-                                    .Select((c, index) => new { c.ColumnName, Order = index })
-                                    .ToDictionary(x => x.ColumnName, x => x.Order, StringComparer.OrdinalIgnoreCase);
-
-                                if (columnOrder != null && columnOrder.Count > 0)
-                                {
-                                    permanentRowErrors = permanentRowErrors
-                                        .OrderBy(e => columnOrder.TryGetValue(e.ColumnName, out var order) ? order : int.MaxValue)
-                                        .ToList();
-
-                                    _logger.LogTrace("Sorted {Count} validation errors by column order for row {RowIndex}",
-                                        permanentRowErrors.Count, cellViewModel.RowIndex);
-                                }
-
-                                // ✅ STEP 2B: Build merged message: preview error + permanent errors
-                                var alertMessages = new List<string>();
-
-                                // Add preview error if validation failed (temporary, not in storage)
-                                if (!result.IsValid && !string.IsNullOrEmpty(result.ErrorMessage))
-                                {
-                                    // ✅ CRITICAL FIX: ErrorMessage už obsahuje column name prefix
-                                    // PREVIOUS BUG: Pridával "PREVIEW: Column_1: Column_1: Column_1 is required"
-                                    // REASON: CellEditService.cs:670 už formuje "Column_1: Column_1 is required"
-                                    // SOLUTION: Použiť ErrorMessage priamo bez pridávania AffectedColumn
-                                    alertMessages.Add($"⚠️ PREVIEW: {result.ErrorMessage}");
-                                    _logger.LogTrace("📝 PREVIEW: Added temporary alert: {Message}", result.ErrorMessage);
-                                }
-
-                                // Add permanent errors from OTHER columns (skip current column to avoid duplication)
-                                foreach (var error in permanentRowErrors)
-                                {
-                                    // Skip current column if it has permanent error (we show preview instead)
-                                    if (error.ColumnName.Equals(cellViewModel.ColumnName, StringComparison.OrdinalIgnoreCase))
-                                    {
-                                        // Only add permanent error if preview is valid (no override)
-                                        if (result.IsValid)
-                                        {
-                                            alertMessages.Add($"{error.ColumnName}: {error.Message}");
-                                        }
-                                    }
-                                    else
-                                    {
-                                        // Add permanent errors from other columns
-                                        alertMessages.Add($"{error.ColumnName}: {error.Message}");
-                                    }
-                                }
-
-                                // ✅ STEP 2C: Set merged alert message
-                                if (alertMessages.Any())
-                                {
-                                    alertsCell.ValidationAlertMessage = string.Join("; ", alertMessages);
-                                    _logger.LogTrace("📝 MERGED ALERTS: Row {RowIndex} ValidationAlerts updated: {Message}",
-                                        cellViewModel.RowIndex, alertsCell.ValidationAlertMessage);
-                                }
-                                else
-                                {
-                                    // No errors at all - clear ValidationAlerts
-                                    alertsCell.ValidationAlertMessage = null;
-                                    _logger.LogTrace("✅ CLEARED ALERTS: Row {RowIndex} has no validation errors",
-                                        cellViewModel.RowIndex);
-                                }
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Failed to update ValidationAlerts during preview validation for row {RowIndex}",
-                            cellViewModel.RowIndex);
-                    }
-                }
-            }
-        }
+        // ❌ REMOVED: ValidationAlerts column update
+        // REASON: Preview validation should NOT set ValidationAlertMessage
+        // ARCHITECTURE: Only committed validation (ApplyValidationErrors) should update ValidationAlerts
+        // RESULT: ValidationAlerts background stays white during preview (no black background issue)
     }
 
     #endregion
@@ -1768,6 +1891,9 @@ public sealed class DataGridCellsView : UserControl, IDisposable
             _rowContextMenu.InsertRowsAboveRequested -= OnRowContextMenuInsertAbove;
             _rowContextMenu.InsertRowsBelowRequested -= OnRowContextMenuInsertBelow;
             _rowContextMenu.DeleteRowsRequested -= OnRowContextMenuDelete;
+            // ✅ FIX #24.2: Unsubscribe from Copy/Paste events
+            _rowContextMenu.CopyRequested -= OnRowContextMenuCopy;
+            _rowContextMenu.PasteRequested -= OnRowContextMenuPaste;
         }
 
         // SENIOR IMPLEMENTATION: Unsubscribe from ItemsRepeater events
@@ -1775,6 +1901,9 @@ public sealed class DataGridCellsView : UserControl, IDisposable
         {
             _itemsRepeater.RightTapped -= OnItemsRepeaterRightTapped;
         }
+
+        // ✅ FIX #25.2: Unsubscribe from KeyDown event
+        this.KeyDown -= OnKeyDown;
 
         _logger.LogInformation("DataGridCellsView disposed");
     }
