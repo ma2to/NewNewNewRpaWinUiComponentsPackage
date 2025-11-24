@@ -15,8 +15,9 @@ namespace RpaWinUiComponentsPackage.AdvancedWinUiDataGrid.UIControls;
 /// Displays cell value as read-only text normally, switches to editable text box on double-click.
 /// Automatically reflects cell state (selected, validation error, search match) through visual styling.
 /// Built programmatically without XAML for maximum flexibility.
+/// ✅ FIX #28.3: Implements IDisposable for proper cleanup of event subscriptions
 /// </summary>
-public sealed class CellControl : UserControl
+public sealed class CellControl : UserControl, IDisposable
 {
     /// <summary>
     /// Gets the view model that manages this cell's data and state.
@@ -60,6 +61,10 @@ public sealed class CellControl : UserControl
     private readonly ILogger<CellControl>? _logger;
     private object? _originalValue; // Store original value before editing for cancel support
 
+    // ✅ FIX #28.3: Store event handler for proper unsubscription
+    private PropertyChangedEventHandler? _borderThicknessHandler;
+    private bool _disposed = false;
+
     /// <summary>
     /// Creates a new cell control bound to the specified view model.
     /// </summary>
@@ -99,9 +104,10 @@ public sealed class CellControl : UserControl
         _rootBorder.SetBinding(Border.BackgroundProperty, backgroundBrushBinding);
 
         // ✅ FIX #27.1: Subscribe to BorderThickness changes and update Border control
+        // ✅ FIX #28.3: Store handler in field for proper unsubscription in Dispose
         // REASON: WinUI Border.BorderThickness expects Thickness struct, not double
         // SOLUTION: Convert ViewModel.BorderThickness (double) to Thickness(left, top, right, bottom)
-        ViewModel.PropertyChanged += (s, e) =>
+        _borderThicknessHandler = (s, e) =>
         {
             if (e.PropertyName == nameof(ViewModel.BorderThickness))
             {
@@ -114,6 +120,7 @@ public sealed class CellControl : UserControl
                 );
             }
         };
+        ViewModel.PropertyChanged += _borderThicknessHandler;
 
         // Set initial BorderThickness value
         _rootBorder.BorderThickness = new Thickness(
@@ -580,6 +587,61 @@ public sealed class CellControl : UserControl
 
             e.Handled = true; // Block immediately
         }
+    }
+
+    /// <summary>
+    /// ✅ FIX #28.3: Dispose pattern for proper cleanup of event subscriptions.
+    /// REASON: Prevents memory leaks by unsubscribing from ViewModel PropertyChanged events.
+    /// ARCHITECTURE: Fixed UI Pool keeps ViewModels permanent, but this is safety net for edge cases.
+    /// BENEFIT: Proper resource cleanup if RecycleElement is ever called during exception handling.
+    /// </summary>
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+
+        // ✅ Unsubscribe from ViewModel PropertyChanged events
+        if (ViewModel != null)
+        {
+            if (_borderThicknessHandler != null)
+            {
+                ViewModel.PropertyChanged -= _borderThicknessHandler;
+                _borderThicknessHandler = null;
+            }
+
+            ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        }
+
+        // ✅ Unsubscribe from UI control events
+        if (_rootBorder != null)
+        {
+            _rootBorder.PointerPressed -= OnCellPointerPressed;
+            _rootBorder.DoubleTapped -= OnCellDoubleTapped;
+            _rootBorder.PointerEntered -= OnPointerEntered;
+            _rootBorder.KeyDown -= OnCellKeyDown;
+        }
+
+        if (_editTextBox != null)
+        {
+            _editTextBox.LostFocus -= OnEditTextBoxLostFocus;
+            _editTextBox.KeyDown -= OnEditTextBoxKeyDown;
+            _editTextBox.TextChanged -= OnEditTextBoxTextChanged;
+            _editTextBox.RightTapped -= OnEditTextBoxRightTapped;
+            _editTextBox.PointerPressed -= OnEditTextBoxPointerPressed;
+        }
+
+        // ✅ Clear event handlers to prevent memory leaks
+        CellSelected = null;
+        CellEditStarted = null;
+        CellEditCompleted = null;
+        CellPointerEntered = null;
+        CellValueChanged = null;
+        NavigationRequested = null;
+
+        _logger?.LogTrace("CellControl[{Row},{Col}] disposed successfully",
+            ViewModel?.RowIndex, ViewModel?.ColumnIndex);
     }
 }
 

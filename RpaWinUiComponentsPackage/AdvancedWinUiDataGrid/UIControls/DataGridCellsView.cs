@@ -51,6 +51,7 @@ public sealed class DataGridCellsView : UserControl, IDisposable
     private bool _isDragging; // True when user started dragging (moved to different cell)
     private CellViewModel? _lastSelectedCell; // ✅ FIX: Track last selected cell to prevent duplicate events
     private CellViewModel? _lastDraggedCell; // ✅ PROFESSIONAL FIX: Track last dragged cell to avoid duplicate processing
+    private bool _wasCtrlPressedOnClick; // ✅ FIX #29.1: Track if last click was Ctrl+Click (prevents drag selection for multi-select)
 
     private bool _disposed;
     private bool _isUpdatingViewport; // Prevent re-entrant viewport updates
@@ -329,6 +330,10 @@ public sealed class DataGridCellsView : UserControl, IDisposable
         }
         else
         {
+            // ✅ FIX #29.1: Reset Ctrl flag when pointer is released
+            // REASON: User finished Ctrl+Click, next click should behave normally
+            _wasCtrlPressedOnClick = false;
+
             _logger.LogInformation("🟡 DRAG-DEBUG: Drag not in progress - keeping _pressedCell={HasPressed} (waiting for OnCellPointerEntered)",
                 _pressedCell != null ? $"[{_pressedCell.RowIndex},{_pressedCell.ColumnIndex}]" : "NULL");
         }
@@ -1029,39 +1034,56 @@ public sealed class DataGridCellsView : UserControl, IDisposable
             return;
         }
 
-        // SENIOR FIX: Store pressed cell for drag detection
-        // ✅ PROBLEM 4 FIX: Drag will be initiated when pointer moves to different cell (in OnCellPointerEntered)
-        // OnCellPointerEntered is fired by CellControl.PointerEntered event
-        _pressedCell = e.Cell;
-        _isDragging = false;
-        _lastSelectedCell = e.Cell;
+        // ✅ FIX #29.1: Store Ctrl key state to prevent drag selection for multi-select
+        // REASON: Ctrl+Click should toggle cell selection, NOT initiate drag selection
+        // ARCHITECTURE: OnCellPointerEntered checks this flag before starting drag
+        _wasCtrlPressedOnClick = e.IsCtrlPressed;
 
-        _logger.LogInformation("🔵 DRAG-DEBUG: Stored _pressedCell=[{Row},{Col}], _isDragging={IsDragging}",
-            _pressedCell.RowIndex, _pressedCell.ColumnIndex, _isDragging);
-
-        // ✅ CRITICAL FIX: Capture pointer on ScrollViewer to ensure PointerReleased fires
-        // Without this, e.Handled = true in CellControl blocks pointer events from reaching parent
-        if (e.PointerEventArgs?.Pointer != null)
+        if (e.IsCtrlPressed)
         {
-            var captured = _scrollViewer.CapturePointer(e.PointerEventArgs.Pointer);
-            if (captured)
-            {
-                _logger.LogInformation("🔵 DRAG-DEBUG: ✅ Pointer captured successfully on ScrollViewer (PointerId={PointerId})",
-                    e.PointerEventArgs.Pointer.PointerId);
-            }
-            else
-            {
-                _logger.LogWarning("🔴 DRAG-DEBUG: ❌ FAILED to capture pointer - drag selection may not work properly");
-            }
+            // ✅ FIX #29.1: For Ctrl+Click, DON'T set _pressedCell and DON'T capture pointer
+            // REASON: Prevents drag selection from triggering on mouse movement
+            // User expectation: Ctrl+Click should only toggle selection, not start drag
+            _pressedCell = null;  // Explicitly clear to prevent drag
+            _isDragging = false;
+            _lastSelectedCell = e.Cell;
+
+            _logger.LogInformation("🔵 FIX #29.1: Ctrl+Click detected - _pressedCell NOT set (drag disabled)");
+
+            // ✅ No pointer capture for Ctrl+Click - allows unlimited multi-select
+            _viewModel.SelectCell(e.Cell, isCtrlPressed: true);
         }
         else
         {
-            _logger.LogWarning("🔴 DRAG-DEBUG: ❌ PointerEventArgs is NULL - cannot capture pointer for drag selection");
-        }
+            // ✅ FIX #29.1: Normal click - enable drag selection as before
+            _pressedCell = e.Cell;
+            _isDragging = false;
+            _lastSelectedCell = e.Cell;
 
-        // Always call SelectCell for proper single/multi-select behavior
-        // ✅ PROBLEM 4 FIX: If user drags to another cell, OnCellPointerEntered will initiate range selection
-        _viewModel.SelectCell(e.Cell, e.IsCtrlPressed);
+            _logger.LogInformation("🔵 DRAG-DEBUG: Stored _pressedCell=[{Row},{Col}], _isDragging={IsDragging}",
+                _pressedCell.RowIndex, _pressedCell.ColumnIndex, _isDragging);
+
+            // ✅ Capture pointer on ScrollViewer to ensure PointerReleased fires
+            if (e.PointerEventArgs?.Pointer != null)
+            {
+                var captured = _scrollViewer.CapturePointer(e.PointerEventArgs.Pointer);
+                if (captured)
+                {
+                    _logger.LogInformation("🔵 DRAG-DEBUG: ✅ Pointer captured successfully on ScrollViewer (PointerId={PointerId})",
+                        e.PointerEventArgs.Pointer.PointerId);
+                }
+                else
+                {
+                    _logger.LogWarning("🔴 DRAG-DEBUG: ❌ FAILED to capture pointer - drag selection may not work properly");
+                }
+            }
+            else
+            {
+                _logger.LogWarning("🔴 DRAG-DEBUG: ❌ PointerEventArgs is NULL - cannot capture pointer for drag selection");
+            }
+
+            _viewModel.SelectCell(e.Cell, isCtrlPressed: false);
+        }
 
         _logger.LogTrace("Cell selected: [{Row},{Col}], Ctrl={IsCtrl}",
             e.Cell.RowIndex, e.Cell.ColumnIndex, e.IsCtrlPressed);
@@ -1079,13 +1101,23 @@ public sealed class DataGridCellsView : UserControl, IDisposable
         var pointerPoint = e.PointerEventArgs.GetCurrentPoint(this);
         bool isLeftButtonPressed = pointerPoint.Properties.IsLeftButtonPressed;
 
-        _logger.LogInformation("🟢 DRAG-DEBUG: OnCellPointerEntered - Cell=[{Row},{Col}], _pressedCell={HasPressed}, _isDragging={IsDragging}, LeftButtonPressed={LeftPressed}",
+        _logger.LogInformation("🟢 DRAG-DEBUG: OnCellPointerEntered - Cell=[{Row},{Col}], _pressedCell={HasPressed}, _isDragging={IsDragging}, LeftButtonPressed={LeftPressed}, WasCtrlClick={WasCtrl}",
             e.Cell.RowIndex, e.Cell.ColumnIndex,
             _pressedCell != null ? $"[{_pressedCell.RowIndex},{_pressedCell.ColumnIndex}]" : "NULL",
             _isDragging,
-            isLeftButtonPressed);
+            isLeftButtonPressed,
+            _wasCtrlPressedOnClick);
 
-        // ✅ FIX: Only start drag if button is STILL pressed
+        // ✅ FIX #29.1: Prevent drag selection if last click was Ctrl+Click
+        // REASON: Ctrl+Click should only toggle selection, not start drag selection
+        // Without this check, any mouse movement after Ctrl+Click triggers StartRangeSelection → ClearAllSelections → loses multi-select
+        if (_wasCtrlPressedOnClick)
+        {
+            _logger.LogInformation("🟡 FIX #29.1: Ignoring pointer enter - last click was Ctrl+Click (drag disabled for multi-select)");
+            return;  // Early exit - prevents drag selection
+        }
+
+        // ✅ FIX: Only start drag if button is STILL pressed AND last click was NOT Ctrl
         if (_pressedCell != null && !_isDragging && isLeftButtonPressed)
         {
             // User pressed cell and now moved to another cell → start drag selection
@@ -1478,17 +1510,18 @@ public sealed class DataGridCellsView : UserControl, IDisposable
     }
 
     /// <summary>
-    /// ✅ FIX #24.2: Handles Copy request from context menu.
-    /// Excel-like behavior: Copies selected cells to clipboard in TSV (Tab-Separated Values) format.
+    /// ✅ FIX #29.2A: Handles Copy request with enhanced TSV format (row/column offsets).
+    /// Excel-like behavior: Copies selected cells to clipboard preserving row/column gaps.
+    /// FORMAT: "ROW_OFFSET:COL_OFFSET=value\t..." per row
+    /// EXAMPLE: Select Row5 Col2 + Row7 Col4 → "0:0=val1\n2:2=val2" (preserves gaps!)
     /// USER REQUIREMENT: "pomocou ctrl+c a pomocou ctrl+v sa robilo to iste (copyrovanie oznacenych buniek)"
     /// </summary>
     private async void OnRowContextMenuCopy(object? sender, EventArgs e)
     {
-        _logger.LogInformation("✅ FIX #24.2: Copy requested from context menu");
+        _logger.LogInformation("✅ FIX #29.2A: Copy requested with enhanced TSV format (row/column offsets)");
 
         try
         {
-            // Get selected cells
             var selectedCells = _viewModel.GetSelectedCells();
             if (selectedCells.Count == 0)
             {
@@ -1496,47 +1529,87 @@ public sealed class DataGridCellsView : UserControl, IDisposable
                 return;
             }
 
-            _logger.LogInformation("Copying {Count} selected cells to clipboard", selectedCells.Count);
+            _logger.LogInformation("Copying {Count} selected cells to clipboard (enhanced format)", selectedCells.Count);
 
-            // Group cells by row and column for TSV format
-            // TSV format: rows separated by \n, cells separated by \t
-            var rowGroups = selectedCells
-                .Where(c => c.SpecialType == SpecialColumnType.None) // Skip special columns
+            // ✅ FIX #29.2A: Enhanced TSV format with row/column offsets
+            // FORMAT: "ROW_OFFSET:COL_OFFSET=value\t..." for each row
+            // REASON: Preserves gaps between selected cells (e.g., Column1 + Column3 → maintains 1-column gap)
+            // EXAMPLE: Select Row5 Col2 + Row7 Col4 → "0:0=val1\n2:2=val2" (row gap=2, col gap=2)
+
+            var dataCells = selectedCells
+                .Where(c => c.SpecialType == SpecialColumnType.None)
                 .OrderBy(c => c.RowIndex)
                 .ThenBy(c => c.ColumnIndex)
-                .GroupBy(c => c.RowIndex);
+                .ToList();
 
-            var tsvLines = new List<string>();
-            foreach (var rowGroup in rowGroups)
+            if (dataCells.Count == 0)
             {
-                var cellValues = rowGroup.Select(c => c.Value?.ToString() ?? "");
-                tsvLines.Add(string.Join("\t", cellValues));
+                _logger.LogWarning("No data cells selected (only special columns) - Copy cancelled");
+                return;
             }
 
-            var tsvData = string.Join("\n", tsvLines);
+            // Get base position (top-left cell)
+            int baseRowIndex = dataCells.Min(c => c.RowIndex);
+            int baseColIndex = dataCells.Min(c => c.ColumnIndex);
 
-            // Copy to clipboard using Windows DataPackage
+            _logger.LogDebug("📋 FIX #29.2A: Base position - Row={BaseRow}, Column={BaseCol}",
+                baseRowIndex, baseColIndex);
+
+            // Group by row and create enhanced TSV format
+            var rowGroups = dataCells.GroupBy(c => c.RowIndex).OrderBy(g => g.Key);
+            var enhancedTsvLines = new List<string>();
+
+            foreach (var rowGroup in rowGroups)
+            {
+                int rowOffset = rowGroup.Key - baseRowIndex;
+                var cellEntries = new List<string>();
+
+                foreach (var cell in rowGroup.OrderBy(c => c.ColumnIndex))
+                {
+                    int colOffset = cell.ColumnIndex - baseColIndex;
+                    string value = cell.Value?.ToString() ?? "";
+
+                    // Escape special characters in value
+                    value = value.Replace("\\", "\\\\").Replace("\n", "\\n").Replace("\t", "\\t").Replace("=", "\\=");
+
+                    string entry = $"{rowOffset}:{colOffset}={value}";
+                    cellEntries.Add(entry);
+
+                    _logger.LogTrace("📋 Cell encoded: Row={Row}(offset={ROffset}), Col={Col}(offset={COffset}), Value={Value}",
+                        cell.RowIndex, rowOffset, cell.ColumnIndex, colOffset, value);
+                }
+
+                enhancedTsvLines.Add(string.Join("\t", cellEntries));
+            }
+
+            string enhancedTsv = string.Join("\n", enhancedTsvLines);
+
+            // Copy to clipboard
             var dataPackage = new DataPackage();
-            dataPackage.SetText(tsvData);
+            dataPackage.SetText(enhancedTsv);
             Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dataPackage);
 
-            _logger.LogInformation("✅ FIX #24.2: Copied {RowCount} rows x {MaxCellCount} cells to clipboard (TSV format)",
-                tsvLines.Count, tsvLines.Count > 0 ? tsvLines.Max(l => l.Split('\t').Length) : 0);
+            _logger.LogInformation("✅ FIX #29.2A: Copied {CellCount} cells in enhanced format (preserves row/column gaps)",
+                dataCells.Count);
+            _logger.LogDebug("📋 Enhanced TSV preview: {Preview}",
+                enhancedTsv.Length > 100 ? enhancedTsv.Substring(0, 100) + "..." : enhancedTsv);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "❌ FIX #24.2: Copy to clipboard failed");
+            _logger.LogError(ex, "❌ FIX #29.2A: Copy to clipboard failed");
         }
     }
 
     /// <summary>
-    /// ✅ FIX #24.2: Handles Paste request from context menu.
-    /// Excel-like behavior: Pastes clipboard data (TSV format) to selected cells.
+    /// ✅ FIX #29.2A: Handles Paste request with enhanced TSV format support (row/column offsets).
+    /// Excel-like behavior: Pastes clipboard data preserving row/column gaps.
+    /// FORMAT: "ROW_OFFSET:COL_OFFSET=value\t..." per row
+    /// EXAMPLE: "0:0=val1\n2:2=val2" → Row0 Col0, Row2 Col2 (preserves gaps!)
     /// USER REQUIREMENT: "pomocou ctrl+v sa robilo vkladanie dat do buniek"
     /// </summary>
     private async void OnRowContextMenuPaste(object? sender, EventArgs e)
     {
-        _logger.LogInformation("✅ FIX #24.2: Paste requested from context menu");
+        _logger.LogInformation("✅ FIX #29.2A: Paste requested with enhanced TSV format support");
 
         try
         {
@@ -1558,15 +1631,9 @@ public sealed class DataGridCellsView : UserControl, IDisposable
             _logger.LogInformation("Pasting clipboard data: {Preview}...",
                 clipboardText.Length > 50 ? clipboardText.Substring(0, 50) : clipboardText);
 
-            // Parse TSV data (rows separated by \n, cells separated by \t)
-            var rows = clipboardText.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
-            var pasteData = rows.Select(row => row.Split('\t').ToArray()).ToList();
-
-            _logger.LogInformation("Parsed {RowCount} rows from clipboard", pasteData.Count);
-
             // Get selected cells (starting point for paste)
             var selectedCells = _viewModel.GetSelectedCells()
-                .Where(c => c.SpecialType == SpecialColumnType.None) // Skip special columns
+                .Where(c => c.SpecialType == SpecialColumnType.None)
                 .OrderBy(c => c.RowIndex)
                 .ThenBy(c => c.ColumnIndex)
                 .ToList();
@@ -1578,12 +1645,16 @@ public sealed class DataGridCellsView : UserControl, IDisposable
             }
 
             // Get starting position (top-left selected cell)
-            var startRowIndex = selectedCells.Min(c => c.RowIndex);
-            var startColIndex = selectedCells.Min(c => c.ColumnIndex);
+            int startRowIndex = selectedCells.Min(c => c.RowIndex);
+            int startColIndex = selectedCells.Min(c => c.ColumnIndex);
 
             _logger.LogInformation("Pasting starting at Row={Row}, Col={Col}", startRowIndex, startColIndex);
 
-            // Paste data starting from top-left selected cell
+            // ✅ FIX #29.2A: Parse enhanced TSV format with row/column offsets
+            // FORMAT: "ROW_OFFSET:COL_OFFSET=value\t..." per row
+            // EXAMPLE: "0:0=val1\t0:2=val2\n2:0=val3" → Row0 Col0, Row0 Col2, Row2 Col0 (preserves gaps!)
+
+            var rows = clipboardText.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
             var facade = _viewModel.Facade;
             if (facade?.Editing == null)
             {
@@ -1592,67 +1663,91 @@ public sealed class DataGridCellsView : UserControl, IDisposable
             }
 
             int updatedCells = 0;
-            for (int rowOffset = 0; rowOffset < pasteData.Count; rowOffset++)
+            int parsedCells = 0;
+            int failedCells = 0;
+
+            foreach (var row in rows)
             {
-                var targetRowIndex = startRowIndex + rowOffset;
-                if (targetRowIndex >= _viewModel.Rows.Count) break; // Don't paste beyond grid
+                var cellEntries = row.Split('\t');
 
-                var row = _viewModel.Rows[targetRowIndex];
-                var dataCells = row.Cells
-                    .Where(c => c.SpecialType == SpecialColumnType.None)
-                    .OrderBy(c => c.ColumnIndex)
-                    .ToList();
-
-                // ✅ FIX #27.4a: Find starting column offset in dataCells list
-                // REASON: startColIndex is ColumnIndex property (e.g., 2, 3, 4), NOT list index (0, 1, 2)
-                // USER COMPLAINT: "vklada realne iba jednu bunku pricom som skopiroval dve"
-                // ROOT CAUSE FIX #26.1: Paste always starts from dataCells[0] regardless of where user clicked
-                // SOLUTION: Find index of cell with ColumnIndex == startColIndex, then use as list offset
-                int startColOffset = -1;
-                for (int i = 0; i < dataCells.Count; i++)
+                foreach (var entry in cellEntries)
                 {
-                    if (dataCells[i].ColumnIndex == startColIndex)
+                    // Parse enhanced format: "ROW_OFFSET:COL_OFFSET=value"
+                    var match = System.Text.RegularExpressions.Regex.Match(entry, @"^(\d+):(\d+)=(.*)$");
+
+                    if (!match.Success)
                     {
-                        startColOffset = i;
-                        break;
+                        _logger.LogWarning("📋 FIX #29.2A: Failed to parse entry '{Entry}' - skipping", entry);
+                        failedCells++;
+                        continue;
                     }
-                }
 
-                if (startColOffset == -1)
-                {
-                    _logger.LogWarning("Could not find starting column with ColumnIndex={StartColIndex}, using first column", startColIndex);
-                    startColOffset = 0; // Fallback to first column
-                }
+                    int rowOffset = int.Parse(match.Groups[1].Value);
+                    int colOffset = int.Parse(match.Groups[2].Value);
+                    string value = match.Groups[3].Value;
 
-                _logger.LogDebug("📋 FIX #27.4a: Paste starting at dataCells[{StartColOffset}] (ColumnIndex={ColumnIndex}, ColumnName={ColumnName})",
-                    startColOffset, dataCells[startColOffset].ColumnIndex, dataCells[startColOffset].ColumnName);
+                    // Unescape special characters
+                    value = value.Replace("\\=", "=").Replace("\\t", "\t").Replace("\\n", "\n").Replace("\\\\", "\\");
 
-                for (int colOffset = 0; colOffset < pasteData[rowOffset].Length; colOffset++)
-                {
-                    int targetColOffset = startColOffset + colOffset;
-                    if (targetColOffset >= dataCells.Count) break; // Don't paste beyond row
+                    parsedCells++;
 
-                    var targetCell = dataCells[targetColOffset];
-                    var newValue = pasteData[rowOffset][colOffset];
+                    // Calculate target position
+                    int targetRowIndex = startRowIndex + rowOffset;
+                    int targetColIndex = startColIndex + colOffset;
 
-                    // Update cell value via editing facade
-                    await facade.Editing.UpdateCellAsync(targetCell.RowId, targetCell.ColumnName, newValue);
+                    _logger.LogTrace("📋 FIX #29.2A: Parsed - RowOffset={RO}, ColOffset={CO}, Value={V} → Target Row={TR}, Col={TC}",
+                        rowOffset, colOffset, value, targetRowIndex, targetColIndex);
 
-                    // ✅ FIX #27.4b: Manually update CellViewModel.Value to trigger immediate UI refresh
-                    // REASON: UpdateCellAsync writes to storage but may not trigger PropertyChanged event immediately
-                    // USER COMPLAINT: "vidim az po prejdeni na inu page a zaspa spat"
-                    // SOLUTION: Directly set Value property → SetProperty → PropertyChanged → UI refresh
-                    targetCell.Value = newValue;
+                    // Find target row
+                    if (targetRowIndex >= _viewModel.Rows.Count)
+                    {
+                        _logger.LogWarning("Target row {TargetRow} exceeds grid bounds ({MaxRow}) - skipping",
+                            targetRowIndex, _viewModel.Rows.Count - 1);
+                        failedCells++;
+                        continue;
+                    }
 
-                    updatedCells++;
+                    var targetRow = _viewModel.Rows[targetRowIndex];
+                    var dataCells = targetRow.Cells
+                        .Where(c => c.SpecialType == SpecialColumnType.None)
+                        .OrderBy(c => c.ColumnIndex)
+                        .ToList();
+
+                    // Find target cell by ColumnIndex (NOT list index!)
+                    var targetCell = dataCells.FirstOrDefault(c => c.ColumnIndex == targetColIndex);
+
+                    if (targetCell == null)
+                    {
+                        _logger.LogWarning("Target column {TargetCol} not found in row {TargetRow} - skipping",
+                            targetColIndex, targetRowIndex);
+                        failedCells++;
+                        continue;
+                    }
+
+                    _logger.LogDebug("📋 FIX #29.2A: Pasting '{Value}' to Row={Row}, Column={Col} (ColumnName={ColName})",
+                        value, targetRowIndex, targetColIndex, targetCell.ColumnName);
+
+                    // Update cell value (with null check for RowId)
+                    if (targetCell.RowId != null && targetCell.ColumnName != null)
+                    {
+                        await facade.Editing.UpdateCellAsync(targetCell.RowId, targetCell.ColumnName, value);
+                        targetCell.Value = value;  // Immediate UI refresh
+                        updatedCells++;
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Target cell RowId or ColumnName is null - skipping");
+                        failedCells++;
+                    }
                 }
             }
 
-            _logger.LogInformation("✅ FIX #24.2/#27.4b: Pasted data to {Count} cells successfully with immediate UI refresh", updatedCells);
+            _logger.LogInformation("✅ FIX #29.2A: Paste completed - Updated={Updated}, Parsed={Parsed}, Failed={Failed}",
+                updatedCells, parsedCells, failedCells);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "❌ FIX #24.2: Paste from clipboard failed");
+            _logger.LogError(ex, "❌ FIX #29.2A: Paste from clipboard failed");
         }
     }
 
@@ -1796,25 +1891,51 @@ public sealed class DataGridCellsView : UserControl, IDisposable
     {
         if (cellViewModel == null) return;
 
-        // ✅ Update ONLY current data cell validation state (red border + tooltip)
+        // ✅ Update data cell validation state (red border + tooltip)
         cellViewModel.IsValidationError = !result.IsValid;
         cellViewModel.ValidationMessage = result.ErrorMessage ?? string.Empty;
 
+        // ✅ FIX #28.2 (UX): RE-ENABLE ValidationAlertMessage during preview
+        // REASON: User wants to see custom error message while typing (immediate feedback)
+        // ARCHITECTURE: Preview validation = in-memory only (NO storage write)
+        //               Commit validation = writes to IValidationErrorStore (InMemory/InSQL)
+        // SAFETY: FIX #27.2 already fixed opaque background (#FFEBEE) → no black background risk
+        // BENEFIT: Excel-like real-time validation feedback
         if (!result.IsValid)
         {
-            _logger.LogTrace("⚠️ PREVIEW UI: Cell [{Row},{Col}] marked as invalid: {Message}",
-                cellViewModel.RowIndex, cellViewModel.ColumnName, result.ErrorMessage);
+            // Find ValidationAlerts cell in same row
+            var validationAlertsCell = _viewModel.Rows
+                .FirstOrDefault(r => r.RowId == cellViewModel.RowId)?
+                .Cells
+                .FirstOrDefault(c => c.SpecialType == Common.SpecialColumnType.ValidationAlerts);
+
+            if (validationAlertsCell != null)
+            {
+                // ✅ Set custom error message (UI only, NOT written to storage)
+                // NOTE: HasValidationAlert is computed property (get-only) based on ValidationAlertMessage
+                validationAlertsCell.ValidationAlertMessage = result.ErrorMessage ?? string.Empty;
+
+                _logger.LogTrace("⚠️ PREVIEW UI: Cell [{Row},{Col}] marked as invalid + ValidationAlerts updated: {Message}",
+                    cellViewModel.RowIndex, cellViewModel.ColumnName, result.ErrorMessage);
+            }
         }
         else
         {
-            _logger.LogTrace("✅ PREVIEW UI: Cell [{Row},{Col}] marked as valid",
+            // Validation passed - clear ValidationAlerts preview message
+            var validationAlertsCell = _viewModel.Rows
+                .FirstOrDefault(r => r.RowId == cellViewModel.RowId)?
+                .Cells
+                .FirstOrDefault(c => c.SpecialType == Common.SpecialColumnType.ValidationAlerts);
+
+            if (validationAlertsCell != null)
+            {
+                // Clear validation alert message (HasValidationAlert will auto-update to false)
+                validationAlertsCell.ValidationAlertMessage = string.Empty;
+            }
+
+            _logger.LogTrace("✅ PREVIEW UI: Cell [{Row},{Col}] marked as valid + ValidationAlerts cleared",
                 cellViewModel.RowIndex, cellViewModel.ColumnName);
         }
-
-        // ❌ REMOVED: ValidationAlerts column update
-        // REASON: Preview validation should NOT set ValidationAlertMessage
-        // ARCHITECTURE: Only committed validation (ApplyValidationErrors) should update ValidationAlerts
-        // RESULT: ValidationAlerts background stays white during preview (no black background issue)
     }
 
     #endregion

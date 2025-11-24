@@ -142,10 +142,25 @@ internal sealed class DataGridElementFactory : IElementFactory
                 rowGrid.Tag = null;
             }
 
-            // STEP 2: Clear DataContext
+            // STEP 2: ✅ FIX #28.3: Dispose CellControl instances before clearing
+            //         REASON: Prevents memory leaks by unsubscribing event handlers
+            //         ARCHITECTURE: Safety net for edge cases (Fixed UI Pool normally prevents RecycleElement)
+            foreach (var child in rowGrid.Children.OfType<CellControl>())
+            {
+                try
+                {
+                    child.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to dispose CellControl during recycle");
+                }
+            }
+
+            // STEP 3: Clear DataContext
             rowGrid.DataContext = null;
 
-            // STEP 3: Clear all children
+            // STEP 4: Clear all children
             rowGrid.Children.Clear();
             rowGrid.ColumnDefinitions.Clear();
 

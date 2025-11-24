@@ -25,7 +25,8 @@
       "Bash(Select-String -Pattern \"Build succeeded|Build FAILED|warning CS8604\")",
       "Bash(awk:*)",
       "Bash(Get-ChildItem \"D:\\www\\RB0120APP\\NewRpaWinUiComponentsPackage\\RpaWinUiComponentsPackage\\TempLog\" -ErrorAction SilentlyContinue)",
-      "Bash(Select-String -Pattern \"Build succeeded|Build FAILED|error|warning CS0618\" -Context 0,1)"
+      "Bash(Select-String -Pattern \"Build succeeded|Build FAILED|error|warning CS0618\" -Context 0,1)",
+      "Bash(Select-String -Pattern \"Build succeeded|Build FAILED|error|warning\")"
     ],
     "deny": [],
     "ask": []
